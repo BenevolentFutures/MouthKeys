@@ -680,6 +680,32 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
 .menu .mi.is-hover { background: var(--inv-bg); color: var(--inv-fg); }
 .menu .mi.is-hover kbd, .menu .mi.is-hover em, .menu .mi.is-hover svg { color: var(--inv-fg-2); }
 
+/* =====================================================================================
+   THE GRIN: logo placements
+   ===================================================================================== */
+.grin { display: block; overflow: visible; }
+.grin .jaw, .grin-dwg .jaw { transition: transform 60ms linear; }
+/* Sidebar corner stamp: the drawing's title block. Grin cell + wordmark cell, then the facts rows. */
+.side-foot { padding: 0; gap: 0; }
+.stamp { display: grid; grid-template-columns: 132px 1fr; box-shadow: inset 0 -1px 0 var(--edge); }
+.stamp-mark { display: grid; place-items: center; padding: 14px 0 10px; box-shadow: inset -1px 0 0 var(--edge); }
+.stamp-id { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 14px; }
+.stamp-id b { font: 700 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text); }
+.stamp-id span { font: 500 10px/1.2 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+.side-foot .sfr { padding: 0 20px; height: 26px; align-items: center; box-shadow: inset 0 -1px 0 var(--rule-soft); }
+.side-foot .sfr:last-child { box-shadow: none; }
+/* Fig. 1 on Getting Started */
+.fig { margin-bottom: 34px; }
+.fig .dwg { display: block; background-image: repeating-linear-gradient(0deg, transparent 0 23px, var(--rule-soft) 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, var(--rule-soft) 23px 24px); background-position: -1px -1px; }
+.fig .dwg svg, .wdwg svg { display: block; max-width: 100%; height: auto; }
+.wdwg { margin: 6px 0 0; }
+/* empty states: a quiet outline grin */
+.empty .grin.quiet { margin: 0 auto 16px; color: var(--text-2); }
+/* menu header mark */
+.menu .mh .mh-mark { display: inline-flex; align-items: center; gap: 8px; }
+.menu .mh .mh-mark .grin { width: 26px; height: auto; }
+.hist { grid-template-columns: 360px minmax(0, 1fr); }
+
 </style>
 </head>
 <body>
@@ -708,6 +734,7 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
       <aside class="side">
         <div class="side-scroll"></div>
         <div class="side-foot">
+          <div class="stamp"><div class="stamp-mark" id="stamp-mark"></div><div class="stamp-id"><b>MouthKeys</b><span>Voice→text</span><span>Rev 1.4.0</span></div></div>
           <div class="sfr"><span>Engine</span><b><i class="sq ink"></i>Parakeet v2</b></div>
           <div class="sfr"><span>Input</span><b>Hollyland 33%</b></div>
           <div class="sfr"><span>Hotkey</span><b>Right ⌥</b></div>
@@ -778,6 +805,140 @@ function mbGlyph(kind, hs) {
 function appMark(size) {
   const bars = [[5, 6], [8, 12], [11, 8], [14, 12], [17, 6]].map(([x, h]) => `<rect x="${x}" y="${16 - h / 2}" width="2" height="${h}"/>`).join("");
   return `<svg width="${size}" height="${size}" viewBox="0 0 32 32" shape-rendering="crispEdges"><rect width="32" height="32" fill="#111214"/><g fill="#fff">${bars}</g><rect x="21" y="16" width="6" height="6" fill="#FF4F1F"/></svg>`;
+}
+
+// ===================================================================================
+// THE GRIN. Geometry ported number for number from scripts/make_app_icon.swift and
+// SignalMenuBarMark.swift (DESIGN.md §17). Nothing here is drawn by eye.
+//   64-unit grid, y down. Large master: 7 teeth a jaw, 5 wide on a 6.4 pitch, bite 3,
+//   smile lifts the corners. Small master: 5 teeth, 6 wide on an 8 pitch, bite 4.
+//   The gold tooth is lower index 4 (large) / 3 (small): accent orange.
+// Theming: teeth fill var(--ink) and keycap lines stroke var(--surface). In dark that is
+// exactly the app icon (white teeth, ink lines on #111214). In light it prints: ink teeth,
+// paper-white chamfers, on white. The gold tooth is orange in both.
+// Detail follows the pixel count, as the icon does: >= 4.6 px a unit is the 256 px drawing
+// (0.3-unit lines at 0.55), >= 2.3 the 128 px drawing (0.6 at 0.8), below that the small master.
+// ===================================================================================
+const GRIN = {
+  large: { teeth: 7, width: 5, pitch: 6.4, gap: 3, gold: 4, upper: [5, 8, 9, 9, 9, 8, 5], lower: [4, 7, 9, 9, 9, 7, 4], smile: [-2.5, -1, -0.3, 0, -0.3, -1, -2.5] },
+  small: { teeth: 5, width: 6, pitch: 8, gap: 4, gold: 3, upper: [7, 11, 11, 11, 7], lower: [6, 10, 10, 10, 6], smile: [-2, 0, 0, 0, -2] },
+};
+const JAW_MAX = 3;   // units the lower jaw can drop (prototype; the menu bar mark drops 2 pt of 16)
+
+function grinTeeth(m) {
+  const x0 = 32 - ((m.teeth - 1) * m.pitch + m.width) / 2, mid = 32;
+  const out = [];
+  for (let i = 0; i < m.teeth; i++) {
+    const x = x0 + i * m.pitch;
+    out.push({ i, x, w: m.width, upper: true, y: mid - m.gap / 2 - m.upper[i] + m.smile[i], h: m.upper[i] });
+    out.push({ i, x, w: m.width, upper: false, y: mid + m.gap / 2 + m.smile[i], h: m.lower[i], gold: i === m.gold });
+  }
+  return out;
+}
+function grinBounds(m) {
+  const t = grinTeeth(m);
+  const x0 = Math.min(...t.map((r) => r.x)), x1 = Math.max(...t.map((r) => r.x + r.w));
+  const y0 = Math.min(...t.map((r) => r.y)), y1 = Math.max(...t.map((r) => r.y + r.h));
+  return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 };
+}
+// make_app_icon.swift keycap(): face inset by width * inset, offset by near/far, four chamfers.
+function keycapPath(r, inset, near, far) {
+  const i = r.w * inset;
+  const fy = r.upper ? r.y + i * near : r.y + i * far;
+  const f = { x: r.x + i, y: fy, w: r.w - 2 * i, h: r.h - i * (near + far) };
+  const n = (v) => +v.toFixed(3);
+  return `M${n(f.x)} ${n(f.y)}h${n(f.w)}v${n(f.h)}h${n(-f.w)}Z` +
+    `M${n(r.x)} ${n(r.y)}L${n(f.x)} ${n(f.y)}M${n(r.x + r.w)} ${n(r.y)}L${n(f.x + f.w)} ${n(f.y)}` +
+    `M${n(r.x)} ${n(r.y + r.h)}L${n(f.x)} ${n(f.y + f.h)}M${n(r.x + r.w)} ${n(r.y + r.h)}L${n(f.x + f.w)} ${n(f.y + f.h)}`;
+}
+// The mark as an <svg>, cropped to the teeth (plus jaw travel). o.px = rendered width in px.
+//   o.style: "solid" (the logo) | "line" (quiet outline for empty states)
+//   o.live: the lower jaw is a <g class="jaw"> that app.js moves with the voice
+function grinSVG(o = {}) {
+  const px = o.px || 64;
+  const big = GRIN.large, bb = grinBounds(big);
+  const pad = 1;
+  let ppu = px / (bb.w + 2 * pad);
+  const m = ppu >= 2.3 || o.style === "line" ? big : GRIN.small;
+  const b = grinBounds(m);
+  ppu = px / (b.w + 2 * pad);
+  const vb = [b.x0 - pad, b.y0 - pad, b.w + 2 * pad, b.h + 2 * pad + (o.live ? JAW_MAX : 0)];
+  const h = vb[3] * ppu;
+  const detail = o.style === "line" ? { inset: 0.22, near: 0.6, far: 1.4 } : ppu >= 4.6 ? { inset: 0.22, near: 0.6, far: 1.4, lw: 0.3, a: 0.55 } : ppu >= 2.3 ? { inset: 0.24, near: 0.5, far: 1.5, lw: 0.6, a: 0.8 } : null;
+  const teeth = grinTeeth(m);
+  const draw = (r) => {
+    if (o.style === "line") {
+      return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="${r.gold ? "var(--accent)" : "currentColor"}" stroke-width="1" vector-effect="non-scaling-stroke"/>` +
+        `<path d="${keycapPath(r, detail.inset, detail.near, detail.far)}" fill="none" stroke="${r.gold ? "var(--accent)" : "currentColor"}" stroke-opacity=".5" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+    }
+    const fill = r.gold ? "var(--accent)" : "var(--ink)";
+    return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${fill}"/>` +
+      (detail ? `<path d="${keycapPath(r, detail.inset, detail.near, detail.far)}" fill="none" stroke="${r.gold ? "#111214" : "var(--surface)"}" stroke-opacity="${detail.a}" stroke-width="${detail.lw}" stroke-linecap="butt"/>` : "");
+  };
+  const up = teeth.filter((r) => r.upper).map(draw).join("");
+  const lo = teeth.filter((r) => !r.upper).map(draw).join("");
+  return `<svg class="grin${o.cls ? " " + o.cls : ""}" width="${+px.toFixed(1)}" height="${+h.toFixed(1)}" viewBox="${vb.join(" ")}" shape-rendering="${ppu >= 2.3 ? "geometricPrecision" : "crispEdges"}" aria-label="MouthKeys" role="img"><g>${up}</g><g class="jaw"${o.live ? ' data-live="1"' : ""}>${lo}</g></svg>`;
+}
+
+// The menu bar mark, SignalMenuBarMark.swift, 22 x 16 pt: four teeth a jaw from x 2 on a 3 pt pitch,
+// upper y 2 (outer h 4, inner 5), lower from 7 / 8 plus the jaw (h 3 / 4), status square at x 15.
+function mbGrin(kind, jaw = 0) {
+  let d = "";
+  [2, 5, 8, 11].forEach((x, i) => {
+    const outer = i === 0 || i === 3;
+    d += `M${x} 2h2v${outer ? 4 : 5}h-2Z`;
+    d += `M${x} ${(outer ? 7 : 8) + jaw}h2v${outer ? 3 : 4}h-2Z`;
+  });
+  const sq = kind === "listening" ? '<rect x="15" y="5" width="6" height="6"/>' : kind === "transcribing" ? '<rect x="15.75" y="5.75" width="4.5" height="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/>' : "";
+  return `<svg width="22" height="16" viewBox="0 0 22 16" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">${MB_BRACKET}<path d="${d}"/>${sq}</svg>`;
+}
+
+// Fig. 1: the grin as a dimensioned engineering drawing. Built in px so labels stay 10 pt mono at any scale.
+function grinDrawing(o = {}) {
+  const s = o.s || 6.4;                       // px per grid unit
+  const m = GRIN.large, b = grinBounds(m), teeth = grinTeeth(m);
+  const W = o.w || 780, H = o.h || 300;
+  const ox = Math.round((o.cx || W / 2) - (b.x0 + b.w / 2) * s), oy = Math.round(H / 2 - (b.y0 + b.h / 2) * s - 6);
+  const X = (u) => +(ox + u * s).toFixed(2), Y = (u) => +(oy + u * s).toFixed(2);
+  const L = "var(--text-2)", T = "var(--text-2)", RL = o.rl || 228;
+  const txt = (x, y, t, a = "start", c = T, wgt = 500) => `<text x="${x}" y="${y}" text-anchor="${a}" fill="${c}" font-family="SF Mono, ui-monospace, Menlo, monospace" font-size="10" font-weight="${wgt}" letter-spacing=".6">${t}</text>`;
+  const line = (x1, y1, x2, y2, c = L, w = 1, dash = "") => `<path d="M${x1} ${y1}L${x2} ${y2}" stroke="${c}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""} fill="none" shape-rendering="crispEdges"/>`;
+  let g = "";
+  // tooth numbers: 01-07 above the upper jaw, 08-14 below the lower
+  const topY = Y(b.y0) - 12, botY = Y(b.y1 + JAW_MAX) + 16;
+  teeth.forEach((r) => { const n = r.upper ? r.i + 1 : r.i + 8; g += txt(X(r.x + r.w / 2), r.upper ? topY : botY, String(n).padStart(2, "0"), "middle", r.gold ? "var(--accent)" : T, r.gold ? 600 : 500); });
+  // width dimension under the numbers
+  const dy = botY + 22, xa = X(b.x0), xb = X(b.x1);
+  g += line(xa, botY + 10, xa, dy + 5) + line(xb, botY + 10, xb, dy + 5) + line(xa, dy, xb, dy);
+  g += line(xa, dy - 4, xa + 6, dy, L) + line(xa, dy + 4, xa + 6, dy, L) + line(xb, dy - 4, xb - 6, dy, L) + line(xb, dy + 4, xb - 6, dy, L);
+  g += `<rect x="${(xa + xb) / 2 - 92}" y="${dy - 7}" width="184" height="14" fill="var(--surface)"/>` + txt((xa + xb) / 2, dy + 3.5, `${b.w.toFixed(1)} · 7 KEYS × 6.4 PITCH`, "middle");
+  // height dimension at the left
+  const hx = xa - 34, ya = Y(b.y0), yb = Y(b.y1);
+  g += line(xa - 8, ya, hx - 5, ya) + line(xa - 8, yb, hx - 5, yb) + line(hx, ya, hx, yb);
+  g += line(hx - 4, ya + 6, hx, ya) + line(hx + 4, ya + 6, hx, ya) + line(hx - 4, yb - 6, hx, yb) + line(hx + 4, yb - 6, hx, yb);
+  g += `<g transform="translate(${hx - 8} ${(ya + yb) / 2}) rotate(-90)">${txt(0, 0, b.h.toFixed(1), "middle")}</g>`;
+  // callout: the keycap plan view (upper tooth 06)
+  const k = teeth.find((r) => r.upper && r.i === 5);
+  const kx = X(k.x + k.w * 0.5), ky = Y(k.y + k.h * 0.35), lx = xb + 46, ly = Y(b.y0) - 4;
+  g += `<circle cx="${kx}" cy="${ky}" r="2" fill="${L}"/>` + line(kx, ky, lx - 8, ly) + line(lx - 8, ly, lx + RL, ly);
+  g += txt(lx, ly - 6, "KEYCAP · PLAN VIEW") + txt(lx, ly + 14, "FACE INSET 0.22 · 4 CHAMFERS");
+  // callout: the bite, measured at the outer tooth where the smile lifts it 2.5
+  const ly2 = Y(32) + 6, bt = Y(32 - 1.5 - 2.5), bbm = Y(32 + 1.5 - 2.5);
+  g += line(xb + 6, bt, xb + 12, bt) + line(xb + 6, bbm, xb + 12, bbm) + line(xb + 12, bt, xb + 12, bbm) + line(xb + 12, (bt + bbm) / 2, lx - 8, ly2) + line(lx - 8, ly2, lx + RL, ly2);
+  g += txt(lx, ly2 - 6, "BITE 3.0 · SMILE 2.5");
+  // callout: the gold tooth (tooth 12). The leader runs along y 41, under teeth 13 and 14, so it crosses nothing.
+  const gt = teeth.find((r) => r.gold);
+  const gx = X(gt.x + gt.w / 2), ly3 = Y(41);
+  g += line(gx, ly3, lx + RL, ly3, "var(--text)") + `<rect x="${gx - 3}" y="${ly3 - 3}" width="6" height="6" fill="var(--surface)" stroke="var(--text)" stroke-width="1.5"/>`;
+  g += `<rect x="${lx}" y="${ly3 - 14}" width="6" height="6" fill="var(--accent)"/>` + txt(lx + 12, ly3 - 7.5, "TOOTH 12 · <tspan class=\"grin-state\">GOLD</tspan>", "start", "var(--text)", 600);
+  g += txt(lx, ly3 + 15, "THE ONE COLOUR · #FF4F1F");
+  // the grin itself (detail by scale), lower jaw live
+  const det = s >= 4.6 ? { inset: 0.22, near: 0.6, far: 1.4, lw: 0.3, a: 0.55 } : { inset: 0.24, near: 0.5, far: 1.5, lw: 0.6, a: 0.8 };
+  const draw = (r) => `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${r.gold ? "var(--accent)" : "var(--ink)"}"/><path d="${keycapPath(r, det.inset, det.near, det.far)}" fill="none" stroke="${r.gold ? "#111214" : "var(--surface)"}" stroke-opacity="${det.a}" stroke-width="${det.lw}"/>`;
+  const mark = `<g transform="translate(${ox} ${oy}) scale(${s})"><g>${teeth.filter((r) => r.upper).map(draw).join("")}</g><g class="jaw" data-live="1">${teeth.filter((r) => !r.upper).map(draw).join("")}</g></g>`;
+  // centre line through the bite, a drawing convention (dash-dot)
+  const cl = line(xa - 16, Y(32), xb + 16, Y(32), "var(--grat)", 1, "10 3 2 3");
+  return `<svg class="grin-dwg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="MouthKeys grin, dimensioned">${cl}${mark}${g}</svg>`;
 }
 
 // ===================================================================================
@@ -879,6 +1040,7 @@ function appIconC11() { return '<svg width="16" height="16" viewBox="0 0 20 20" 
 function sStart() {
   const step = (n, cls, lbl, help, st, act) => `<div class="step ${cls}"><div class="n">${n}</div><div class="b"><div class="lbl">${lbl}</div><div class="help">${help}</div></div><div class="r">${act || ""}${st}</div></div>`;
   return head("09 / Help", "Getting Started", "Talk anywhere. MouthKeys types for you.", btn2("Run Onboarding Again", { icon: "reprocess", attr: "data-wiz-open" })) +
+    `<div class="box fig"><header><span><b>Fig. 1</b> · MouthKeys · the keycap grin</span><span>Plan view · scale 7.2 : 1</span></header><div class="dwg">${grinDrawing({ w: 798, h: 304, cx: 326, s: 7.2 })}</div><footer><span>DWG MK-001</span><span>Rev 1.4.0</span><span class="grow">14 keys · 1 live</span><span>Sheet 09 / 10</span></footer></div>` +
     sec("Quick Setup", `<div class="steps">
       ${step("01", "done", "Voice Model Ready", "Speech recognition model is loaded and ready", stat("Ready"))}
       ${step("02", "done", "Microphone Permission Granted", "MouthKeys has access to your microphone", stat("Granted"))}
@@ -1062,7 +1224,7 @@ function sDict() {
         <div class="th" style="grid-template-columns:48px 1fr 32px 200px 80px"><span>#</span><span>When MouthKeys hears</span><span></span><span>Types</span><span></span></div>
         ${DICT.map(([a, b], i) => `<div class="tr" style="grid-template-columns:48px 1fr 32px 200px 80px"><span class="m">${String(i + 1).padStart(2, "0")}</span><span style="color:var(--c2)">${esc(a)}</span><span class="m">→</span><span style="font-weight:600">${esc(b)}</span><span class="m" style="text-align:right">Edit</span></div>`).join("")}
       </div></div>
-      <div data-empty="on" hidden><div class="empty"><div class="card"><span class="placard">00 replacements</span><h3>No replacements yet</h3><p>Use Teach Words above to create your first one.</p>${btn("Teach a Word", { icon: "mic" })}</div></div></div>`, { r: `${DICT.length} replacements` }) +
+      <div data-empty="on" hidden><div class="empty"><div class="card">${grinSVG({ px: 132, style: "line", cls: "quiet" })}<span class="placard">00 replacements</span><h3>No replacements yet</h3><p>Use Teach Words above to create your first one.</p>${btn("Teach a Word", { icon: "mic" })}</div></div></div>`, { r: `${DICT.length} replacements` }) +
     sec("Spoken Formatting", `<div class="rows">${row("Spoken Formatting", "Use a start word to safely insert formatting actions, punctuation, and symbols. Say “literal next line” to start a new line, “literal comma” to type a comma.", `<span class="placard">Start word</span><label class="field bk" style="width:120px"><input value="literal" style="font-family:var(--mono)"></label>` + btn2("Modify") + tog(true))}</div>`, { r: "4 actions · 24 punctuation" }) +
     sec("Custom Words", `<div class="rows">${row("Custom Words Boosting", "Improve recognition of your custom words when using Parakeet.", btn2("Add Word", { icon: "plus" }) + tog(true))}</div>
       <div class="tbl"><div class="th" style="grid-template-columns:48px 1fr 240px"><span>#</span><span>Word or phrase</span><span>Priority</span></div>
@@ -1133,7 +1295,7 @@ function sHistory() {
     </div>
     <div class="hist-detail" id="hist-detail"></div>
   </div>
-  <div data-empty="on" hidden style="padding:30px 40px">${head("06 / Activity", "History", "")}<div class="empty" style="height:440px"><div class="card"><span class="placard">00 entries</span><h3>No History Yet</h3><p>Your transcriptions will appear here. Press Right ⌥ anywhere and start talking.</p>${btn("Open Playground", { icon: "arrowR", attr: 'data-go="start"' })}</div></div></div>`;
+  <div data-empty="on" hidden style="padding:30px 40px">${head("06 / Activity", "History", "")}<div class="empty" style="height:440px"><div class="card">${grinSVG({ px: 132, style: "line", cls: "quiet" })}<span class="placard">00 entries</span><h3>No History Yet</h3><p>Your transcriptions will appear here. Press Right ⌥ anywhere and start talking.</p>${btn("Open Playground", { icon: "arrowR", attr: 'data-go="start"' })}</div></div></div>`;
 }
 function histDetail(i) {
   const h = HIST[i];
@@ -1145,7 +1307,7 @@ function histDetail(i) {
       <div><span class="placard">Delivery</span><span class="v">${h.ok ? "Pasted" : '<span style="display:inline-flex;gap:8px;align-items:center"><i class="sq"></i>Not pasted</span>'}</span></div>
     </div>
     <div class="txt"><div class="placard" style="margin-bottom:12px">Entry ${String(i + 1).padStart(3, "0")} · Final text · ${esc(h.win)} · ${h.t}</div>${esc(h.text)}<div class="raw"><span class="placard" style="display:block;margin-bottom:6px">Details</span>AI processed: No · Audio: saved (WAV, ${h.s} s) · Engine: Parakeet TDT v2</div></div>
-    <div class="acts">${btn("Copy", { icon: "copy" })}${btn2(h.ok ? "Insert Again" : "Paste Now", { icon: "arrowR", sm: 1 })}${btn2("Audio", { icon: "speaker", sm: 1 })}${btn2("Export Pair", { icon: "down", sm: 1 })}<span class="sp"></span>${tbtn("Delete Entry", { icon: "trash" })}</div>`;
+    <div class="acts">${btn("Copy", { icon: "copy" })}${btn2("Audio", { icon: "speaker", sm: 1 })}${btn2("Export Pair", { icon: "down", sm: 1 })}<span class="sp"></span>${btn2("", { icon: "trash", sm: 1, attr: 'title="Delete Entry" aria-label="Delete Entry"' })}</div>`;
 }
 
 // =================================================================================== 07 STATS
@@ -1219,7 +1381,7 @@ function wizard() {
     <div class="wiz-body">
       <div class="wiz-rail">${steps.map(([t], i) => `<div class="ws" data-i="${i}"><span class="n">${String(i + 1).padStart(2, "0")}</span><span class="t">${t}</span><span class="s"></span></div>`).join("")}<span class="grow"></span><div class="legend">MouthKeys<br>Straight voice to text<br>Local · no telemetry</div></div>
       <div>
-        <div class="wiz-page" data-title="Welcome"><div style="display:flex;flex-direction:column;justify-content:center;height:100%;padding-bottom:20px">${appMark(72)}<div class="placard" style="margin-top:26px">01 / Welcome</div><h1 style="font-size:44px;line-height:48px;margin-top:10px">Just speak.<br>We'll handle the rest.</h1><p class="lede" style="margin-top:14px">Accurate. Fast. Private. Free.<br>Talk anywhere. MouthKeys types for you.</p></div></div>
+        <div class="wiz-page" data-title="Welcome"><div class="placard">01 / Welcome</div><div class="wdwg">${grinDrawing({ w: 660, h: 282, cx: 258, s: 6.4, rl: 196 })}</div><h1 style="font-size:40px;line-height:44px;margin-top:4px">Just speak.<br>We'll handle the rest.</h1><p class="lede" style="margin-top:12px">Accurate. Fast. Private. Free. Talk anywhere. MouthKeys types for you.</p></div>
         <div class="wiz-page" data-title="Language"><div class="placard">02 / Language</div><h1>What language will you speak most?</h1><p class="lede">We'll show the best voice engines for it.</p>
           <div class="cards" style="grid-template-columns:repeat(4,1fr);gap:12px">${langs.map((l, i) => `<div class="ccard bk${i === 0 ? " on tk-rest" : ""}" data-group="lang" style="padding:12px 14px"><div class="top"><span class="name" style="font-size:14px">${l}</span><span class="ix">${i === 0 ? "✓" : ""}</span></div></div>`).join("")}<div class="ccard bk" data-group="lang" style="padding:12px 14px"><div class="top"><span class="name" style="font-size:14px">Other…</span><span class="ix">99</span></div></div></div>
           <p class="note" style="margin-top:16px">You can change this later in Voice Engine settings.</p></div>
@@ -1248,7 +1410,7 @@ function wizard() {
 // =================================================================================== MENU BAR MENU
 function mbMenu() {
   return `<div class="menu" id="mbmenu" role="menu">
-    <div class="mh"><span>MouthKeys</span><b id="mb-state">Ready</b></div><div class="sep"></div>
+    <div class="mh"><span class="mh-mark">${grinSVG({ px: 30 })}MouthKeys</span><b id="mb-state">Ready</b></div><div class="sep"></div>
     <div class="mi" data-act="toggle"><span id="mb-toggle">Start Dictation</span><kbd>Right ⌥</kbd></div>
     <div class="mi" data-sub="mic"><span>Microphone</span><em class="m" id="mb-mic">Hollyland Lapel Mic</em>${G.chev}</div>
     <div class="mi" data-act="history"><span>History…</span></div>
@@ -1508,6 +1670,7 @@ mountScreens();
     const txt = PLAY_TEXT.split(" ").slice(0, words).join(" ");
     $$(".ov-live-prev").forEach((el) => (el.textContent = txt || " "));
     drawTraces();
+    window.MK_JAW && window.MK_JAW(t);
     raf = requestAnimationFrame(tick);
   }
   const PLAY_TEXT = "okay so the retry path is still admitting duplicates when the queue worker sees the same job id land twice inside the lease window, write a failing test first and then fix it and do not touch the scheduler";
@@ -1515,7 +1678,8 @@ mountScreens();
     rec = !rec;
     $$(".rec-btn").forEach((b) => { b.classList.toggle("live", true); b.querySelector(".a").style.visibility = rec ? "hidden" : "visible"; b.querySelector(".b").style.visibility = rec ? "visible" : "hidden"; });
     $$(".ov-sq").forEach((s) => s.classList.toggle("hollow", !rec));
-    $(".mb-mark").innerHTML = mbGlyph(rec ? "listening" : "idle");
+    $(".mb-mark").innerHTML = mbGrin(rec ? "listening" : "idle"); if (!rec) setJaw(0);
+    $$(".grin-state").forEach((t) => (t.textContent = rec ? "LIVE" : "GOLD"));
     $("#mb-state").innerHTML = rec ? '<i class="sq"></i>Listening' : "Ready";
     $("#mb-toggle").textContent = rec ? "Stop Dictation" : "Start Dictation";
     $$(".ov-live-state").forEach((el) => (el.textContent = rec ? "LIVE" : "READY"));
@@ -1575,16 +1739,31 @@ mountScreens();
       $$("[data-empty]").forEach((x) => (x.hidden = x.dataset.empty === "on"));
       if (name.startsWith("wizard-")) { go("start"); wstep = +name.split("-")[1] - 1; wizOpen(true); return; }
       if (name === "menubar") { go("start"); $(".mb-mark").click(); const mi = $('#mbmenu .mi[data-sub="mic"]'); mi.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); mi.classList.add("is-hover"); return; }
-      if (name === "history-empty" || name === "dict-empty") { const id = name === "history-empty" ? "history" : "dict"; go(id); $$(`#s-${id} [data-empty]`).forEach((x) => (x.hidden = x.dataset.empty !== "on")); return; }
+      if (name === "history-empty" || name === "dict-empty") { const id = name === "history-empty" ? "history" : "dict"; go(id); $$(`#s-${id} [data-empty]`).forEach((x) => (x.hidden = x.dataset.empty !== "on")); if (id === "dict") { const e = $('#s-dict [data-empty="on"]'); const pane = $(".pane"); pane.scrollTop = e.getBoundingClientRect().top - pane.getBoundingClientRect().top - 120; } return; }
       if (name === "hotkey-capture") { go("prefs"); const h = $("#s-prefs .hk"); h.classList.add("capturing"); const pane = $(".pane"); pane.scrollTop = h.getBoundingClientRect().top - pane.getBoundingClientRect().top - 260; return; }
       go(name);
     },
   };
 
+  // ---------- the grin's jaw: 8 Hz, stepped, like SignalMenuBarMark.listeningJaw ----------
+  let lastJaw = 0, jawT = 0;
+  function setJaw(level) {
+    const u = level <= 0 ? 0 : level === 1 ? 1.5 : 3;              // grid units on the large grins
+    $$('.jaw[data-live="1"]').forEach((g) => g.setAttribute("transform", `translate(0 ${u})`));
+    if (rec) $(".mb-mark").innerHTML = mbGrin("listening", level);  // the menu bar mark drops 1 or 2 pt
+  }
+  window.MK_JAW = (t) => {
+    if (!rec || t - jawT < 125) return; jawT = t;
+    const v = sample(N - 2 + phase);
+    const lvl = v < 0.12 ? 0 : v < 0.5 ? 1 : 2;
+    if (lvl !== lastJaw) { lastJaw = lvl; setJaw(lvl); }
+  };
+
   // ---------- boot ----------
+  $("#stamp-mark").innerHTML = grinSVG({ px: 108, live: true });
   bracketize();
   window.MK_BRACKETIZE = bracketize;
-  $(".mb-mark").innerHTML = mbGlyph("idle");
+  $(".mb-mark").innerHTML = mbGrin("idle");
   applyTheme();
   let start = params.get("screen");
   try { start = start || localStorage.getItem("mk-screen"); } catch (e) {}

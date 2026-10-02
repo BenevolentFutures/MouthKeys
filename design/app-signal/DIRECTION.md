@@ -1,10 +1,10 @@
 # MouthKeys app: Signal
 
-**Status: design exploration, round 1 (2026-10-02). Not reviewed by Atin.** No Swift was touched.
+**Status: direction accepted by Atin, round 2 (2026-10-02).** Round 1: "Holy shit. This looks sick." All five round 1 decisions accepted. Round 2 adds the grin as a literal logo. No Swift was touched.
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
-Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **1–0** jump to the ten sidebar screens, **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference.
+Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **1–0** jump to the ten sidebar screens, **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice.
 
 ## Thesis, applied to the window
 
@@ -48,6 +48,22 @@ Main window, sidebar order and names as `ContentView.swift`:
 
 Also: the first-run wizard (Welcome, Language, Voice Engine, Enable Access, Try MouthKeys, ending in Finish Setup) as the window's first state with a step rail, the status menu with its microphone submenu, the titlebar (Today, Theme, Report) and a hotkey capture state.
 
+## The grin as a logo (round 2)
+
+Atin: "keeping this engineering vibe, but leaning into the idea of MouthKeys as a literal logo". The grin is rebuilt as inline SVG from the shipping geometry, number for number: `scripts/make_app_icon.swift` (64-unit grid, seven keycap teeth a jaw on a 6.4 pitch, the 3-unit bite, the smile, the gold tooth at lower index 4) and `SignalMenuBarMark.swift` (the 22 × 16 mark). Nothing is drawn by eye. Detail follows the pixel count exactly as the icon does: at 4.6 px a unit or more it is the 256 px drawing (0.3-unit chamfers at 0.55), from 2.3 the 128 px drawing (0.6 at 0.8), below that the five-tooth small master.
+
+**Theming.** Teeth fill `ink`, chamfers stroke `surface`. In dark that is exactly the app icon (white keycaps on `#111214`). In light it prints: ink keycaps with paper-white chamfers on white. The gold tooth is `#FF4F1F` in both. No tile inside the app: the window's surface already is the tile in dark, and a black square on paper would read as a sticker, not a drawing.
+
+Where it appears, prominent on core screens and nowhere else:
+
+1. **Corner stamp, bottom-left of the sidebar, always.** The drawing's title block: the grin (128 px drawing, live jaw) beside the MOUTHKEYS wordmark and revision, over the engine / input / hotkey cells.
+2. **Getting Started, Fig. 1.** The grin as a dimensioned engineering drawing on the sheet grid: teeth numbered 01–14, overall width and height dimensions, a centre line through the bite, callouts for the keycap plan view, the bite and smile, and TOOTH 12 (the gold tooth), with a DWG / REV / SHEET title strip.
+3. **Wizard, Welcome step.** The same drawing as the first thing a new user sees, above "Just speak."
+4. **Menu bar.** The fake menu bar shows the real menu bar mark (grin, status square, hover bracket); the menu header carries the small-master grin beside MOUTHKEYS.
+5. **Empty states** (History, Custom Dictionary). A quiet 1 px outline grin, gold tooth outlined in orange.
+
+**Live.** While recording, every live grin's lower jaw drops with the voice at 8 Hz in the menu bar mark's steps (closed, 1.5 units, 3 units; the menu bar mark itself drops 1 or 2 pt), and Fig. 1's callout reads TOOTH 12 · LIVE instead of GOLD. The orange tooth is the one colour, so it doubles as the live mark.
+
 ## Native mapping
 
 | Component | SwiftUI / AppKit | Cost |
@@ -67,15 +83,17 @@ Also: the first-run wizard (Welcome, Language, Voice Engine, Enable Access, Try 
 | Stats chart | Swift Charts `BarMark` with square ends, no gradient, today in `accent`; or a `Canvas`. | Small |
 | Empty state | A `Canvas` grid background with a ruled card on top. | Small |
 | Overlay reference in the playground | Host the real `SignalOverlay` view inline, driven by the playground recording. | Small |
+| Grin logo | One `SignalGrin: View` drawing the `make_app_icon.swift` geometry in a `Canvas` (teeth `Rectangle`s, keycap `Path`s), detail picked from the rendered pixel width, the lower jaw an offset driven by the same `listeningJaw` value as the menu bar mark. Fig. 1 is that view plus annotation `Path`s and mono `Text` in an overlay. | Medium |
 | Wizard | `OnboardingFlowView` keeps its steps; the backdrop glow and cards are replaced by the step rail, a ruled content area and the ruled footer. | Medium |
 
-## Decisions to react to
+## Decisions on record
 
-1. **Accent colour picker removed** from Settings (Cyan, Green, Blue, Purple, Orange). Signal has one colour; a picker contradicts it. Assumption, not ruled.
-2. **Edit Mode and Command Mode guidance dropped from Getting Started**: both need an AI provider, which setup no longer asks for. Command Mode keeps its own screen with a not-ready banner.
-3. **Popovers became inline tables** in Custom Dictionary, so the words you taught are visible without a click.
-4. **History detail shows delivery** (Pasted / NOT PASTED) to match the overlay card; the app's AI Processed field moves into the details line.
-5. **The wizard is the window's first state**, drawn as a step rail, not a cinematic backdrop with a mouse-following glow.
+1. **Accent Color picker removed, final** (Atin, round 2). Signal has one colour. Anyone who wants another forks MouthKeys and has their own agent change it, the same stance as AI Enhancement.
+2. Edit Mode and Command Mode guidance dropped from Getting Started: both need an AI provider, which setup never asks for. Command Mode keeps its own screen with a not-ready banner. (Atin, round 2)
+3. Custom Dictionary popovers became inline tables. (Atin, round 2)
+4. History detail shows delivery (Pasted / NOT PASTED) to match the overlay card; AI Processed moves to the details line. The detail actions are the app's own: Copy, Audio, Export Pair, Delete (icon). (Atin, round 2)
+5. The wizard is the window's first state with a step rail, not a cinematic backdrop. (Atin, round 2)
+6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; Fig. 1 on Getting Started and the Welcome step; outline grins only in the two empty states.
 
 ## Unsure
 
