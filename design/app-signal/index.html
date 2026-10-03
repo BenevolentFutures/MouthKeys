@@ -706,6 +706,46 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
 .menu .mh .mh-mark .grin { width: 26px; height: auto; }
 .hist { grid-template-columns: 360px minmax(0, 1fr); }
 
+/* =====================================================================================
+   QUICK SETUP (round 3): actionable. Done steps collapse to one quiet line; the step to do
+   now is outlined in ink with its action bracketed at rest; later steps wait with an outlined button.
+   ===================================================================================== */
+.setup { box-shadow: inset 0 0 0 1px var(--rule); margin-bottom: 34px; }
+.setup > header { height: 44px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; box-shadow: inset 0 -1px 0 var(--rule); font: 500 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); }
+.setup > header b { color: var(--text); font-weight: 600; }
+.prog4 { display: inline-flex; align-items: center; gap: 10px; }
+.prog4 .cells { display: inline-flex; gap: 3px; }
+.prog4 .cells i { width: 22px; height: 10px; box-shadow: inset 0 0 0 1px var(--edge); }
+:root:not([data-theme="light"]) .prog4 .cells i { box-shadow: inset 0 0 0 1px #45484F; }
+.prog4 .cells i.f { background: var(--ink); box-shadow: none; }
+.srow { display: grid; align-items: center; box-shadow: inset 0 -1px 0 var(--rule-soft); }
+.srow:last-child { box-shadow: none; }
+.srow .n { font: 600 12px/1 var(--mono); color: var(--text-2); text-align: center; }
+.srow .s { font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); display: inline-flex; align-items: center; gap: 8px; }
+.srow.done { grid-template-columns: 56px 18px 1fr auto 72px; height: 42px; color: var(--text-2); }
+.srow.done .t { font: 500 13px/1 var(--font); color: var(--text-2); }
+.srow.done .m { font: 500 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); padding-right: 16px; }
+.srow.done .s { justify-content: flex-end; padding-right: 18px; }
+.srow.todo { grid-template-columns: 56px 1fr 128px 240px; min-height: 84px; }
+.srow.todo .lbl { font: 600 16px/21px var(--font); color: var(--text); }
+.srow.todo .help { margin-top: 3px; font: 400 13px/18px var(--font); color: var(--text-2); }
+.srow.todo .b { padding: 16px 16px 16px 0; }
+.srow.todo .a { display: flex; justify-content: flex-end; padding-right: 22px; }
+.srow.todo .a .btn { min-width: 196px; }
+.srow.todo .a .btn2 { min-width: 196px; height: 36px; }
+.srow.todo:not(.now) .lbl { color: var(--text-2); }
+.srow.todo:not(.now) .n { color: var(--text-dim); }
+.srow.now { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink); min-height: 104px; }
+.srow.now .n { align-self: stretch; display: grid; place-items: center; background: var(--inv-bg); color: var(--inv-fg); font-size: 16px; }
+.srow.now .lbl { font-size: 18px; line-height: 23px; }
+.srow.now .b { padding-left: 20px; }
+.srow.now .s { color: var(--text); }
+.srow.todo:not(.now) .b { padding-left: 20px; }
+.srow.fin { grid-template-columns: 56px 1fr auto; height: 64px; padding-right: 18px; }
+.srow.fin .n svg { width: 16px; height: 16px; color: var(--text); }
+.srow.fin .t { font: 500 15px/1 var(--font); color: var(--text); display: inline-flex; align-items: center; gap: 8px; }
+.setup.all > header .prog4 b { color: var(--text); }
+
 </style>
 </head>
 <body>
@@ -715,6 +755,7 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
   <span class="tag">Prototype</span>
   <button id="proto-theme">T · Theme</button>
   <button data-wiz-open>O · Onboarding</button>
+  <button id="proto-setup">S · Setup state</button>
   <span>1–0 · Screens</span>
 </div><button class="mb-mark" title="MouthKeys" aria-label="MouthKeys menu"></button><span class="clock"></span></div>
 </div>
@@ -1037,34 +1078,46 @@ const ovRef = (o = {}) => `
 function appIconC11() { return '<svg width="16" height="16" viewBox="0 0 20 20" style="display:block"><rect width="20" height="20" rx="4.5" fill="#0D0F14"/><rect x="0.5" y="0.5" width="19" height="19" rx="4" fill="none" stroke="rgba(255,255,255,0.18)"/><path d="M5.6 6.8 L8.8 10 L5.6 13.2" fill="none" stroke="#E8EAF0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.4 13.2 H14.4" stroke="#E8EAF0" stroke-width="1.6" stroke-linecap="round"/></svg>'; }
 
 // =================================================================================== 09 GETTING STARTED
+// Quick Setup: four steps from WelcomeView. state = how many are done, in order (0 fresh install ... 4 all done).
+const SETUP = [
+  { todo: "Download Voice Model", todoHelp: "Download the AI model for offline voice transcription (~500MB)", done: "Voice Model Ready", doneMeta: "Parakeet TDT v2 · loaded", act: "Go to Voice Engine", attr: 'data-go="engine"', icon: "down" },
+  { todo: "Grant Microphone Permission", todoHelp: "Allow MouthKeys to access your microphone for voice input", done: "Microphone Permission Granted", doneMeta: "Hollyland Lapel Mic", act: "Grant Access", icon: "mic" },
+  { todo: "Enable Accessibility Access", todoHelp: "Drag MouthKeys into the Accessibility apps list as shown", done: "Accessibility Access Enabled", doneMeta: "Typing into apps", act: "Open Settings", icon: "ext" },
+  { todo: "Test Your Setup", todoHelp: "Try the playground below to test your complete setup", done: "Setup Tested Successfully", doneMeta: "Playground", act: "Go to Playground", attr: 'onclick="document.getElementById(\'play\').scrollIntoView({behavior:\'smooth\'})"', icon: "arrowR" },
+];
+function setupHTML(n) {
+  const cells = SETUP.map((_, i) => `<i class="${i < n ? "f" : ""}"></i>`).join("");
+  const rows = SETUP.map((st, i) => {
+    const ix = String(i + 1).padStart(2, "0");
+    if (i < n) return `<div class="srow done"><span class="n">${ix}</span><i class="sq ink"></i><span class="t">${st.done}</span><span class="m">${st.doneMeta}</span><span class="s">Done</span></div>`;
+    const now = i === n;
+    return `<div class="srow todo${now ? " now" : ""}"><span class="n">${ix}</span><div class="b"><div class="lbl">${st.todo}</div><div class="help">${st.todoHelp}</div></div>
+      <span class="s">${now ? '<i class="sq"></i>Do this now' : "Next"}</span>
+      <span class="a">${now ? btn(st.act, { icon: st.icon, attr: st.attr || "" }) : btn2(st.act, { attr: st.attr || "" })}</span></div>`;
+  }).join("");
+  const all = n >= SETUP.length;
+  return `<div class="setup${all ? " all" : ""}">
+    <header><span><b>Quick Setup</b></span><span class="prog4"><span class="cells">${cells}</span><b>${n}/4</b>&nbsp;${all ? "Ready" : n === 0 ? "Not started" : "In progress"}</span></header>
+    ${rows}
+    ${all ? `<div class="srow fin"><span class="n">${G.check}</span><span class="t">You're set. Press <span class="cap">Right ⌥</span> anywhere and start talking.</span><span></span></div>` : ""}
+  </div>`;
+}
 function sStart() {
-  const step = (n, cls, lbl, help, st, act) => `<div class="step ${cls}"><div class="n">${n}</div><div class="b"><div class="lbl">${lbl}</div><div class="help">${help}</div></div><div class="r">${act || ""}${st}</div></div>`;
-  return head("09 / Help", "Getting Started", "Talk anywhere. MouthKeys types for you.", btn2("Run Onboarding Again", { icon: "reprocess", attr: "data-wiz-open" })) +
-    `<div class="box fig"><header><span><b>Fig. 1</b> · MouthKeys · the keycap grin</span><span>Plan view · scale 7.2 : 1</span></header><div class="dwg">${grinDrawing({ w: 798, h: 304, cx: 326, s: 7.2 })}</div><footer><span>DWG MK-001</span><span>Rev 1.4.0</span><span class="grow">14 keys · 1 live</span><span>Sheet 09 / 10</span></footer></div>` +
-    sec("Quick Setup", `<div class="steps">
-      ${step("01", "done", "Voice Model Ready", "Speech recognition model is loaded and ready", stat("Ready"))}
-      ${step("02", "done", "Microphone Permission Granted", "MouthKeys has access to your microphone", stat("Granted"))}
-      ${step("03", "next", "Enable Accessibility Access", "Drag MouthKeys into the Accessibility apps list as shown", stat("Needed", ""), btn("Open Settings", { icon: "ext" }))}
-      ${step("04", "", "Test Your Setup", "Try the playground below to test your complete setup", stat("Pending", "off", true), btn2("Go to Playground", { attr: 'onclick="document.getElementById(\'play\').scrollIntoView({behavior:\'smooth\'})"' }))}
-    </div>`, { r: "3 of 4 · 1 needs you" }) +
+  return `<div class="head"><div><div class="placard">09 / Help</div><h1 id="gs-title">Getting Started</h1><p>Talk anywhere. MouthKeys types for you.</p></div><div class="act">${tbtn("Run Onboarding Again", { icon: "reprocess", attr: "data-wiz-open" })}</div></div>` +
+    `<div id="setup-slot">${setupHTML(2)}</div>` +
     sec("Test Playground", `<div class="play" id="play">
       <div style="display:flex;align-items:center;gap:16px;padding:14px 16px;box-shadow:inset 0 -1px 0 var(--rule)">
         ${btn("Start Recording", { live: true, icon: "rec", cls: "rec-btn", b: "Stop Recording", bicon: "stop" })}
-        <span class="placard">Hotkey</span>${caps(["Right ⌥"])}
+        <span class="placard">or press</span>${caps(["Right ⌥"])}
         <span style="flex:1"></span>
-        <span class="placard"><b>Parakeet</b> · word boost on · 6 words</span>
+        <span class="placard"><b>Parakeet</b> · word boost on</span>
       </div>
       <textarea class="area" id="play-area" placeholder="Press record or your hotkey to begin"></textarea>
       <div style="display:flex;align-items:center;gap:18px;padding:10px 16px;box-shadow:inset 0 1px 0 var(--rule)">
-        ${tbtn("Copy Text", { icon: "copy" })}${tbtn("Clear &amp; Test Again", { icon: "reprocess" })}<span style="flex:1"></span><span class="placard">Click record, speak, and see your transcription</span>
+        ${tbtn("Copy Text", { icon: "copy" })}${tbtn("Clear &amp; Test Again", { icon: "reprocess" })}<span style="flex:1"></span><span class="placard">Speak, stop, and the text lands here</span>
       </div>
     </div>
-    <div style="margin-top:14px">${ovRef()}</div>`, { r: "Overlay reference below" }) +
-    sec("How to Use", `<div class="steps">
-      ${step("A", "", "Start Recording", "Press your hotkey (default: Right Option/Alt) or click the button", caps(["Right ⌥"]))}
-      ${step("B", "", "Speak Clearly", "Speak naturally - works best in quiet environments", "")}
-      ${step("C", "", "Auto-Type Result", "Transcription is automatically typed into your focused app", '<span class="placard">c11 · Ghostty · any field</span>')}
-    </div>`);
+    <div style="margin-top:14px">${ovRef()}</div>`, { r: "The overlay you will see" });
 }
 
 // =================================================================================== 01 SETTINGS
@@ -1364,7 +1417,8 @@ function sFeedback() {
     sec("Feedback", `<textarea class="area" style="min-height:200px" placeholder="Share your thoughts, report bugs, or suggest features..."></textarea>
       <div class="rows">${row("Include app and macOS version", '<span class="mono" style="font-size:12px">MOUTHKEYS 1.4.0 (412) · MACOS 26.1 · APPLE M4 MAX</span>', tog(true))}</div>
       <div style="display:flex;align-items:center;gap:18px;margin-top:8px">${btn("Open GitHub Issue", { icon: "ext", lg: 1 })}<span style="font:400 13px/18px var(--font);color:var(--text-2)">Opens a prefilled issue in your browser. Nothing is sent until you submit it on GitHub.</span></div>`) +
-    sec("Credit", `<div class="callout"><i></i><div><span class="placard"><b>Built on FluidVoice</b> · altic-dev</span><p>MouthKeys is built on FluidVoice by altic-dev.</p><p>FluidVoice is the open-source dictation app this fork comes from. If MouthKeys is useful to you, consider supporting its original author.</p><div style="display:flex;gap:12px;margin-top:12px">${btn2("FluidVoice", { icon: "ext" })}${btn2("Sponsor FluidVoice", { icon: "ext" })}</div></div></div>`);
+    sec("Credit", `<div class="callout"><i></i><div><span class="placard"><b>Built on FluidVoice</b> · altic-dev</span><p>MouthKeys is built on FluidVoice by altic-dev.</p><p>FluidVoice is the open-source dictation app this fork comes from. If MouthKeys is useful to you, consider supporting its original author.</p><div style="display:flex;gap:12px;margin-top:12px">${btn2("FluidVoice", { icon: "ext" })}${btn2("Sponsor FluidVoice", { icon: "ext" })}</div></div></div>`) +
+    sec("About", `<div class="box fig"><header><span><b>Fig. 1</b> · MouthKeys · the keycap grin</span><span>Plan view · scale 6.4 : 1</span></header><div class="dwg">${grinDrawing({ w: 798, h: 282, cx: 300, s: 6.4 })}</div><footer><span>DWG MK-001</span><span>Rev 1.4.0</span><span class="grow">MIT · github.com/BenevolentFutures/MouthKeys</span><span>Sheet 10 / 10</span></footer></div>`);
 }
 
 // =================================================================================== WIZARD
@@ -1732,11 +1786,13 @@ mountScreens();
 
   // ---------- screenshot hooks (used by shoot.py) ----------
   window.PROTO = {
-    shots: () => [...$$(".nav").map((n) => n.dataset.go), "wizard-1", "wizard-2", "wizard-3", "wizard-4", "wizard-5", "menubar", "history-empty", "dict-empty", "hotkey-capture"],
+    shots: () => [...$$(".nav").map((n) => n.dataset.go), "start-fresh", "start-done", "wizard-1", "wizard-2", "wizard-3", "wizard-4", "wizard-5", "menubar", "history-empty", "dict-empty", "hotkey-capture"],
     shot(name, theme) {
       themeOverride = theme; applyTheme(); closeMenus(); wizOpen(false);
       $$(".hk.capturing").forEach((h) => h.classList.remove("capturing")); capturing = null;
       $$("[data-empty]").forEach((x) => (x.hidden = x.dataset.empty === "on"));
+      window.MK_SETUP && MK_SETUP(name === "start-fresh" ? 0 : name === "start-done" ? 4 : 2);
+      if (name === "start-fresh" || name === "start-done") { go("start"); return; }
       if (name.startsWith("wizard-")) { go("start"); wstep = +name.split("-")[1] - 1; wizOpen(true); return; }
       if (name === "menubar") { go("start"); $(".mb-mark").click(); const mi = $('#mbmenu .mi[data-sub="mic"]'); mi.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); mi.classList.add("is-hover"); return; }
       if (name === "history-empty" || name === "dict-empty") { const id = name === "history-empty" ? "history" : "dict"; go(id); $$(`#s-${id} [data-empty]`).forEach((x) => (x.hidden = x.dataset.empty !== "on")); if (id === "dict") { const e = $('#s-dict [data-empty="on"]'); const pane = $(".pane"); pane.scrollTop = e.getBoundingClientRect().top - pane.getBoundingClientRect().top - 120; } return; }
@@ -1758,6 +1814,18 @@ mountScreens();
     const lvl = v < 0.12 ? 0 : v < 0.5 ? 1 : 2;
     if (lvl !== lastJaw) { lastJaw = lvl; setJaw(lvl); }
   };
+
+  // ---------- Getting Started setup state (prototype: S cycles 0..4 steps done) ----------
+  let setupN = 2;
+  function setSetup(n) {
+    setupN = (n + 5) % 5;
+    $("#setup-slot").innerHTML = setupHTML(setupN); bracketize($("#setup-slot"));
+    $("#gs-title").textContent = setupN === 0 ? "Welcome to MouthKeys" : "Getting Started";
+    const meta = $('.nav[data-go="start"] .n'); if (meta) meta.textContent = setupN + "/4";
+  }
+  window.MK_SETUP = setSetup;
+  document.addEventListener("keydown", (e) => { if ((e.key === "s" || e.key === "S") && !/input|textarea/i.test(e.target.tagName)) setSetup(setupN + 1); });
+  document.addEventListener("click", (e) => { if (e.target.closest("#proto-setup")) setSetup(setupN + 1); });
 
   // ---------- boot ----------
   $("#stamp-mark").innerHTML = grinSVG({ px: 108, live: true });

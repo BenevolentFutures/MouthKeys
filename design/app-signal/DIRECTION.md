@@ -4,7 +4,7 @@
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
-Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **1–0** jump to the ten sidebar screens, **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice.
+Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **1–0** jump to the ten sidebar screens, **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice.
 
 ## Thesis, applied to the window
 
@@ -43,7 +43,7 @@ Main window, sidebar order and names as `ContentView.swift`:
 | 06 | Activity | History | Full-bleed list and detail: overlay-style index column, NOT PASTED marker, a title-block strip of facts, large reading text. Empty state included. |
 | 07 | Activity | Stats | Four KPI cells, words-per-day bars (today in orange), milestone grid, insights and records tables. |
 | 08 | Advanced | AI Enhancement | Alone under Advanced, opening with the unsupported note verbatim. Providers and Advanced Prompts as tabs. |
-| 09 | Help | Getting Started | Quick Setup as four numbered steps, the playground, the round 6 overlay pill live beside it, How to Use. |
+| 09 | Help | Getting Started | Quick Setup first and actionable (round 3): done steps collapse to one quiet line, the step to do now is outlined in ink with an inverted number, DO THIS NOW and its action bracketed at rest; later steps wait with an outlined button; a 4-cell progress readout. Before any model it reads "Welcome to MouthKeys". Then the playground with the live overlay pill. Nothing else. |
 | 10 | Help | Feedback | Text, version toggle, Open GitHub Issue; the FluidVoice credit. |
 
 Also: the first-run wizard (Welcome, Language, Voice Engine, Enable Access, Try MouthKeys, ending in Finish Setup) as the window's first state with a step rail, the status menu with its microphone submenu, the titlebar (Today, Theme, Report) and a hotkey capture state.
@@ -57,8 +57,8 @@ Atin: "keeping this engineering vibe, but leaning into the idea of MouthKeys as 
 Where it appears, prominent on core screens and nowhere else:
 
 1. **Corner stamp, bottom-left of the sidebar, always.** The drawing's title block: the grin (128 px drawing, live jaw) beside the MOUTHKEYS wordmark and revision, over the engine / input / hotkey cells.
-2. **Getting Started, Fig. 1.** The grin as a dimensioned engineering drawing on the sheet grid: teeth numbered 01–14, overall width and height dimensions, a centre line through the bite, callouts for the keycap plan view, the bite and smile, and TOOTH 12 (the gold tooth), with a DWG / REV / SHEET title strip.
-3. **Wizard, Welcome step.** The same drawing as the first thing a new user sees, above "Just speak."
+2. **Fig. 1, on the wizard's Welcome step and in Feedback's About section** (moved off Getting Started in round 3: "too much stuff"). The grin as a dimensioned engineering drawing on the sheet grid: teeth numbered 01–14, overall width and height dimensions, a centre line through the bite, callouts for the keycap plan view, the bite and smile, and TOOTH 12 (the gold tooth), with a DWG / REV / SHEET title strip.
+3. **Getting Started carries no logo**: it is a working screen, setup and testing only. The stamp in the corner is enough.
 4. **Menu bar.** The fake menu bar shows the real menu bar mark (grin, status square, hover bracket); the menu header carries the small-master grin beside MOUTHKEYS.
 5. **Empty states** (History, Custom Dictionary). A quiet 1 px outline grin, gold tooth outlined in orange.
 
@@ -93,7 +93,8 @@ Where it appears, prominent on core screens and nowhere else:
 3. Custom Dictionary popovers became inline tables. (Atin, round 2)
 4. History detail shows delivery (Pasted / NOT PASTED) to match the overlay card; AI Processed moves to the details line. The detail actions are the app's own: Copy, Audio, Export Pair, Delete (icon). (Atin, round 2)
 5. The wizard is the window's first state with a step rail, not a cinematic backdrop. (Atin, round 2)
-6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; Fig. 1 on Getting Started and the Welcome step; outline grins only in the two empty states.
+6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; outline grins only in the two empty states.
+7. Getting Started is Quick Setup plus the playground, nothing else; Fig. 1 lives on the Welcome step and in Feedback's About. (Atin, round 3)
 
 ## Unsure
 
