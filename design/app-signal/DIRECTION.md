@@ -4,7 +4,7 @@
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
-Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **1–0** jump to the ten sidebar screens, **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice.
+Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it.
 
 ## Thesis, applied to the window
 
@@ -31,10 +31,11 @@ A screen with no single action (Settings saves as you go) has no at-rest bracket
 
 ## Screens
 
-Main window, sidebar order and names as `ContentView.swift`:
+Main window, names as `ContentView.swift`. Getting Started moved to the top as a bare 00 row with its setup readout, above Configure (Atin, round 5); Help keeps Feedback only:
 
 | # | Section | Screen | What changed |
 |---|---|---|---|
+| 00 | (bare row) | Getting Started | Quick Setup first and actionable (round 3): done steps collapse to one quiet line, the step to do now is outlined in ink with an inverted number, DO THIS NOW and its action bracketed at rest; later steps wait with an outlined button; a 4-cell progress readout. Before any model it reads "Welcome to MouthKeys". Then the playground with the live overlay pill. Nothing else. |
 | 01 | Configure | Settings | One sheet, ten lettered zones (App, Hotkeys, Dictation, History, Format, Alerts, Audio, Overlay, Backup, Debug) with a sticky zone strip. Microphone permission folds into Audio. |
 | 02 | Configure | Voice Engine | Preview panel with a spec strip (size, languages, speed and accuracy as 10-cell meters), then the model table. Filler words as tags. |
 | 03 | Configure | Custom Dictionary | Teach Words (voice / manual) with a 3-cell readiness meter; the dictionary, spoken formatting and custom words shown inline as tables instead of popovers. |
@@ -43,8 +44,7 @@ Main window, sidebar order and names as `ContentView.swift`:
 | 06 | Activity | History | Full-bleed list and detail: overlay-style index column, NOT PASTED marker, a title-block strip of facts, large reading text. Empty state included. |
 | 07 | Activity | Stats | Four KPI cells, words-per-day bars (today in orange), milestone grid, insights and records tables. |
 | 08 | Advanced | AI Enhancement | Alone under Advanced, opening with the unsupported note verbatim. Providers and Advanced Prompts as tabs. |
-| 09 | Help | Getting Started | Quick Setup first and actionable (round 3): done steps collapse to one quiet line, the step to do now is outlined in ink with an inverted number, DO THIS NOW and its action bracketed at rest; later steps wait with an outlined button; a 4-cell progress readout. Before any model it reads "Welcome to MouthKeys". Then the playground with the live overlay pill. Nothing else. |
-| 10 | Help | Feedback | Text, version toggle, Open GitHub Issue; the FluidVoice credit. |
+| 09 | Help | Feedback | Text, version toggle, Open GitHub Issue; the FluidVoice credit. |
 
 Also: the first-run wizard (Welcome, Language, Voice Engine, Enable Access, Try MouthKeys, ending in Finish Setup) as the window's first state with a step rail, the status menu with its microphone submenu, the titlebar (Today, Theme, Report) and a hotkey capture state.
 
@@ -63,6 +63,20 @@ Where it appears, prominent on core screens and nowhere else:
 5. **Empty states** (History, Custom Dictionary). A quiet 1 px outline grin, gold tooth outlined in orange.
 
 **Live.** While recording, every live grin's lower jaw drops with the voice at 8 Hz in the menu bar mark's steps (closed, 1.5 units, 3 units; the menu bar mark itself drops 1 or 2 pt), and Fig. 1's callout reads TOOTH 12 · LIVE instead of GOLD. The orange tooth is the one colour, so it doubles as the live mark.
+
+## Overlay callouts (round 4)
+
+Atin: "as you mouse over different aspects, it describes what it is." Hover any part of an overlay and an engineering-drawing callout names it: a 3 pt square terminus on the element, a 1 px leader that runs straight out of the overlay (up from the top half, down from the bottom half, sideways from the history card), and a label on the surface colour, the name in mono 10 uppercase with one plain line under it ("WORDS PER MINUTE / Your pace, this dictation"). It draws in a fixed, click-through layer, so nothing moves; it fades in over 60 ms. Elements that already take a hover bracket (chips, card buttons) keep it; the rest get only the terminus, since brackets mark only clickable things.
+
+Names come from DESIGN.md §4, §9, §15 and §16, one per real element: History, Copy, Cancel, Reprocess, Spoken Send, Live preview, Voice trace, Record square, Timer, Target app, Mic input, Word count, Words per minute, Pasted stamp, Outcome, Problem, Reason, Transcript, the card's primary action (named by its own label: Copy, Reprocess, Open System Settings), Dismiss, Notice, History card, Dictation row, Not pasted, Title block.
+
+The module is shared: `../visual-language/prototypes/shared/callouts.js` (the callout) and `shared/callouts-signal.js` (the names), loaded by the binding overlay prototypes `round6.html` and `index.html`, and inlined into `standalone.html` by `build-standalone.sh`. This prototype inlines the same callout code for the reference pill.
+
+Native: a separate click-through `NSPanel` (like the float shadow's) holding one SwiftUI view: the leader `Path`, the terminus and the label. Each overlay element reports its frame (the overlay already does this for buttons, `SignalClickTargetsKey`) with a name; hover selects one. Probably behind a setting or shown only for the first few dictations, since the overlay is seen hundreds of times a day: an open question.
+
+## Links
+
+The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked from the sidebar stamp (the wordmark and a GITHUB ↗ cell, which can later read MOUTHKEYS.COM), from Feedback (a header button and the About title strip), and from the status menu ("MouthKeys on GitHub ↗", a new item).
 
 ## Native mapping
 
@@ -95,6 +109,8 @@ Where it appears, prominent on core screens and nowhere else:
 5. The wizard is the window's first state with a step rail, not a cinematic backdrop. (Atin, round 2)
 6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; outline grins only in the two empty states.
 7. Getting Started is Quick Setup plus the playground, nothing else; Fig. 1 lives on the Welcome step and in Feedback's About. (Atin, round 3)
+8. A GitHub link in the stamp, Feedback and the menu; hover callouts on every overlay element. (Atin, round 4)
+9. Getting Started is the bare 00 row at the top of the sidebar; 0 jumps to it. (Atin, round 5)
 
 ## Unsure
 

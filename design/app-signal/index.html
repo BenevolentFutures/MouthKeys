@@ -746,6 +746,18 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
 .srow.fin .t { font: 500 15px/1 var(--font); color: var(--text); display: inline-flex; align-items: center; gap: 8px; }
 .setup.all > header .prog4 b { color: var(--text); }
 
+/* round 4: GitHub link in the stamp; callout room around the reference pill */
+.stamp-id .stamp-word { font: 700 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text); text-decoration: none; }
+.stamp-id .stamp-link { align-self: flex-start; margin-top: 2px; padding: 3px 5px; margin-left: -5px; font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text); text-decoration: none; box-shadow: inset 0 0 0 1px var(--edge); }
+.stamp-id .stamp-word:hover { text-decoration: underline; text-underline-offset: 3px; }
+.stamp-id .stamp-link:hover { background: var(--inv-bg); color: var(--inv-fg); }
+.ghlink { color: inherit; text-decoration: none; }
+.ghlink:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.ovref { padding: 84px 0 92px; }
+/* round 5: Getting Started as a bare 00 row above Configure */
+.nav-bare { padding-bottom: 12px; margin-bottom: 4px; box-shadow: inset 0 -1px 0 var(--rule-soft); }
+.side-scroll { padding-top: 10px; }
+
 </style>
 </head>
 <body>
@@ -756,7 +768,7 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
   <button id="proto-theme">T · Theme</button>
   <button data-wiz-open>O · Onboarding</button>
   <button id="proto-setup">S · Setup state</button>
-  <span>1–0 · Screens</span>
+  <span>0–9 · Screens</span>
 </div><button class="mb-mark" title="MouthKeys" aria-label="MouthKeys menu"></button><span class="clock"></span></div>
 </div>
 
@@ -775,7 +787,7 @@ input { font: inherit; color: inherit; border-radius: 0; outline: none; }
       <aside class="side">
         <div class="side-scroll"></div>
         <div class="side-foot">
-          <div class="stamp"><div class="stamp-mark" id="stamp-mark"></div><div class="stamp-id"><b>MouthKeys</b><span>Voice→text</span><span>Rev 1.4.0</span></div></div>
+          <div class="stamp"><div class="stamp-mark" id="stamp-mark"></div><div class="stamp-id"><a class="stamp-word" href="https://github.com/BenevolentFutures/MouthKeys" target="_blank" rel="noopener" title="MouthKeys on GitHub">MouthKeys</a><span>Voice→text</span><a class="stamp-link" href="https://github.com/BenevolentFutures/MouthKeys" target="_blank" rel="noopener" title="https://github.com/BenevolentFutures/MouthKeys">GitHub ↗</a></div></div>
           <div class="sfr"><span>Engine</span><b><i class="sq ink"></i>Parakeet v2</b></div>
           <div class="sfr"><span>Input</span><b>Hollyland 33%</b></div>
           <div class="sfr"><span>Hotkey</span><b>Right ⌥</b></div>
@@ -982,6 +994,98 @@ function grinDrawing(o = {}) {
   return `<svg class="grin-dwg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="MouthKeys grin, dimensioned">${cl}${mark}${g}</svg>`;
 }
 
+// Signal callouts: hover any overlay element and an engineering-drawing callout names it.
+// A 1 px leader from a 3 pt square terminus on the element runs straight out of the overlay (up for
+// the top half, down for the bottom half, sideways for "side" items) to a mono uppercase label on the
+// surface colour, with one plain line of description under it. Drawn in a fixed, click-through layer,
+// so nothing in the overlay moves. A 60 ms fade, nothing else. Elements that already carry a hover
+// bracket (chips, card buttons) keep it; non-clickable ones get only the terminus, per DESIGN.md §7.
+//
+// SignalCallouts.attach({
+//   anchor: ".sg",                       // the overlay root the leaders clear (rails + pill)
+//   vars: { surface, edge, text, text2, mono, font },   // CSS custom property names on :root
+//   items: [{ sel, label, desc, place: "above" | "below" | "side", anchor }],   // label may be a function(el)
+// })
+(function () {
+  "use strict";
+  function attach(cfg) {
+    const v = Object.assign({ surface: "--surface", edge: "--edge", text: "--text", text2: "--text-2", mono: "--mono", font: "--font" }, cfg.vars || {});
+    const css = document.createElement("style");
+    css.textContent = `
+.co-layer { position: fixed; inset: 0; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity 60ms linear; }
+.co-layer.on { opacity: 1; }
+.co-layer svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.co-layer path { fill: none; stroke: var(${v.text2}); stroke-width: 1; shape-rendering: crispEdges; }
+.co-layer rect { fill: var(${v.text}); shape-rendering: crispEdges; }
+.co-lab { position: absolute; padding: 5px 8px 6px; background: var(${v.surface}); box-shadow: inset 0 0 0 1px var(${v.edge}); white-space: nowrap; }
+.co-lab b { display: block; font: 600 10px/14px var(${v.mono}); letter-spacing: .06em; text-transform: uppercase; color: var(${v.text}); }
+.co-lab span { display: block; font: 400 12px/16px var(${v.font}); color: var(${v.text2}); }
+.co-lab span:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .co-layer { transition: none; } }`;
+    document.head.appendChild(css);
+    const layer = document.createElement("div");
+    layer.className = "co-layer";
+    layer.setAttribute("aria-hidden", "true");
+    layer.innerHTML = '<svg><path/><rect width="3" height="3"/></svg><div class="co-lab"><b></b><span></span></div>';
+    document.body.appendChild(layer);
+    const path = layer.querySelector("path"), dot = layer.querySelector("rect"), lab = layer.querySelector(".co-lab");
+    let cur = null;
+
+    function find(target) {
+      if (!target || !target.closest) return null;
+      let best = null;
+      for (const item of cfg.items) {
+        const el = target.closest(item.sel);
+        if (el && (!best || best.el.contains(el))) best = { el, item };
+      }
+      return best;
+    }
+    function hide() { layer.classList.remove("on"); cur = null; }
+    function show(hit) {
+      const { el, item } = hit;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || getComputedStyle(el).visibility === "hidden") return hide();
+      const host = (item.anchor && el.closest(item.anchor)) || (cfg.anchor && el.closest(cfg.anchor)) || el;
+      const A = host.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const left = cx < A.left + A.width / 2;
+      const place = item.place || (cy < A.top + A.height / 2 ? "above" : "below");
+      lab.querySelector("b").textContent = typeof item.label === "function" ? item.label(el) : item.label;
+      lab.querySelector("span").textContent = item.desc || "";
+      const lw = lab.offsetWidth, lh = lab.offsetHeight;
+      let d, lx, ly, x0, y0;
+      if (place === "side") {
+        x0 = left ? r.left : r.right; y0 = Math.round(cy) + 0.5;
+        const x1 = left ? A.left - 18 : A.right + 18;
+        d = `M${x0} ${y0}H${x1}`;
+        lx = left ? x1 - lw : x1; ly = y0 - lh / 2;
+      } else {
+        x0 = Math.round(cx) + 0.5; y0 = place === "above" ? r.top : r.bottom;
+        const y1 = Math.round(place === "above" ? A.top - 26 : A.bottom + 24) + 0.5;
+        const x2 = x0 + (left ? -12 : 12);
+        d = `M${x0} ${y0}V${y1}H${x2}`;
+        lx = left ? x2 - lw : x2; ly = y1 - lh / 2;
+      }
+      lx = Math.max(6, Math.min(innerWidth - lw - 6, lx)); ly = Math.max(6, Math.min(innerHeight - lh - 6, ly));
+      path.setAttribute("d", d);
+      dot.setAttribute("x", Math.round(x0 - 1.5)); dot.setAttribute("y", Math.round(y0 - 1.5));
+      lab.style.left = Math.round(lx) + "px"; lab.style.top = Math.round(ly) + "px";
+      layer.classList.add("on");
+    }
+    document.addEventListener("mouseover", (e) => {
+      const hit = find(e.target);
+      if (!hit) { if (cur) hide(); return; }
+      if (cur && cur.el === hit.el) return;
+      cur = hit; show(hit);
+    }, true);
+    document.addEventListener("mouseleave", hide);
+    addEventListener("scroll", () => cur && show(cur), true);
+    addEventListener("resize", () => cur && show(cur));
+    return { show: (el) => { const hit = find(el); if (hit) { cur = hit; show(hit); } }, hide };
+  }
+  window.SignalCallouts = { attach };
+})();
+
 // ===================================================================================
 // Screens. Every string and control below comes from the SwiftUI inventory
 // (Sources/Fluid/UI, ContentView.swift, MenuBarManager.swift). Built as templates so
@@ -1049,30 +1153,31 @@ const FILLERS = "um uh er ah eh umm uhh err ahh ehh hmm hm mm mmm erm urm ugh".s
 
 // ---------- sidebar ----------
 const NAV = [
+  ["Start", [["start", "Getting Started", "start"]], true],
   ["Configure", [["prefs", "Settings", "prefs"], ["engine", "Voice Engine", "engine"], ["dict", "Custom Dictionary", "dict"]]],
   ["Use", [["command", "Command Mode", "command"], ["file", "File Transcription", "file"]]],
   ["Activity", [["history", "History", "history"], ["stats", "Stats", "stats"]]],
   ["Advanced", [["ai", "AI Enhancement", "ai"]]],
-  ["Help", [["start", "Getting Started", "start"], ["feedback", "Feedback", "feedback"]]],
+  ["Help", [["feedback", "Feedback", "feedback"]]],
 ];
 const NAV_META = { engine: '<i class="sq ink"></i>PV2', dict: "8", history: "247", ai: '<span title="Unsupported">UNSUP</span>', command: "ALPHA", start: "3/4" };
 function sidebar() {
-  let i = 0;
-  return NAV.map(([sec, items]) => `<div data-sec="${sec}"><h6>${sec}</h6>${items.map(([id, t, ic]) => { i++; return `<button class="nav" data-go="${id}"><span class="ix">${String(i).padStart(2, "0")}</span>${G[ic]}<span class="t">${t}</span><span class="n">${NAV_META[id] || ""}</span></button>`; }).join("")}</div>`).join("");
+  let i = -1;
+  return NAV.map(([sec, items, bare]) => `<div data-sec="${sec}"${bare ? ' class="nav-bare"' : ""}>${bare ? "" : `<h6>${sec}</h6>`}${items.map(([id, t, ic]) => { i++; return `<button class="nav" data-go="${id}"><span class="ix">${String(i).padStart(2, "0")}</span>${G[ic]}<span class="t">${t}</span><span class="n">${NAV_META[id] || ""}</span></button>`; }).join("")}</div>`).join("");
 }
 
 // ---------- the overlay reference pill (round 6 anatomy, listening) ----------
 const ovRef = (o = {}) => `
 <div class="ovref">
-  <span class="ovcap">Overlay · round 6 reference · <span class="ov-live-state">READY</span></span>
+  <span class="ovcap">Overlay · round 6 reference · <span class="ov-live-state">READY</span> · hover any part to name it</span>
   <div class="ov">
-    <div class="ov-rail"><span class="ov-chip bk">${TK.replace(/^/, "")}${OG.history}</span><span class="ov-chip">${OG.copy}</span></div>
+    <div class="ov-rail"><span class="ov-chip bk" data-co="history">${OG.history}</span><span class="ov-chip bk" data-co="copy">${OG.copy}</span></div>
     <div class="ov-pill">
-      <div class="ov-prev ov-live-prev">${o.text || "Press record to watch the pill and the playground fill together."}</div>
-      <div class="ov-trow"><canvas class="ov-trace" data-live="1"></canvas><span class="ov-read"><i class="sq hollow ov-sq"></i><span class="t ov-live-t">0:00</span></span></div>
-      <div class="ov-foot"><span class="wc ov-live-wc">   0 WORDS</span><span>${appIconC11()}</span><span class="mic">Hollyland Lapel 33%</span><span class="wpm ov-live-wpm">  0 WPM</span></div>
+      <div class="ov-prev ov-live-prev" data-co="preview">${o.text || "Press record to watch the pill and the playground fill together."}</div>
+      <div class="ov-trow"><canvas class="ov-trace" data-live="1" data-co="trace"></canvas><span class="ov-read"><i class="sq hollow ov-sq" data-co="record"></i><span class="t ov-live-t" data-co="timer">0:00</span></span></div>
+      <div class="ov-foot"><span class="wc ov-live-wc" data-co="wc">   0 WORDS</span><span data-co="app">${appIconC11()}</span><span class="mic" data-co="mic">Hollyland Lapel 33%</span><span class="wpm ov-live-wpm" data-co="wpm">  0 WPM</span></div>
     </div>
-    <div class="ov-rail"><span class="ov-chip">${OG.cancel}</span><span class="ov-chip">${OG.reprocess}</span></div>
+    <div class="ov-rail"><span class="ov-chip bk" data-co="cancel">${OG.cancel}</span><span class="ov-chip bk" data-co="reprocess">${OG.reprocess}</span></div>
   </div>
 </div>`;
 function appIconC11() { return '<svg width="16" height="16" viewBox="0 0 20 20" style="display:block"><rect width="20" height="20" rx="4.5" fill="#0D0F14"/><rect x="0.5" y="0.5" width="19" height="19" rx="4" fill="none" stroke="rgba(255,255,255,0.18)"/><path d="M5.6 6.8 L8.8 10 L5.6 13.2" fill="none" stroke="#E8EAF0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.4 13.2 H14.4" stroke="#E8EAF0" stroke-width="1.6" stroke-linecap="round"/></svg>'; }
@@ -1103,7 +1208,7 @@ function setupHTML(n) {
   </div>`;
 }
 function sStart() {
-  return `<div class="head"><div><div class="placard">09 / Help</div><h1 id="gs-title">Getting Started</h1><p>Talk anywhere. MouthKeys types for you.</p></div><div class="act">${tbtn("Run Onboarding Again", { icon: "reprocess", attr: "data-wiz-open" })}</div></div>` +
+  return `<div class="head"><div><div class="placard">00 / Start</div><h1 id="gs-title">Getting Started</h1><p>Talk anywhere. MouthKeys types for you.</p></div><div class="act">${tbtn("Run Onboarding Again", { icon: "reprocess", attr: "data-wiz-open" })}</div></div>` +
     `<div id="setup-slot">${setupHTML(2)}</div>` +
     sec("Test Playground", `<div class="play" id="play">
       <div style="display:flex;align-items:center;gap:16px;padding:14px 16px;box-shadow:inset 0 -1px 0 var(--rule)">
@@ -1413,12 +1518,12 @@ function sAI() {
 
 // =================================================================================== 10 FEEDBACK
 function sFeedback() {
-  return head("10 / Help", "Send Feedback", "Report a bug or suggest a change on the MouthKeys GitHub.") +
+  return head("09 / Help", "Send Feedback", "Report a bug or suggest a change on the MouthKeys GitHub.", btn2("MouthKeys on GitHub", { icon: "ext", attr: 'data-href="https://github.com/BenevolentFutures/MouthKeys"' })) +
     sec("Feedback", `<textarea class="area" style="min-height:200px" placeholder="Share your thoughts, report bugs, or suggest features..."></textarea>
       <div class="rows">${row("Include app and macOS version", '<span class="mono" style="font-size:12px">MOUTHKEYS 1.4.0 (412) · MACOS 26.1 · APPLE M4 MAX</span>', tog(true))}</div>
       <div style="display:flex;align-items:center;gap:18px;margin-top:8px">${btn("Open GitHub Issue", { icon: "ext", lg: 1 })}<span style="font:400 13px/18px var(--font);color:var(--text-2)">Opens a prefilled issue in your browser. Nothing is sent until you submit it on GitHub.</span></div>`) +
     sec("Credit", `<div class="callout"><i></i><div><span class="placard"><b>Built on FluidVoice</b> · altic-dev</span><p>MouthKeys is built on FluidVoice by altic-dev.</p><p>FluidVoice is the open-source dictation app this fork comes from. If MouthKeys is useful to you, consider supporting its original author.</p><div style="display:flex;gap:12px;margin-top:12px">${btn2("FluidVoice", { icon: "ext" })}${btn2("Sponsor FluidVoice", { icon: "ext" })}</div></div></div>`) +
-    sec("About", `<div class="box fig"><header><span><b>Fig. 1</b> · MouthKeys · the keycap grin</span><span>Plan view · scale 6.4 : 1</span></header><div class="dwg">${grinDrawing({ w: 798, h: 282, cx: 300, s: 6.4 })}</div><footer><span>DWG MK-001</span><span>Rev 1.4.0</span><span class="grow">MIT · github.com/BenevolentFutures/MouthKeys</span><span>Sheet 10 / 10</span></footer></div>`);
+    sec("About", `<div class="box fig"><header><span><b>Fig. 1</b> · MouthKeys · the keycap grin</span><span>Plan view · scale 6.4 : 1</span></header><div class="dwg">${grinDrawing({ w: 798, h: 282, cx: 300, s: 6.4 })}</div><footer><span>DWG MK-001</span><span>Rev 1.4.0</span><span class="grow"><a class="ghlink" href="https://github.com/BenevolentFutures/MouthKeys" target="_blank" rel="noopener">MIT · github.com/BenevolentFutures/MouthKeys ↗</a></span><span>Sheet 09 / 09</span></footer></div>`);
 }
 
 // =================================================================================== WIZARD
@@ -1471,6 +1576,7 @@ function mbMenu() {
     <div class="mi"><span>Copy Last Transcript</span></div>
     <div class="mi" data-act="dict" data-go="dict"><span>Custom Dictionary</span></div>
     <div class="mi" data-go="start"><span>Open MouthKeys</span></div>
+    <div class="mi" data-href="https://github.com/BenevolentFutures/MouthKeys"><span>MouthKeys on GitHub</span><em>↗</em></div>
     <div class="mi" data-act="settings"><span>Settings…</span><kbd>⌘,</kbd></div>
     <div class="sep"></div>
     <div class="mi"><span>Quit MouthKeys</span><kbd>⌘Q</kbd></div>
@@ -1774,8 +1880,7 @@ mountScreens();
     if (e.key === "ArrowRight" && $(".scrim").classList.contains("on")) wizGo(wstep + 1);
     if (e.key === "ArrowLeft" && $(".scrim").classList.contains("on")) wizGo(wstep - 1);
     const navs = $$(".nav");
-    if (/^[1-9]$/.test(e.key) && !e.metaKey) { const n = navs[+e.key - 1]; if (n) go(n.dataset.go); }
-    if (e.key === "0") { const n = navs[9]; if (n) go(n.dataset.go); }
+    if (/^[0-9]$/.test(e.key) && !e.metaKey) { const n = navs[+e.key]; if (n) go(n.dataset.go); }
   });
   $("#proto-theme").addEventListener("click", toggleTheme);
   $("#titlebar-theme").addEventListener("click", toggleTheme);
@@ -1786,13 +1891,14 @@ mountScreens();
 
   // ---------- screenshot hooks (used by shoot.py) ----------
   window.PROTO = {
-    shots: () => [...$$(".nav").map((n) => n.dataset.go), "start-fresh", "start-done", "wizard-1", "wizard-2", "wizard-3", "wizard-4", "wizard-5", "menubar", "history-empty", "dict-empty", "hotkey-capture"],
+    shots: () => [...$$(".nav").map((n) => n.dataset.go), "start-fresh", "start-done", "callout-wc", "callout-history", "callout-trace", "wizard-1", "wizard-2", "wizard-3", "wizard-4", "wizard-5", "menubar", "history-empty", "dict-empty", "hotkey-capture"],
     shot(name, theme) {
       themeOverride = theme; applyTheme(); closeMenus(); wizOpen(false);
       $$(".hk.capturing").forEach((h) => h.classList.remove("capturing")); capturing = null;
       $$("[data-empty]").forEach((x) => (x.hidden = x.dataset.empty === "on"));
       window.MK_SETUP && MK_SETUP(name === "start-fresh" ? 0 : name === "start-done" ? 4 : 2);
       if (name === "start-fresh" || name === "start-done") { go("start"); return; }
+      if (name.startsWith("callout-")) { go("start"); const el = $(`[data-co="${name.slice(8)}"]`); el.scrollIntoView({ block: "center" }); requestAnimationFrame(() => window.MK_CALLOUTS.show(el)); return; }
       if (name.startsWith("wizard-")) { go("start"); wstep = +name.split("-")[1] - 1; wizOpen(true); return; }
       if (name === "menubar") { go("start"); $(".mb-mark").click(); const mi = $('#mbmenu .mi[data-sub="mic"]'); mi.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); mi.classList.add("is-hover"); return; }
       if (name === "history-empty" || name === "dict-empty") { const id = name === "history-empty" ? "history" : "dict"; go(id); $$(`#s-${id} [data-empty]`).forEach((x) => (x.hidden = x.dataset.empty !== "on")); if (id === "dict") { const e = $('#s-dict [data-empty="on"]'); const pane = $(".pane"); pane.scrollTop = e.getBoundingClientRect().top - pane.getBoundingClientRect().top - 120; } return; }
@@ -1826,6 +1932,17 @@ mountScreens();
   window.MK_SETUP = setSetup;
   document.addEventListener("keydown", (e) => { if ((e.key === "s" || e.key === "S") && !/input|textarea/i.test(e.target.tagName)) setSetup(setupN + 1); });
   document.addEventListener("click", (e) => { if (e.target.closest("#proto-setup")) setSetup(setupN + 1); });
+
+  document.addEventListener("click", (e) => { const h = e.target.closest("[data-href]"); if (h) { window.open(h.dataset.href, "_blank", "noopener"); closeMenus(); } });
+
+  // ---------- overlay callouts: hover a part of the reference pill and it is named ----------
+  const CO = { history: ["History", "Recent dictations · click one to insert"], copy: ["Copy", "Copy the last transcription"],
+    cancel: ["Cancel", "Discard this dictation · Esc"], reprocess: ["Reprocess", "Transcribe the last audio again"],
+    preview: ["Live preview", "The words so far, newest at the end"], trace: ["Voice trace", "12 bars a second of voice · orange head is now"],
+    record: ["Record square", "Solid: listening · hollow: transcribing"], timer: ["Timer", "Length of this dictation"],
+    wc: ["Word count", "Words in this dictation"], wpm: ["Words per minute", "Your pace, this dictation"],
+    app: ["Target app", "Where the text will paste"], mic: ["Mic input", "The microphone, with the lapel's battery"] };
+  window.MK_CALLOUTS = SignalCallouts.attach({ anchor: ".ov", items: Object.entries(CO).map(([k, [label, desc]]) => ({ sel: `[data-co="${k}"]`, label, desc })) });
 
   // ---------- boot ----------
   $("#stamp-mark").innerHTML = grinSVG({ px: 108, live: true });
