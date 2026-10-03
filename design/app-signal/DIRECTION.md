@@ -4,7 +4,7 @@
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
-Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it.
+Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it (Getting Started only).
 
 ## Thesis, applied to the window
 
@@ -64,15 +64,13 @@ Where it appears, prominent on core screens and nowhere else:
 
 **Live.** While recording, every live grin's lower jaw drops with the voice at 8 Hz in the menu bar mark's steps (closed, 1.5 units, 3 units; the menu bar mark itself drops 1 or 2 pt), and Fig. 1's callout reads TOOTH 12 · LIVE instead of GOLD. The orange tooth is the one colour, so it doubles as the live mark.
 
-## Overlay callouts (round 4)
+## Overlay callouts: a Getting Started teaching aid (rounds 4, 6)
 
-Atin: "as you mouse over different aspects, it describes what it is." Hover any part of an overlay and an engineering-drawing callout names it: a 3 pt square terminus on the element, a 1 px leader that runs straight out of the overlay (up from the top half, down from the bottom half, sideways from the history card), and a label on the surface colour, the name in mono 10 uppercase with one plain line under it ("WORDS PER MINUTE / Your pace, this dictation"). It draws in a fixed, click-through layer, so nothing moves; it fades in over 60 ms. Elements that already take a hover bracket (chips, card buttons) keep it; the rest get only the terminus, since brackets mark only clickable things.
+The callouts are a teaching aid on Getting Started only: the reference pill in the playground ("hover any part to name it"). The live recording overlay is unchanged (Atin, round 6).
 
-Names come from DESIGN.md §4, §9, §15 and §16, one per real element: History, Copy, Cancel, Reprocess, Spoken Send, Live preview, Voice trace, Record square, Timer, Target app, Mic input, Word count, Words per minute, Pasted stamp, Outcome, Problem, Reason, Transcript, the card's primary action (named by its own label: Copy, Reprocess, Open System Settings), Dismiss, Notice, History card, Dictation row, Not pasted, Title block.
+Hover any part of the reference pill and an engineering-drawing callout names it: a 3 pt square terminus on the element, a 1 px leader that runs straight out of the pill, and a label on the surface colour, the name in mono 10 uppercase with one plain line under it ("WORDS PER MINUTE / Your pace, this dictation"). It draws in a fixed, click-through layer, so nothing moves, and fades in over 60 ms. Names follow DESIGN.md, one per real element: History, Copy, Cancel, Reprocess, Live preview, Voice trace, Record square, Timer, Word count, Words per minute, Target app, Mic input. Source: [`callouts.js`](callouts.js), inlined into `index.html`.
 
-The module is shared: `../visual-language/prototypes/shared/callouts.js` (the callout) and `shared/callouts-signal.js` (the names), loaded by the binding overlay prototypes `round6.html` and `index.html`, and inlined into `standalone.html` by `build-standalone.sh`. This prototype inlines the same callout code for the reference pill.
-
-Native: a separate click-through `NSPanel` (like the float shadow's) holding one SwiftUI view: the leader `Path`, the terminus and the label. Each overlay element reports its frame (the overlay already does this for buttons, `SignalClickTargetsKey`) with a name; hover selects one. Probably behind a setting or shown only for the first few dictations, since the overlay is seen hundreds of times a day: an open question.
+Native: the reference pill on Getting Started is the real `SignalOverlay` view hosted inline; each part reports its frame with a name, and a SwiftUI overlay on that page draws the leader `Path`, terminus and label on hover.
 
 ## Links
 
@@ -109,7 +107,7 @@ The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked 
 5. The wizard is the window's first state with a step rail, not a cinematic backdrop. (Atin, round 2)
 6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; outline grins only in the two empty states.
 7. Getting Started is Quick Setup plus the playground, nothing else; Fig. 1 lives on the Welcome step and in Feedback's About. (Atin, round 3)
-8. A GitHub link in the stamp, Feedback and the menu; hover callouts on every overlay element. (Atin, round 4)
+8. A GitHub link in the stamp, Feedback and the menu (Atin, round 4). Hover callouts live only on Getting Started's reference pill; the live overlay is unchanged (Atin, round 6).
 9. Getting Started is the bare 00 row at the top of the sidebar; 0 jumps to it. (Atin, round 5)
 
 ## Unsure
