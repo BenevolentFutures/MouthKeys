@@ -35,8 +35,8 @@ Main window, names as `ContentView.swift`. Getting Started moved to the top as a
 
 | # | Section | Screen | What changed |
 |---|---|---|---|
-| 00 | (bare row) | Getting Started | Quick Setup first and actionable (round 3): done steps collapse to one quiet line, the step to do now is outlined in ink with an inverted number, DO THIS NOW and its action bracketed at rest; later steps wait with an outlined button; a 4-cell progress readout. Before any model it reads "Welcome to MouthKeys". Then the playground with the live overlay pill. Nothing else. |
-| 01 | Configure | Settings | One sheet, ten lettered zones (App, Hotkeys, Dictation, History, Format, Alerts, Audio, Overlay, Backup, Debug) with a sticky zone strip. Microphone permission folds into Audio. |
+| 00 | (bare row) | Getting Started | Quick Setup first and actionable (round 3): done steps collapse to one quiet line, the step to do now is outlined in ink with an inverted number, DO THIS NOW and its action bracketed at rest; later steps wait with an outlined button; a 4-cell progress readout. Before any model it reads "Welcome to MouthKeys". Then **Your Dictation Key** (round 7): the key as a big keycap (RIGHT ⌥) with its mode (TOGGLE), and a practice drill: press it three times, the keycap depresses live, KEY DOWN / UP and a 0/3 counter track it, three orange cells confirm, and it completes step 04 when that is the step left. Clicking the keycap is the fallback. Then the playground with the live overlay pill. Nothing else. |
+| 01 | Configure | Settings | One sheet, ten lettered zones with a sticky zone strip, in the order Atin set (round 7): A Microphone (input device picker with a live level meter first, access, priority list, output), B Hotkeys (shortcuts and activation mode), C Dictation, D App (launch, Dock, sounds, updates), E History, F Format, G Alerts, H Overlay, I Backup, J Debug. |
 | 02 | Configure | Voice Engine | Preview panel with a spec strip (size, languages, speed and accuracy as 10-cell meters), then the model table. Filler words as tags. |
 | 03 | Configure | Custom Dictionary | Teach Words (voice / manual) with a 3-cell readiness meter; the dictionary, spoken formatting and custom words shown inline as tables instead of popovers. |
 | 04 | Use | Command Mode | Not-ready banner (it needs an AI Enhancement provider), chat with an orange-ruled confirm panel; Empty / Sample toggle in the prototype. |
@@ -66,7 +66,7 @@ Where it appears, prominent on core screens and nowhere else:
 
 ## Overlay callouts: a Getting Started teaching aid (rounds 4, 6)
 
-The callouts are a teaching aid on Getting Started only: the reference pill in the playground ("hover any part to name it"). The live recording overlay is unchanged (Atin, round 6).
+The callouts are a teaching aid on Getting Started only: the reference pill in the playground. The live recording overlay is unchanged (Atin, round 6). Each hoverable zone carries a thin dashed `#FF4F1F` outline drawn outside the element (an outline, so nothing shifts); the zone under the pointer goes solid and its callout appears (round 7). Chips keep their bracket instead. No caption, no prototype wording on the screen.
 
 Hover any part of the reference pill and an engineering-drawing callout names it: a 3 pt square terminus on the element, a 1 px leader that runs straight out of the pill, and a label on the surface colour, the name in mono 10 uppercase with one plain line under it ("WORDS PER MINUTE / Your pace, this dictation"). It draws in a fixed, click-through layer, so nothing moves, and fades in over 60 ms. Names follow DESIGN.md, one per real element: History, Copy, Cancel, Reprocess, Live preview, Voice trace, Record square, Timer, Word count, Words per minute, Target app, Mic input. Source: [`callouts.js`](callouts.js), inlined into `index.html`.
 
@@ -109,6 +109,7 @@ The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked 
 7. Getting Started is Quick Setup plus the playground, nothing else; Fig. 1 lives on the Welcome step and in Feedback's About. (Atin, round 3)
 8. A GitHub link in the stamp, Feedback and the menu (Atin, round 4). Hover callouts live only on Getting Started's reference pill; the live overlay is unchanged (Atin, round 6).
 9. Getting Started is the bare 00 row at the top of the sidebar; 0 jumps to it. (Atin, round 5)
+10. Getting Started teaches the dictation key with a practice drill; the reference pill shows its hoverable zones in dashed orange; Settings leads with the microphone, then hotkeys, then dictation. (Atin, round 7)
 
 ## Unsure
 

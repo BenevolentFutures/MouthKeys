@@ -44,9 +44,10 @@
       }
       return best;
     }
-    function hide() { layer.classList.remove("on"); cur = null; }
+    function hide() { layer.classList.remove("on"); if (cur) cur.el.classList.remove("is-co"); cur = null; }
     function show(hit) {
       const { el, item } = hit;
+      document.querySelectorAll(".is-co").forEach((x) => x !== el && x.classList.remove("is-co")); el.classList.add("is-co");
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height || getComputedStyle(el).visibility === "hidden") return hide();
       const host = (item.anchor && el.closest(item.anchor)) || (cfg.anchor && el.closest(cfg.anchor)) || el;
