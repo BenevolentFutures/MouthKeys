@@ -279,6 +279,7 @@ final class ASRService: ObservableObject {
     private var settingsBackupRestoreObserver: NSObjectProtocol?
     private var clamshellStateChangeObserver: NSObjectProtocol?
     private var inputDeviceAvailabilityChangeObserver: NSObjectProtocol?
+    private var microphonePickObserver: NSObjectProtocol?
 
     // MARK: - Error Handling
 
@@ -1613,6 +1614,15 @@ final class ASRService: ObservableObject {
                 self?.handleClamshellStateChanged(isClosed: isClosed)
             }
         }
+        self.microphonePickObserver = NotificationCenter.default.addObserver(
+            forName: .microphonePickDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleInputDeviceAvailabilityChanged(deviceID: nil, reason: "microphone picked")
+            }
+        }
         self.inputDeviceAvailabilityChangeObserver = NotificationCenter.default.addObserver(
             forName: .inputDeviceAvailabilityDidChange,
             object: nil,
@@ -1641,6 +1651,9 @@ final class ASRService: ObservableObject {
         if let observer = self.inputDeviceAvailabilityChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = self.microphonePickObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     private func handleClamshellStateChanged(isClosed: Bool) {
@@ -1655,7 +1668,9 @@ final class ASRService: ObservableObject {
         )
     }
 
-    private func handleInputDeviceAvailabilityChanged(deviceID: AudioObjectID?) {
+    /// Moves capture to the resolved input when it is no longer the one recording (or prepared):
+    /// mid-dictation through active route recovery, which keeps the session and its audio.
+    private func handleInputDeviceAvailabilityChanged(deviceID: AudioObjectID?, reason: String? = nil) {
         let resolvedInput = AppServices.shared.microphonePreferenceCoordinator.inputDeviceForCapture()
         let preparedDeviceID = self.directAudioLifecycleController.snapshot.deviceID
         let confirmedUID = AppServices.shared.microphonePreferenceCoordinator.confirmedActiveInputUID
@@ -1664,7 +1679,7 @@ final class ASRService: ObservableObject {
         guard activeSelectionChanged || preparedSelectionChanged else { return }
 
         self.scheduleAudioRouteRecovery(
-            reason: "input availability changed:\(deviceID ?? 0)",
+            reason: reason ?? "input availability changed:\(deviceID ?? 0)",
             requiresIdlePrewarm: true,
             reconcilesInputSelection: true
         )

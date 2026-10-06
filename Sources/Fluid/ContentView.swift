@@ -3575,6 +3575,9 @@ struct ContentView: View {
         self.menuBarManager.onToggleDictationRequested = {
             self.hotkeyManager?.toggleRecordingFromMenu()
         }
+        DeliveryDebugTriggers.onToggleDictation = {
+            self.hotkeyManager?.toggleRecordingFromMenu()
+        }
 
         guard self.hotkeyManager == nil else { return }
 

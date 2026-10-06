@@ -30,6 +30,22 @@ enum DeliveryDebugTriggers {
     /// can post it once the triggers are enabled: enable them only while checking.
     static let deliverTextAndSend = Notification.Name("com.stage11.mouthkeys.debug.deliverTextAndSend")
 
+    /// Starts or stops a dictation, as the menu bar's Start Dictation does: no hotkey, so an agent
+    /// can drive a Debug build while the installed app holds the real shortcut.
+    static let toggleDictation = Notification.Name("com.stage11.mouthkeys.debug.toggleDictation")
+    /// Cancels the dictation in progress, as the overlay's Cancel chip does (nothing is delivered).
+    static let cancelDictation = Notification.Name("com.stage11.mouthkeys.debug.cancelDictation")
+    /// Logs the live preview and the overlay's microphone label (DEBUG_DELIVERY preview ...).
+    static let logPreview = Notification.Name("com.stage11.mouthkeys.debug.logPreview")
+
+    /// Logs the overlay mic label's and the microphone card's frames, in global display
+    /// coordinates with a top-left origin (what CGEvent takes), and the card's rows in order:
+    /// DEBUG_DELIVERY targets mic=x,y,w,h card=x,y,w,h|none rows=Name A|Name B.
+    static let logOverlayTargets = Notification.Name("com.stage11.mouthkeys.debug.logOverlayTargets")
+
+    /// Set by ContentView once the hotkey manager exists.
+    static var onToggleDictation: (() -> Void)?
+
     private static var observers: [NSObjectProtocol] = []
     private static let typingService = TypingService()
 
@@ -70,8 +86,47 @@ enum DeliveryDebugTriggers {
                 await self.deliverTextAndSend(text)
             }
         })
+        self.observers.append(center.addObserver(forName: self.toggleDictation, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                DebugLogger.shared.info("DEBUG_DELIVERY toggleDictation", source: "DeliveryDebugTriggers")
+                self.onToggleDictation?()
+            }
+        })
+        self.observers.append(center.addObserver(forName: self.cancelDictation, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                DebugLogger.shared.info("DEBUG_DELIVERY cancelDictation", source: "DeliveryDebugTriggers")
+                NotchContentState.shared.onCancelRequested?()
+            }
+        })
+        self.observers.append(center.addObserver(forName: self.logPreview, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                DebugLogger.shared.info(
+                    "DEBUG_DELIVERY preview mic='\(SignalOverlayModel.shared.microphoneName)' " +
+                        "text='\(NotchContentState.shared.cachedPreviewText)'",
+                    source: "DeliveryDebugTriggers"
+                )
+            }
+        })
+        self.observers.append(center.addObserver(forName: self.logOverlayTargets, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                let frames = BottomOverlayMicrophonePickerController.shared.debugFrames
+                let rows = MicrophonePickerModel.shared.rows.map(\.device.name).joined(separator: "|")
+                DebugLogger.shared.info(
+                    "DEBUG_DELIVERY targets mic=\(Self.topLeft(frames.label)) " +
+                        "card=\(frames.card.map(Self.topLeft) ?? "none") rows=\(rows)",
+                    source: "DeliveryDebugTriggers"
+                )
+            }
+        })
         DebugLogger.shared.info("Delivery debug triggers enabled", source: "DeliveryDebugTriggers")
         #endif
+    }
+
+    /// An AppKit screen rect (bottom-left origin) as "x,y,w,h" in CoreGraphics' top-left space.
+    private static func topLeft(_ rect: CGRect) -> String {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let y = primaryHeight - rect.maxY
+        return "\(Int(rect.minX.rounded())),\(Int(y.rounded())),\(Int(rect.width.rounded())),\(Int(rect.height.rounded()))"
     }
 
     private static func deliverTextAndSend(_ text: String) async {

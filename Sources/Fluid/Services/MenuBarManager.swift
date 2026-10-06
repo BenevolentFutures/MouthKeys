@@ -968,15 +968,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             item.target = self
             item.representedObject = device
             item.state = device.uid == currentUID ? .on : .off
-            item.isEnabled = !self.isRecording
             submenu.addItem(item)
-        }
-
-        if self.isRecording {
-            submenu.addItem(.separator())
-            let recordingItem = NSMenuItem(title: "Unavailable while recording", action: nil, keyEquivalent: "")
-            recordingItem.isEnabled = false
-            submenu.addItem(recordingItem)
         }
     }
 
@@ -997,10 +989,10 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     }
 
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
-        guard self.isRecording == false else { return }
         guard let device = sender.representedObject as? AudioDevice.Device else { return }
 
-        SettingsStore.shared.recordInputDeviceSelection(device.uid, name: device.name)
+        // Mid-dictation too: capture moves to the picked microphone and the recording goes on.
+        AppServices.shared.microphonePreferenceCoordinator.pick(device, source: "menu_bar")
 
         self.refreshMicrophoneMenu()
     }
