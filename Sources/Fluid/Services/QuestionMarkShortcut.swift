@@ -25,15 +25,17 @@ nonisolated enum QuestionMarkShortcut {
         return self.replacingTrailing(in: doubled.text, literalRegex: literalRegex)
     }
 
-    /// Two Qs in a row, anywhere. A real word never starts or ends inside the match ("Q3", "IQ").
+    /// Two Qs in a row, anywhere. A real word never starts or ends inside the match ("Q3", "IQ"),
+    /// and neither does a flag or a path ("pytest -q", "apt-get -qq", "~/q"). No hyphen between
+    /// the Qs: "Q-Q plot" is a term.
     private static let doubledRegex = try? NSRegularExpression(
-        pattern: #"(?i)(?<![\p{L}\p{N}_'’])(?:qq|(?:q|queue|cue)[\s.,;:!?-]+(?:q|queue|cue))(?![\p{L}\p{N}_'’])"#
+        pattern: #"(?i)(?<![\p{L}\p{N}_'’\-/\\.@#$=~])(?:qq|(?:q|queue|cue)[\s.,;:!?]+(?:q|queue|cue))(?![\p{L}\p{N}_'’])"#
     )
 
     /// A Q or "cue" that ends the text, with any punctuation the transcriber put after it.
     /// Not "queue": "Add it to the queue" ends a real sentence.
     private static let trailingRegex = try? NSRegularExpression(
-        pattern: #"(?i)(?<![\p{L}\p{N}_'’])(?:q|cue)[\s.,;:!?]*$"#
+        pattern: #"(?i)(?<![\p{L}\p{N}_'’\-/\\.@#$=~])(?:q|cue)[\s.,;:!?]*$"#
     )
 
     /// Punctuation the transcriber put where the question mark goes.
@@ -56,15 +58,18 @@ nonisolated enum QuestionMarkShortcut {
                 continue
             }
             output += self.endingWithQuestionMark(before)
-            let next = after
-                .drop(while: { self.replacedEndings.contains($0) || $0 == "?" })
-                .drop(while: \.isWhitespace)
+            let afterPunctuation = after.drop(while: { self.replacedEndings.contains($0) || $0 == "?" })
+            let spacing = afterPunctuation.prefix(while: \.isWhitespace)
+            let next = afterPunctuation.dropFirst(spacing.count)
             guard let first = next.first else {
                 rest = ""
                 break
             }
-            output += " "
-            rest = first.uppercased() + next.dropFirst()
+            // A spoken "new line" stays; any other spacing becomes one space.
+            output += spacing.contains(where: \.isNewline) ? String(spacing) : " "
+            // A new sentence: "and then" becomes "And then", but "iPhone" and "API" stay.
+            let word = next.prefix { !$0.isWhitespace }
+            rest = word == word.lowercased() ? first.uppercased() + next.dropFirst() : String(next)
         }
         return (output + rest, endsLiteral)
     }

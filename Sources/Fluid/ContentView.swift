@@ -2494,7 +2494,7 @@ struct ContentView: View {
 
         let shouldShowAIProcessingFailure = shouldPersistOutputs && aiFallbackReason != nil
         if shouldShowAIProcessingFailure {
-            self.pendingAIReprocessText = spokenSend.phraseDetected ? normalizedTranscribedText : transcribedText
+            self.pendingAIReprocessText = spokenSend.phraseDetected ? spokenSend.text : transcribedText
             NotchContentState.shared.showAIProcessingFailure()
             self.menuBarManager.finishProcessingKeepingOverlayVisible()
         } else {
@@ -2517,7 +2517,7 @@ struct ContentView: View {
                 id: historyEntryID,
                 timestamp: historyTimestamp,
                 // Without the send phrase, so reprocessing never types it.
-                rawText: spokenSend.phraseDetected ? normalizedTranscribedText : transcribedText,
+                rawText: spokenSend.phraseDetected ? spokenSend.text : transcribedText,
                 processedText: finalText,
                 appName: appInfo.name,
                 windowTitle: appInfo.windowTitle,

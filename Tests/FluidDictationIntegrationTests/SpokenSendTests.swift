@@ -552,9 +552,18 @@ final class QuestionMarkShortcutTests: XCTestCase {
     }
 
     func testRealWordsAreLeftAlone() {
-        for text in ["Add it to the queue", "Add it to the queue.", "The Q3 numbers and IQ tests", "Star Trek's Q is back", "Q&A"] {
+        for text in [
+            "Add it to the queue", "Add it to the queue.", "The Q3 numbers and IQ tests", "Star Trek's Q is back", "Q&A",
+            "uv run pytest -q", "apt-get install -qq", "cd ~/q", "Make a Q-Q plot",
+        ] {
             XCTAssertEqual(self.apply(text), text, text)
         }
+    }
+
+    func testTextAfterTwoQsKeepsItsLineBreakAndItsCase() {
+        XCTAssertEqual(self.apply("Is this OK Q Q\nNext item"), "Is this OK?\nNext item")
+        XCTAssertEqual(self.apply("Does it work Q Q iPhone first"), "Does it work? iPhone first")
+        XCTAssertEqual(self.apply("Is it fast Q Q the API is"), "Is it fast? The API is")
     }
 
     func testTheLiteralPrefixTypesTheLetter() {
