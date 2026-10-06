@@ -2,6 +2,8 @@
 
 **Status: direction accepted by Atin, round 2 (2026-10-02).** Round 1: "Holy shit. This looks sick." All five round 1 decisions accepted. Round 2 adds the grin as a literal logo. No Swift was touched.
 
+**Build:** ready to start, not started (2026-10-05). Plan: [`BUILDPLAN.md`](BUILDPLAN.md). Paste-ready orchestrator prompt: [`BUILD-PROMPT.md`](BUILD-PROMPT.md).
+
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
 Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it (Getting Started only).
