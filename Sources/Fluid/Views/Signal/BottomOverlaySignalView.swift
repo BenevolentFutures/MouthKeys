@@ -17,6 +17,7 @@ struct BottomOverlayView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var spokenSend = SpokenSendController.shared
     @ObservedObject private var historyCard = BottomOverlayHistoryMenuController.shared
+    @ObservedObject private var microphoneCard = BottomOverlayMicrophonePickerController.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The pointer is over the pill itself (not the rails, their gutter or the empty chip slot):
@@ -28,6 +29,10 @@ struct BottomOverlayView: View {
     /// Where the History chip is on screen, for the card's anchor. A reference, not view state:
     /// the anchor reader reports it during view updates, which must not invalidate the view.
     @State private var historyChipAnchor = SignalChipAnchor()
+    /// Where the mic label is on screen, for the microphone card (the card's controller owns it).
+    private var micLabelAnchor: SignalChipAnchor {
+        BottomOverlayMicrophonePickerController.shared.labelAnchor
+    }
     /// Where the overlay's visible content (the pill between its rails) is on screen: the history
     /// card centres on it.
     @State private var overlayAnchor = SignalOverlayAnchor()
@@ -163,6 +168,7 @@ struct BottomOverlayView: View {
                     parentWindow: self.historyChipAnchor.window,
                     maxWidth: SignalTheme.Metrics.historyWidth
                 )
+                BottomOverlayMicrophonePickerController.shared.hide(reason: "history_opened")
                 BottomOverlayHistoryMenuController.shared.toggleFromTap()
             }
         }
@@ -295,6 +301,7 @@ struct BottomOverlayView: View {
             switch display {
             case .delivered, .idle:
                 BottomOverlayHistoryMenuController.shared.hide()
+                BottomOverlayMicrophonePickerController.shared.hide(reason: "dictation_done")
             case .listening, .stopped, .transcribing, .notice, .noticeRow:
                 break
             }
@@ -309,6 +316,7 @@ struct BottomOverlayView: View {
         // A hidden overlay gets no hover-out: forget the hover so no bracket shows at rest next time.
         .onChange(of: self.contentState.isBottomOverlayPresented) { _, presented in
             guard !presented else { return }
+            BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_hidden")
             self.isHoveringPill = false
             self.hoveredChips.removeAll()
         }
@@ -346,7 +354,11 @@ struct BottomOverlayView: View {
                 counterClock: self.model.counterClock,
                 placard: self.placard,
                 micBattery: self.model.micBattery,
-                micPrefix: self.micPrefix
+                micPrefix: self.micPrefix,
+                onMicTap: self.canPickMicrophone(display) ? { self.toggleMicrophoneCard() } : nil,
+                micAnchor: self.micLabelAnchor,
+                isMicLatched: self.microphoneCard.isOpen,
+                isMicHoverForced: self.model.inspectionHover == "mic"
             ),
             isBracketVisible: pillBracket
         ) {
@@ -357,7 +369,11 @@ struct BottomOverlayView: View {
         .simultaneousGesture(TapGesture().onEnded {
             // While SEND shows and the Return can still be dropped (listening, stopped or
             // transcribing, until the stop decides), a click cancels it.
-            guard self.isInteractive, self.canCancelSend else { return }
+            // A click on the mic label opens the microphone card and never cancels Send. Judged by
+            // where the click is, not by hover state, which a hidden label can leave stale.
+            guard self.isInteractive, self.canCancelSend,
+                  !self.micLabelAnchor.frameInScreen.contains(NSEvent.mouseLocation)
+            else { return }
             BottomOverlayWindowController.shared.cancelSpokenSendIfArmed()
         })
         .help(self.canCancelSend ? "Click to cancel Send" : "")
@@ -582,6 +598,27 @@ struct BottomOverlayView: View {
         return parts.map { $0 + " · " }.joined()
     }
 
+    // MARK: Microphone
+
+    /// The mic label opens the microphone card whenever the overlay takes clicks, except during
+    /// the delivered hold (where no control acts). It stays a label there, in the same frame.
+    private func canPickMicrophone(_ display: Display) -> Bool {
+        switch display {
+        case .delivered, .idle: false
+        case .listening, .stopped, .transcribing, .notice, .noticeRow: true
+        }
+    }
+
+    private func toggleMicrophoneCard() {
+        self.perform {
+            BottomOverlayMicrophonePickerController.shared.toggle(
+                labelFrameInScreen: self.micLabelAnchor.frameInScreen,
+                overlayFrameInScreen: self.overlayAnchor.frameInScreen(window: self.micLabelAnchor.window),
+                parentWindow: self.micLabelAnchor.window
+            )
+        }
+    }
+
     private func rememberAppIcon(_ icon: NSImage?) {
         guard let icon else { return }
         self.lastResolvedAppIcon = icon
@@ -597,6 +634,8 @@ struct BottomOverlayView: View {
                 guard self.isInteractive else { return }
                 let mouse = NSEvent.mouseLocation
                 if self.dragStartMouseLocation == nil {
+                    // The card is placed against the overlay where it was; a moved overlay closes it.
+                    BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_drag")
                     self.dragStartMouseLocation = mouse
                     self.dragStartWindowOrigin = BottomOverlayWindowController.shared.frameOriginForDrag
                 }

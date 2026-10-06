@@ -50,7 +50,7 @@ xcodebuild -project Fluid.xcodeproj -scheme Fluid -configuration Debug -destinat
 
 Green tests are not a working product. Mic capture, Accessibility and real paste into c11 need a check in the running app. When you cannot drive it yourself, hand Atin concrete steps. After every install, Atin runs `docs/INSTALL-CHECKLIST.md`; add a line there when a change needs a real-path check.
 
-Scripted delivery checks (Debug builds only): `defaults write com.stage11.mouthkeys.dev MouthKeysDebugDeliveryTriggers -bool YES`, then post a `com.stage11.mouthkeys.debug.*` distributed notification (see `DeliveryDebugTriggers.swift`).
+Scripted delivery checks (Debug builds only): `defaults write com.stage11.mouthkeys.dev MouthKeysDebugDeliveryTriggers -bool YES`, then post a `com.stage11.mouthkeys.debug.*` distributed notification (see `DeliveryDebugTriggers.swift`). `toggleDictation` and `cancelDictation` drive a dictation without the hotkey; `logOverlayTargets` logs the overlay's mic label and the microphone card in global top-left coordinates, for a real click with `cliclick`. Launched straight from a c11 shell, a Debug build inherits c11's Microphone and Accessibility grants; first move its shortcuts off Atin's keys (its own `.dev` defaults: `PrimaryDictationShortcuts`, `CancelRecordingHotkeyShortcut`) so its event tap never answers his hotkey.
 
 ## Website
 

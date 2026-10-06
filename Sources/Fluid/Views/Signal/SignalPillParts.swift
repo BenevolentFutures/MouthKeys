@@ -204,8 +204,17 @@ struct SignalFootRow: View {
     /// place of `micText`, after `micPrefix` ("EDIT · ").
     var micBattery: SignalMicBattery?
     var micPrefix = ""
+    /// Clicking the mic label opens the microphone card (nil: a plain label, as in renders and
+    /// the failure card). `micAnchor` receives the label's screen frame for the card.
+    var onMicTap: (() -> Void)?
+    var micAnchor: SignalChipAnchor?
+    /// The card is open: the label stays inverted.
+    var isMicLatched = false
+    /// Draws the mic label's hover bracket regardless of the pointer (renders and inspection).
+    var isMicHoverForced = false
 
     @Environment(\.signalPalette) private var palette
+    @State private var isMicHovered = false
 
     var body: some View {
         let metrics = SignalTheme.Metrics.self
@@ -225,20 +234,7 @@ struct SignalFootRow: View {
                 .frame(width: metrics.targetIcon, height: metrics.targetIcon)
                 .help("Dictation target app")
 
-                if let battery = self.micBattery {
-                    self.lapelLabel(battery, role: role)
-                } else {
-                    SignalMonoLabel(
-                        text: self.micText,
-                        role: role,
-                        color: self.isMicEmphasized ? self.palette.text : self.palette.text2
-                    )
-                        .truncationMode(.tail)
-                        // Its own width (plus 1 pt so SwiftUI's measure never truncates a name that
-                        // fits), at most 160, so the icon and the name centre as a pair.
-                        .frame(width: min(metrics.micMaxWidth, role.width(of: self.micText.uppercased()) + 1))
-                        .help("Microphone")
-                }
+                self.micControl(role: role)
             }
 
             HStack(spacing: 0) {
@@ -256,6 +252,59 @@ struct SignalFootRow: View {
             }
         }
         .frame(height: metrics.micRowHeight)
+        // A label that stops being a button under the pointer never gets its hover-out.
+        .onChange(of: self.onMicTap == nil) { _, isPlain in
+            if isPlain { self.isMicHovered = false }
+        }
+    }
+
+    @ViewBuilder
+    private func micLabel(role: SignalTheme.TypeRole) -> some View {
+        if let battery = self.micBattery {
+            self.lapelLabel(battery, role: role)
+        } else {
+            SignalMonoLabel(
+                text: self.micText,
+                role: role,
+                color: self.isMicLatched ? self.palette.invForeground
+                    : (self.isMicEmphasized ? self.palette.text : self.palette.text2)
+            )
+                .truncationMode(.tail)
+                // Its own width (plus 1 pt so SwiftUI's measure never truncates a name that
+                // fits), at most 160, so the icon and the name centre as a pair.
+                .frame(width: min(SignalTheme.Metrics.micMaxWidth, role.width(of: self.micText.uppercased()) + 1))
+                .help(self.onMicTap == nil ? "Microphone" : "Microphone: click to choose")
+        }
+    }
+
+    /// The mic label, and with `onMicTap` a button on it (Atin 2026-10-05: "whenever I click on
+    /// the microphone, a picker appears"). Same frame either way, so nothing in the row moves:
+    /// a chip bracket outside it on hover, inverted while the card is open (DESIGN.md §7).
+    @ViewBuilder
+    private func micControl(role: SignalTheme.TypeRole) -> some View {
+        if let onMicTap = self.onMicTap {
+            Button(action: onMicTap) {
+                self.micLabel(role: role)
+                    .background(self.isMicLatched ? self.palette.invBackground : Color.clear)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .signalClickTarget()
+            .signalBracket(.chip, visible: self.isMicHovered || self.isMicHoverForced)
+            .onHover { hovering in
+                if hovering != self.isMicHovered { self.isMicHovered = hovering }
+            }
+            .background(
+                PromptSelectorAnchorReader { [micAnchor] frameInScreen, window in
+                    micAnchor?.frameInScreen = frameInScreen
+                    micAnchor?.window = window
+                }
+                .allowsHitTesting(false)
+            )
+            .accessibilityLabel("Microphone: \(self.micText). Choose microphone")
+        } else {
+            self.micLabel(role: role)
+        }
     }
 
     /// "HOLLYLAND LAPEL 33%" in the mic label's face, a low percent in `accent`, in a box reserved
@@ -278,11 +327,11 @@ struct SignalFootRow: View {
             .font(role.font)
             .tracking(role.tracking)
             .monospacedDigit()
-            .foregroundStyle(self.palette.text2)
+            .foregroundStyle(self.isMicLatched ? self.palette.invForeground : self.palette.text2)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(width: layout.width, alignment: .leading)
-            .help("Microphone and battery")
+            .help(self.onMicTap == nil ? "Microphone and battery" : "Microphone and battery: click to choose")
             .accessibilityLabel(spoken)
     }
 

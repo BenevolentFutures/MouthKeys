@@ -32,10 +32,17 @@ struct CoreAudioDeviceManager: AudioDeviceManaging {
     }
 }
 
+extension Notification.Name {
+    /// The user picked a microphone (`MicrophonePreferenceCoordinator.pick`).
+    static let microphonePickDidChange = Notification.Name("MicrophonePickDidChange")
+}
+
 @MainActor
 final class MicrophonePreferenceCoordinator: ObservableObject {
     private let settings: SettingsStore
     private let devices: any AudioDeviceManaging
+    /// Where `pick` announces itself (ASRService listens on the default one); tests pass their own.
+    private let notificationCenter: NotificationCenter
     private var lastResolvedInputUID: String?
     private var lastResolvedInputName: String?
     private var hasConfirmedActiveSelection = false
@@ -48,10 +55,12 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
 
     init(
         settings: SettingsStore? = nil,
-        devices: (any AudioDeviceManaging)? = nil
+        devices: (any AudioDeviceManaging)? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.settings = settings ?? .shared
         self.devices = devices ?? CoreAudioDeviceManager()
+        self.notificationCenter = notificationCenter
     }
 
     var needsMicrophonePriorityMigration: Bool {
@@ -218,6 +227,28 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
             self.confirmedActiveInputUID = nil
         }
         return selectedInput
+    }
+
+    /// The user picked `device` (the overlay's microphone card or the menu bar): it goes first in
+    /// MouthKeys' own order, never the macOS default input, so a daemon that pins the system
+    /// default (mic-priority) cannot revert it. ASRService moves capture to it at once, mid-
+    /// dictation included (`microphonePickDidChange`). No "microphone changed" notice: the user
+    /// just chose it.
+    func pick(_ device: AudioDevice.Device, source: String) {
+        let previousName = self.lastResolvedInputName
+        self.settings.recordInputDeviceSelection(device.uid, name: device.name)
+        self.lastResolvedInputUID = device.uid
+        self.lastResolvedInputName = device.name
+        LapelMicBatteryMonitor.shared.noteSelectedInput(uid: device.uid)
+        if NotchContentState.shared.isBottomOverlayPresented {
+            SignalOverlayModel.shared.microphoneName = device.name
+        }
+        DebugLogger.shared.info(
+            "MIC_PICK source=\(source) name='\(device.name)' uid=\(device.uid) " +
+                "previous='\(previousName ?? "none")'",
+            source: "MicrophonePreferenceCoordinator"
+        )
+        self.notificationCenter.post(name: .microphonePickDidChange, object: nil)
     }
 
     /// The microphone capture resolved last, for the overlay's mic row.

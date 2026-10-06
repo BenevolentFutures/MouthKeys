@@ -145,6 +145,7 @@ final class BottomOverlayWindowController {
         self.pendingResizeWorkItem?.cancel()
         self.pendingResizeWorkItem = nil
         BottomOverlayHistoryMenuController.shared.hide()
+        BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_reset")
         self.ensureMouseDownMonitors()
 
         // Create window if needed
@@ -331,6 +332,7 @@ final class BottomOverlayWindowController {
         self.targetScreen = nil
         self.removeMouseDownMonitors()
         BottomOverlayHistoryMenuController.shared.hide()
+        BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_reset")
         // Publish only real changes: each one re-renders the overlay.
         if NotchContentState.shared.isProcessing {
             NotchContentState.shared.setProcessing(false)
@@ -693,6 +695,7 @@ final class BottomOverlayWindowController {
         self.cancelDeliveryHold()
         self.nextHideIsCut = false
         BottomOverlayHistoryMenuController.shared.hide()
+        BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_reset")
         self.ensureMouseDownMonitors()
         if self.window == nil {
             self.createWindow()
@@ -1040,6 +1043,7 @@ final class BottomOverlayWindowController {
     private func dismissMenusForClick(screenPoint: NSPoint) {
         guard self.window?.isVisible == true else { return }
         BottomOverlayHistoryMenuController.shared.dismissIfNeeded(for: screenPoint)
+        BottomOverlayMicrophonePickerController.shared.dismissIfNeeded(for: screenPoint)
     }
 
     private func positionWindow() {

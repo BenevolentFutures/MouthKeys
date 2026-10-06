@@ -1745,6 +1745,84 @@ final class HotkeyShortcutTests: XCTestCase {
     }
 
     @MainActor
+    func testMicrophonePickPutsDeviceFirstForMouthKeysOnly() throws {
+        try self.withRestoredDefaults(keys: [
+            self.microphoneSelectionModeKey,
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let internalMic = Self.device(uid: "internal", name: "MacBook Pro Microphone")
+            let lapel = Self.device(uid: "lapel", name: "Hollyland Lapel Mic")
+            SettingsStore.shared.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            SettingsStore.shared.microphonePriority = [
+                .init(uid: "internal", name: "MacBook Pro Microphone"),
+                .init(uid: "lapel", name: "Hollyland Lapel Mic"),
+            ]
+            SettingsStore.shared.suppressedMicrophoneUIDs = ["lapel"]
+            let devices = FakeAudioDeviceManager(inputs: [internalMic, lapel], defaultInputUID: "internal")
+            // A private center: the test host's ASRService must not re-route real capture.
+            let center = NotificationCenter()
+            let coordinator = MicrophonePreferenceCoordinator(
+                settings: .shared,
+                devices: devices,
+                notificationCenter: center
+            )
+            let announced = expectation(forNotification: .microphonePickDidChange, object: nil, notificationCenter: center)
+
+            coordinator.pick(lapel, source: "test")
+
+            wait(for: [announced], timeout: 2)
+            XCTAssertEqual(SettingsStore.shared.microphonePriority.map(\.uid), ["lapel", "internal"])
+            XCTAssertFalse(SettingsStore.shared.suppressedMicrophoneUIDs.contains("lapel"))
+            XCTAssertEqual(SettingsStore.shared.preferredInputDeviceUID, "lapel")
+            XCTAssertEqual(coordinator.inputDeviceForCapture()?.uid, "lapel")
+            XCTAssertEqual(coordinator.lastResolvedMicrophoneName, "Hollyland Lapel Mic")
+        }
+    }
+
+    @MainActor
+    func testMicrophonePickerRowsKeepTheirOrderAndMarkUnusableInputs() {
+        let dead = AudioDevice.Device(
+            id: 9, uid: "dead", name: "Gone Mic", hasInput: true, hasOutput: false,
+            transportType: kAudioDeviceTransportTypeUSB, isAlive: false
+        )
+        let devices = [
+            Self.device(uid: "blackhole", name: "BlackHole 2ch", transportType: kAudioDeviceTransportTypeVirtual),
+            Self.device(uid: "CADefaultDeviceAggregate-123", name: "CADefaultDeviceAggregate-123"),
+            dead,
+            Self.device(uid: "internal", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn),
+        ]
+
+        let open = MicrophonePickerModel.rows(from: devices, clamshellClosed: false)
+        XCTAssertEqual(open.map(\.id), ["blackhole", "dead", "internal"])
+        XCTAssertEqual(open.map(\.isUsable), [true, false, true])
+        XCTAssertEqual(open.map(\.kind), ["Virtual", "USB", "Built-in"])
+
+        let closed = MicrophonePickerModel.rows(from: devices, clamshellClosed: true)
+        XCTAssertEqual(closed.map(\.id), ["blackhole", "dead", "internal"])
+        XCTAssertEqual(closed.last?.isUsable, false)
+    }
+
+    func testMicrophonePickerMarksActiveAndSwitchingRows() {
+        // Settled: the capture device carries the filled square.
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "a", activeUID: "a", pendingUID: nil), .recording)
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "b", activeUID: "a", pendingUID: nil), .none)
+        // Switching: only the pick carries a mark, outlined, until capture confirms it.
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "b", activeUID: "a", pendingUID: "b"), .closed)
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "a", activeUID: "a", pendingUID: "b"), .none)
+        // Confirmed.
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "b", activeUID: "b", pendingUID: "b"), .recording)
+        // Nothing confirmed yet (before the first dictation).
+        XCTAssertEqual(MicrophonePickerModel.mark(for: "a", activeUID: nil, pendingUID: nil), .none)
+        // Picking the device already in use leaves nothing switching (no stuck outline).
+        XCTAssertNil(MicrophonePickerModel.pendingUID(afterPicking: "a", activeUID: "a"))
+        XCTAssertEqual(MicrophonePickerModel.pendingUID(afterPicking: "b", activeUID: "a"), "b")
+        XCTAssertEqual(MicrophonePickerModel.pendingUID(afterPicking: "b", activeUID: nil), "b")
+    }
+
+    @MainActor
     func testLegacyStoredMicrophoneWithoutModeKeyKeepsUserSelection() throws {
         try self.withRestoredDefaults(keys: [
             self.microphoneSelectionModeKey,
