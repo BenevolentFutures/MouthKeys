@@ -19,6 +19,20 @@ the script checks both before it does anything and says what is missing. any wor
 
 notarytool reads the profile from the login keychain, which locks with the screen. notarize with the Mac unlocked, or the profile reads as missing even though it worked a minute ago.
 
+## the short way.
+
+from the maintainer's Mac, with the version bump merged and `main` checked out clean:
+
+```bash
+scripts/release.sh ship --notes notes.md
+```
+
+it checks everything first (clean `origin/main`, the version not yet released, the Developer ID identity, the notary profile, main's CI, the build host), then builds that exact commit on the build host (`MOUTHKEYS_BUILD_HOST`, default `atlas`; `local` builds here), copies it back, signs, notarizes and staples it, drafts the GitHub release with the DMG, and installs it here the safe way (`scripts/release.sh install`: signature match, verified backup with a `rollback.sh`, quit, swap, and the hotkey must arm). then it asks: dictate once, type `publish`, and the release goes public and the download's sha256 is checked against the DMG. run without a terminal (an agent), it stops before publishing and prints `scripts/release.sh publish <version>`.
+
+per-machine settings go in `scripts/release.local.sh` (git-ignored), for example `MOUTHKEYS_NOTARY_PROFILE=acetate-notary`.
+
+the steps below are what it does, one at a time.
+
 ## each release.
 
 1. **version.** set `CFBundleShortVersionString` in `Info.plist` to the new version, and raise `CFBundleVersion` by one (it only ever goes up). merge to `main`. MouthKeys versions started at 0.1.0; the `v1.6.x` tags in this repo are FluidVoice's.

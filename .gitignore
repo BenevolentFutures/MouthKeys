@@ -225,3 +225,4 @@ design/visual-language/native-renders/
 
 ## Release output (scripts/release.sh)
 dist/
+scripts/release.local.sh
