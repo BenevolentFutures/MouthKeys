@@ -1,14 +1,14 @@
-# Build prompt: MouthKeys Signal window
+# Build prompt: MouthKeys Datasheet Mono window
 
 Paste everything below the line into a fresh seat (Claude Code on Opus, or Codex) opened in `~/Projects/MouthKeys` inside c11. It runs as the orchestrator: it builds phases 0 and 1 itself, then fans out lanes. Before pasting, check that the "Open with Atin" items in `BUILDPLAN.md` still stand, and that `design/app-signal` is pushed (the lanes branch from it).
 
 ---
 
-You are building the approved Signal redesign of the MouthKeys main window: a pure restyle of the SwiftUI app to match an HTML prototype, one to one, with no behavior change. You are the orchestrator. This run is loopy: implement, validate, iterate, report.
+You are building the approved Datasheet Mono redesign of the MouthKeys main window: a pure restyle of the SwiftUI app to match an HTML prototype, one to one, with no behavior change. You are the orchestrator. This run is loopy: implement, validate, iterate, report.
 
 **Read first, in order:**
 1. `CLAUDE.md`. Its rules bind every agent you launch: never touch `/Applications/MouthKeys.app` or its data, never install or release, keep the XCTest host invisible and silent, full suites on Atlas.
-2. `design/visual-language/DESIGN.md`, the locked Signal tokens.
+2. `design/visual-language/DESIGN.md`, the locked Datasheet Mono tokens.
 3. `design/app-signal/DIRECTION.md`: thesis, bracket rule, layout grid, screen table, native mapping, decisions on record.
 4. `design/app-signal/BUILDPLAN.md`: ground rules, where things live, phases, validation loop, parity checklist, risks. It is the contract; follow it.
 5. The prototype itself. Serve it with `PORT=8767 design/app-signal/serve.sh` (8766 is often held by the visual-language prototypes server, which serves a different folder and returns 404 here) and open it in a c11 browser tab. Keys: T theme, O wizard, S setup state, 0 to 9 screens. Screenshots of every screen in both themes are in `design/app-signal/shots/`.
@@ -22,7 +22,7 @@ You are building the approved Signal redesign of the MouthKeys main window: a pu
 4. Last: one Debug-build walkthrough of every screen in both themes, the wizard and the status menu, against the prototype. Fix what differs. Add the real-path checks to `docs/INSTALL-CHECKLIST.md`.
 
 **Hard rules.**
-- Nothing disappears except the Accent Color picker. States the prototype never drew still ship, styled in Signal (BUILDPLAN rule 2: permission recovery, conflicting copies, Relaunch, recording-disabled settings, model download states, the regional filler offer, the overlay mic picker).
+- Nothing disappears except the Accent Color picker. States the prototype never drew still ship, styled in Datasheet Mono (BUILDPLAN rule 2: permission recovery, conflicting copies, Relaunch, recording-disabled settings, model download states, the regional filler offer, the overlay mic picker).
 - The live overlay, the menu bar mark and text delivery stay untouched. Delivery into c11 and Ghostty must never regress.
 - Tokens only from `SignalTheme`; reuse the existing `Signal*` primitives; no layout jumps.
 - One agent at a time drives the screen with a Debug build, its shortcuts first moved off Atin's keys (CLAUDE.md, Validate). Confine it to a verified display, quit the Debug build when done, and never touch the installed app. Anything that could quit the installed app waits for an idle dictation log.

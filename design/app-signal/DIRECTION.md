@@ -1,4 +1,4 @@
-# MouthKeys app: Signal
+# MouthKeys app: Datasheet Mono
 
 **Status: direction accepted by Atin, round 2 (2026-10-02).** Round 1: "Holy shit. This looks sick." All five round 1 decisions accepted. Round 2 adds the grin as a literal logo. No Swift was touched.
 
@@ -102,7 +102,7 @@ The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked 
 
 ## Decisions on record
 
-1. **Accent Color picker removed, final** (Atin, round 2). Signal has one colour. Anyone who wants another forks MouthKeys and has their own agent change it, the same stance as AI Enhancement.
+1. **Accent Color picker removed, final** (Atin, round 2). Datasheet Mono has one colour. Anyone who wants another forks MouthKeys and has their own agent change it, the same stance as AI Enhancement.
 2. Edit Mode and Command Mode guidance dropped from Getting Started: both need an AI provider, which setup never asks for. Command Mode keeps its own screen with a not-ready banner. (Atin, round 2)
 3. Custom Dictionary popovers became inline tables. (Atin, round 2)
 4. History detail shows delivery (Pasted / NOT PASTED) to match the overlay card; AI Processed moves to the details line. The detail actions are the app's own: Copy, Audio, Export Pair, Delete (icon). (Atin, round 2)
