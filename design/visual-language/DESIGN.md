@@ -1,4 +1,6 @@
-# MouthKeys visual language: Signal
+# MouthKeys visual language: Datasheet Mono
+
+**Named Datasheet Mono by Atin on 2026-10-06; it was called Signal until then.** The rounds below and `notes/DIRECTIONS.md` keep the old name as history, and code, files and folders (`Signal*` types, `prototypes/signal/`) keep it until the main-window build renames them.
 
 **Status: locked by Atin, 2026-09-28** ("Awesome. This looks great. Let's go."), after four rounds on the recording overlay; **round 5 (same day) added the states the newer branch has** (Spoken Send, timeouts, recognition recovery, microphone permission, delivery-failure reasons, truthful wording, the app icon), see section 15; **round 6 (2026-10-01) made the pill shorter and gave the trace the room** (section 16), and the same day gave the foot row live counters, words and words per minute, and the Hollyland lapel mic's battery in the mic label (§16). This document is the binding design for the native build. Where it and the prototype disagree, the prototype wins and this file gets fixed.
 

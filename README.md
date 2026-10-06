@@ -28,7 +28,7 @@ the problem is not hearing you. the problem is. delivery.
 - **live counters.** a timer, a word count and words per minute while you speak. [#27]
 - **your mic at a glance.** the active mic shows in the overlay, with the battery level of a Hollyland lapel mic. [#29], [#30]
 - **a history browser.** recent dictations, each one click from copy or reprocess. drag the overlay anywhere. [#25]
-- **an interface that stays quiet.** the overlay, history, cards, menu bar and icon share one visual language, Signal: square, flat, monochrome, with orange marking only what is live. copy, reprocess, cancel and history sit one click away on a slim rail beside the pill, and nothing on screen moves unless it means something. [#17], [design notes](design/visual-language/DESIGN.md)
+- **an interface that stays quiet.** the overlay, history, cards, menu bar and icon share one visual language, Datasheet Mono: square, flat, monochrome, with orange marking only what is live. copy, reprocess, cancel and history sit one click away on a slim rail beside the pill, and nothing on screen moves unless it means something. [#17], [design notes](design/visual-language/DESIGN.md)
 - **hotkey, mic and media fixes.** holds that always end, removed mics that stay removed, media resumed only if we paused it, a hung mic routed around, and a hotkey to reprocess the last dictation. [#2], [`8295536`][8295536], [`68afebc`][68afebc], [`0e2948a`][0e2948a]
 
 <p align="center"><img src="docs/images/history.png" width="520" alt="The MouthKeys history browser open directly above the recording overlay: recent dictations newest first, each with its time, word count and destination app. Below it, the overlay is mid-dictation with its live transcript, voice trace, timer and counters."></p>
