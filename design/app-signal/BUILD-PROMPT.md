@@ -11,7 +11,7 @@ You are building the approved Signal redesign of the MouthKeys main window: a pu
 2. `design/visual-language/DESIGN.md`, the locked Signal tokens.
 3. `design/app-signal/DIRECTION.md`: thesis, bracket rule, layout grid, screen table, native mapping, decisions on record.
 4. `design/app-signal/BUILDPLAN.md`: ground rules, where things live, phases, validation loop, parity checklist, risks. It is the contract; follow it.
-5. The prototype itself. Serve it with `design/app-signal/serve.sh` (port 8766) and open it in a c11 browser tab. Keys: T theme, O wizard, S setup state, 0 to 9 screens. Screenshots of every screen in both themes are in `design/app-signal/shots/`.
+5. The prototype itself. Serve it with `PORT=8767 design/app-signal/serve.sh` (8766 is often held by the visual-language prototypes server, which serves a different folder and returns 404 here) and open it in a c11 browser tab. Keys: T theme, O wizard, S setup state, 0 to 9 screens. Screenshots of every screen in both themes are in `design/app-signal/shots/`.
 
 **Branching.** Start from `origin/main`. Work on `feature/signal-window` and one branch per lane off it, or off `main` after phases 0 and 1 merge. Bring `design/app-signal/` into the first PR so the reference lives in the repo. PRs go to `--repo BenevolentFutures/MouthKeys --base main`.
 
