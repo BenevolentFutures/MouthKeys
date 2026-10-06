@@ -8,6 +8,14 @@
 #   scripts/release.sh package [APP]   # sign, notarize, staple, DMG, verify an existing build
 #   scripts/release.sh verify [APP] [DMG]
 #
+#   scripts/release.sh ship --notes FILE   # the whole release from the maintainer's Mac:
+#                                          # build on the build host, package here, draft the
+#                                          # GitHub release, install it here, ask, then publish
+#   scripts/release.sh remote-build        # Release build of HEAD on the build host, copied back
+#   scripts/release.sh install [APP]       # put a Developer ID app in /Applications: backup,
+#                                          # rollback script, swap, hotkey check
+#   scripts/release.sh publish [VERSION]   # publish the draft, check the download's sha256
+#
 # The two halves can run on different Macs: `build` needs only Xcode 26 and no
 # signing identity, so a build host can make the app; `package` needs the
 # Developer ID identity and the notary profile in the login keychain.
@@ -21,6 +29,11 @@
 #                                the result will not pass Gatekeeper on another Mac)
 #   MOUTHKEYS_DIST_DIR         output folder (default: <repo>/dist)
 #   FLUIDVOICE_DERIVED_DATA_PATH DerivedData folder (default: <repo>/DerivedData)
+#   MOUTHKEYS_BUILD_HOST       ssh host for ship/remote-build (default: atlas; "local" builds here)
+#   MOUTHKEYS_SHIP_DIR         ship's work folder (default: ~/Backups/mouthkeys-release-<version>)
+#
+# Per-machine settings (a notary profile under another name, a build host) can live in
+# scripts/release.local.sh, which is git-ignored and sourced first when present.
 #
 # Never launch the built app. It is com.stage11.mouthkeys, the installed app's
 # identity, and would write into the installed app's settings and data (CLAUDE.md).
@@ -28,6 +41,8 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=/dev/null
+[ -f "${PROJECT_DIR}/scripts/release.local.sh" ] && . "${PROJECT_DIR}/scripts/release.local.sh"
 DERIVED_DATA_PATH="${FLUIDVOICE_DERIVED_DATA_PATH:-${PROJECT_DIR}/DerivedData}"
 DIST_DIR="${MOUTHKEYS_DIST_DIR:-${PROJECT_DIR}/dist}"
 NOTARY_PROFILE="${MOUTHKEYS_NOTARY_PROFILE:-mouthkeys-notary}"
@@ -38,6 +53,21 @@ APP_NAME="MouthKeys.app"
 VOLUME_NAME="MouthKeys"
 
 IDENTITY=""
+
+# Copies of the app that carry the release bundle ID under another signer (the locally signed
+# build, an unsigned dist copy, a local build's clone) must not outlive a failed run: a stray copy
+# can poison the Accessibility grant (CLAUDE.md, Agent pitfalls).
+CLEANUP_BUILD=""
+CLEANUP_UNSIGNED=""
+CLEANUP_CLONE=""
+cleanup_on_exit() {
+    local path
+    for path in "${CLEANUP_BUILD}" "${CLEANUP_UNSIGNED}" "${CLEANUP_CLONE}"; do
+        [ -n "${path}" ] && rm -rf "${path}"
+    done
+    return 0
+}
+trap cleanup_on_exit EXIT
 
 die() {
     printf >&2 '\nrelease: %s\n' "$1"
@@ -359,6 +389,7 @@ run_package() {
 
     # Work on a copy, so the build product is never modified.
     rm -rf "${app}"
+    CLEANUP_UNSIGNED="${app}"
     ditto "${source_app}" "${app}"
 
     step "Sign with Developer ID"
@@ -383,10 +414,377 @@ run_package() {
     fi
 
     run_verify "${app}" "${dmg}"
+    CLEANUP_UNSIGNED=""
     echo
     echo "Release artifact: ${dmg}"
     [ "${SKIP_NOTARIZE}" = "1" ] && echo "NOT notarized: for a signing check only, not for upload."
     return 0
+}
+
+
+# ---------------------------------------------------------------- ship
+
+REPO_SLUG="BenevolentFutures/MouthKeys"
+BUILD_HOST="${MOUTHKEYS_BUILD_HOST:-atlas}"
+INSTALLED_APP="/Applications/${APP_NAME}"
+INSTALLED_LOG="${HOME}/Library/Logs/MouthKeys/Fluid.log"
+RELEASE_ID="com.stage11.mouthkeys"
+
+source_version() { plist_value "${PROJECT_DIR}/Info.plist" CFBundleShortVersionString; }
+ship_dir() { printf '%s' "${MOUTHKEYS_SHIP_DIR:-${HOME}/Backups/mouthkeys-release-$1}"; }
+
+# Release builds come from what is on GitHub, never from a working tree.
+check_clean_main() {
+    cd "${PROJECT_DIR}"
+    git fetch -q origin main --tags || die "git fetch failed."
+    [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the checkout has local changes; ship builds origin/main only."
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+        || die "HEAD is not origin/main. Merge the version bump, then: git switch main && git pull --ff-only"
+}
+
+# A failed main CI run on this commit stops the release; a pending or missing one only warns
+# (the macOS runner queue lags, and the bump PR's own CI already ran on the same tree).
+check_main_ci() {
+    local sha="$1" conclusion
+    conclusion="$(gh run list --repo "${REPO_SLUG}" --commit "${sha}" --json conclusion,status \
+        --jq '[.[] | select(.status=="completed") | .conclusion]
+              | if any(.=="failure" or .=="timed_out" or .=="startup_failure" or .=="action_required") then "failure"
+                elif length == 0 then "none"
+                elif all(.=="success" or .=="skipped" or .=="neutral") then "success"
+                else "incomplete" end' 2>/dev/null || echo unknown)"
+    case "${conclusion}" in
+        failure) die "CI failed on ${sha:0:8}; fix main first." ;;
+        success) echo "CI on ${sha:0:8}: passed" ;;
+        *) echo "CI on ${sha:0:8}: not passed yet (${conclusion}); the bump PR's run covers the same tree. Continuing." ;;
+    esac
+}
+
+# Release build of a commit on the build host from a fresh clone, copied back with ditto (which
+# keeps the framework symlinks). Prints nothing but progress; the app lands in $2.
+run_remote_build() {
+    local sha="$1" dest="$2"
+    local url remote
+    url="https://github.com/${REPO_SLUG}.git"
+    mkdir -p "${dest}"
+    rm -rf "${dest:?}/${APP_NAME}"
+    if [ "${BUILD_HOST}" = "local" ]; then
+        local clone
+        clone="$(mktemp -d -t mouthkeys-release-clone)"
+        CLEANUP_CLONE="${clone}"
+        git clone -q --filter=blob:none "${url}" "${clone}/repo"
+        git -C "${clone}/repo" checkout -q "${sha}"
+        env -u FLUIDVOICE_DERIVED_DATA_PATH -u MOUTHKEYS_DIST_DIR "${clone}/repo/scripts/release.sh" build \
+            || die "the local Release build failed."
+        ditto "${clone}/repo/DerivedData/Build/Products/Release/${APP_NAME}" "${dest}/${APP_NAME}"
+        rm -rf "${clone}"
+        CLEANUP_CLONE=""
+    else
+        step "Release build of ${sha:0:8} on ${BUILD_HOST} (about 5 minutes)"
+        remote="mouthkeys-release-builds/${sha:0:12}"
+        # shellcheck disable=SC2029
+        ssh -o ServerAliveInterval=30 -o ConnectTimeout=10 "${BUILD_HOST}" \
+            "set -e; rm -rf ~/${remote}; mkdir -p ~/${remote}; cd ~/${remote}
+             git clone -q --filter=blob:none '${url}' repo; cd repo; git checkout -q '${sha}'
+             if ! scripts/release.sh build > ../build.log 2>&1; then tail -40 ../build.log; exit 1; fi
+             tail -3 ../build.log" \
+            || die "the Release build on ${BUILD_HOST} failed (log: ${BUILD_HOST}:~/${remote}/build.log)."
+        # shellcheck disable=SC2029
+        ssh "${BUILD_HOST}" "cd ~/${remote}/repo/DerivedData/Build/Products/Release && ditto -c -k --keepParent ${APP_NAME} -" \
+            | ditto -x -k - "${dest}" || die "copying the build back from ${BUILD_HOST} failed."
+    fi
+    [ "$(plist_value "${dest}/${APP_NAME}/Contents/Info.plist" CFBundleIdentifier)" = "${RELEASE_ID}" ] \
+        || die "the copied build at ${dest}/${APP_NAME} is not ${RELEASE_ID}."
+    echo "Built: ${dest}/${APP_NAME} $(app_version "${dest}/${APP_NAME}") ($(app_build "${dest}/${APP_NAME}"))"
+}
+
+# Quitting the app mid-dictation loses the recording (2026-10-05: an install test quit it 44 s into
+# one). In progress: the last START() is newer than the last stop, cancel or delivery.
+DICTATION_START='START\(\) called'
+# Not "STOP() called": that comes before transcription and the paste. STOP_SUMMARY and
+# OVERLAY_OUTCOME come after them; a cancel logs "Stopping recording".
+DICTATION_END='STOP_SUMMARY|OVERLAY_OUTCOME|Stopping recording|Application will terminate'
+
+# The log and its rotated half (FileLogger rotates at 1 MB), oldest first.
+installed_log_lines() {
+    local file
+    for file in "${INSTALLED_LOG}.1" "${INSTALLED_LOG}"; do
+        [ -f "${file}" ] && cat "${file}"
+    done
+    return 0
+}
+
+dictation_in_progress() {
+    local last_start last_end
+    last_start="$(installed_log_lines | grep -nE "${DICTATION_START}" | tail -1 | cut -d: -f1 || true)"
+    last_end="$(installed_log_lines | grep -nE "${DICTATION_END}" | tail -1 | cut -d: -f1 || true)"
+    [ -n "${last_start}" ] && [ "${last_start}" -gt "${last_end:-0}" ]
+}
+
+# Seconds since the last dictation start or end in the log (a large number when there is none).
+seconds_since_last_dictation_event() {
+    local stamp at now
+    stamp="$(installed_log_lines | grep -E "${DICTATION_START}|${DICTATION_END}" | tail -1 | cut -c2-9 || true)"
+    [ -n "${stamp}" ] || { echo 99999; return; }
+    at="$(date -j -f '%Y-%m-%d %H:%M:%S' "$(date +%Y-%m-%d) ${stamp}" +%s 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    # Before midnight, read from after it: treat as long ago.
+    [ "${at}" -le "${now}" ] && echo $((now - at)) || echo 99999
+}
+
+# Waits (up to 30 minutes) until no dictation is running and none ended in the last 10 s.
+wait_for_idle_dictation() {
+    pgrep -x MouthKeys >/dev/null || return 0
+    local waited=0 announced=0
+    while dictation_in_progress || [ "$(seconds_since_last_dictation_event)" -lt 10 ]; do
+        if [ "${announced}" -eq 0 ]; then
+            echo "MouthKeys is dictating (or just finished); waiting until it has been idle for 10 s..."
+            announced=1
+        fi
+        [ "${waited}" -ge 1800 ] && die "MouthKeys stayed busy for 30 minutes. Nothing was changed."
+        sleep 2
+        waited=$((waited + 2))
+    done
+}
+
+designated_requirement() { codesign -d -r- "$1" 2>&1 | sed -n 's/^designated => //p'; }
+signer_lines() { codesign -dvv "$1" 2>&1 | grep -E '^(Authority|TeamIdentifier)=' || true; }
+
+# Puts a Developer ID signed app in /Applications the way INSTALL-CHECKLIST.md "Install over a
+# Developer ID app" does: the signature must match the installed app's (or, on the one install
+# that changes the bundle ID, its signer), a verified backup and a rollback script come first,
+# the app is quit and swapped, and the hotkey must arm. Never quits the app before every check
+# has passed.
+run_install() {
+    local new_app="$1"
+    [ -d "${new_app}" ] || die "no app at ${new_app}."
+    [ "$(plist_value "${new_app}/Contents/Info.plist" CFBundleIdentifier)" = "${RELEASE_ID}" ] \
+        || die "${new_app} is not ${RELEASE_ID}."
+    signer_lines "${new_app}" | grep -q '^Authority=Developer ID Application' \
+        || die "${new_app} is not signed with Developer ID. Package it first (scripts/release.sh package)."
+
+    step "Install $(app_version "${new_app}") ($(app_build "${new_app}")) over ${INSTALLED_APP}"
+    local identity_change=0 installed_id=""
+    if [ -d "${INSTALLED_APP}" ]; then
+        installed_id="$(plist_value "${INSTALLED_APP}/Contents/Info.plist" CFBundleIdentifier)"
+        echo "Installed: ${installed_id} $(app_version "${INSTALLED_APP}") ($(app_build "${INSTALLED_APP}"))"
+        if [ "${installed_id}" = "${RELEASE_ID}" ]; then
+            [ "$(designated_requirement "${INSTALLED_APP}")" = "$(designated_requirement "${new_app}")" ] \
+                || die "the new app's designated requirement differs from the installed app's." \
+                    "Installing it would silently cut Accessibility (CLAUDE.md, Agent pitfalls). Nothing was changed." \
+                    "installed: $(designated_requirement "${INSTALLED_APP}")" \
+                    "new:       $(designated_requirement "${new_app}")"
+            echo "Signature: designated requirement matches."
+        else
+            identity_change=1
+            [ "$(signer_lines "${INSTALLED_APP}")" = "$(signer_lines "${new_app}")" ] \
+                || die "the installed app (${installed_id}) has another signer. Nothing was changed."
+            if defaults read "${RELEASE_ID}" >/dev/null 2>&1 || [ -e "${HOME}/Library/Application Support/MouthKeys" ]; then
+                die "data already exists under ${RELEASE_ID}, so the one-time copy from ${installed_id} would be skipped or merged." \
+                    "Move it aside first (INSTALL-CHECKLIST.md section 0, step 0). Nothing was changed."
+            fi
+            echo "Identity change: ${installed_id} -> ${RELEASE_ID}. Same signer. The first launch copies"
+            echo "the old data once; Microphone and Accessibility are granted again (checklist section 0)."
+        fi
+    fi
+
+    # Another copy of the bundle ID signed by someone else poisons the Accessibility grant. Ask
+    # LaunchServices, as the app's own ConflictingAppCopyDetector does (Spotlight can be off).
+    local copies copy other=0
+    copies="$(swift -e "import AppKit; for url in NSWorkspace.shared.urlsForApplications(withBundleIdentifier: \"${RELEASE_ID}\") { print(url.path) }" 2>/dev/null)" \
+        || die "could not ask LaunchServices for other copies of ${RELEASE_ID}. Nothing was changed."
+    if [ "${installed_id}" = "${RELEASE_ID}" ] && ! printf '%s\n' "${copies}" | grep -qxF "${INSTALLED_APP}"; then
+        die "LaunchServices does not list ${INSTALLED_APP}; the copy check cannot be trusted. Nothing was changed."
+    fi
+    while IFS= read -r copy; do
+        [ -n "${copy}" ] && [ -d "${copy}" ] || continue
+        case "${copy}" in "${INSTALLED_APP}"|"${new_app}") continue ;; esac
+        if [ "$(signer_lines "${copy}")" != "$(signer_lines "${new_app}")" ]; then
+            echo "Another copy of ${RELEASE_ID} with another signer: ${copy}"
+            other=1
+        fi
+    done <<< "${copies}"
+    [ "${other}" -eq 0 ] || die "delete the copies above and empty the Trash first (CLAUDE.md, Agent pitfalls). Nothing was changed."
+
+    local backup=""
+    if [ -d "${INSTALLED_APP}" ]; then
+        backup="${HOME}/Backups/mouthkeys-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "${backup}"
+        ditto "${INSTALLED_APP}" "${backup}/${APP_NAME}"
+        codesign --verify --deep --strict "${backup}/${APP_NAME}" 2>/dev/null \
+            || die "the backup at ${backup} does not verify. Nothing was changed."
+        cat > "${backup}/rollback.sh" <<ROLLBACK
+#!/bin/bash
+# Puts back the MouthKeys that scripts/release.sh install replaced on $(date '+%Y-%m-%d %H:%M').
+set -euo pipefail
+osascript -e 'quit app "MouthKeys"' >/dev/null 2>&1 || true
+for _ in \$(seq 1 40); do pgrep -x MouthKeys >/dev/null || break; sleep 0.5; done
+pgrep -x MouthKeys >/dev/null && { echo "MouthKeys is still running; quit it and run this again. Nothing was changed." >&2; exit 1; }
+rm -rf "${INSTALLED_APP}.rollback"
+ditto "${backup}/${APP_NAME}" "${INSTALLED_APP}.rollback"
+rm -rf "${INSTALLED_APP}"
+mv "${INSTALLED_APP}.rollback" "${INSTALLED_APP}"
+open "${INSTALLED_APP}"
+echo "Restored the backup from ${backup}."
+ROLLBACK
+        chmod +x "${backup}/rollback.sh"
+        echo "Backup: ${backup} (verified)"
+        echo "Rollback: bash ${backup}/rollback.sh"
+    fi
+
+    wait_for_idle_dictation
+    if pgrep -x MouthKeys >/dev/null; then
+        # A dictation that began during the last checks still blocks the quit.
+        dictation_in_progress && die "a dictation started just now. Nothing was changed; run install again."
+        osascript -e 'quit app "MouthKeys"' >/dev/null 2>&1 || true
+        local waited=0
+        while pgrep -x MouthKeys >/dev/null; do
+            [ "${waited}" -ge 40 ] && die "MouthKeys did not quit within 20 s. Nothing was changed."
+            sleep 0.5
+            waited=$((waited + 1))
+        done
+    fi
+
+    rm -rf "${INSTALLED_APP}.new" "${INSTALLED_APP}.old"
+    ditto "${new_app}" "${INSTALLED_APP}.new"
+    [ -d "${INSTALLED_APP}" ] && mv "${INSTALLED_APP}" "${INSTALLED_APP}.old"
+    mv "${INSTALLED_APP}.new" "${INSTALLED_APP}"
+    rm -rf "${INSTALLED_APP}.old"
+
+    local launched_at
+    launched_at="$(date +%H:%M:%S)"
+    open "${INSTALLED_APP}"
+    echo "Installed and opened $(app_version "${INSTALLED_APP}") ($(app_build "${INSTALLED_APP}"))."
+
+    # The hotkey tap reports within a few seconds of launch.
+    local state="" tries=0
+    while [ "${tries}" -lt 40 ]; do
+        sleep 0.5
+        tries=$((tries + 1))
+        # Lines from this launch on, by their [HH:MM:SS] stamp (rotation-safe).
+        state="$(installed_log_lines | awk -v t="${launched_at}" 'substr($0, 2, 8) >= t' \
+            | grep -o 'HOTKEY_TAP state=[a-z_]*' | tail -1 | cut -d= -f2 || true)"
+        [ "${state}" = "installed" ] && break
+    done
+    if [ "${identity_change}" -eq 1 ]; then
+        installed_log_lines | grep 'IDENTITY_MIGRATION finished' | tail -1 || true
+        echo "Next: grant Accessibility to the new MouthKeys row (the old row is the earlier identity),"
+        echo "then press the hotkey and Allow the microphone. HOTKEY_TAP state=installed follows."
+    elif [ "${state}" = "installed" ]; then
+        echo "Hotkey: HOTKEY_TAP state=installed"
+    else
+        die "the hotkey did not arm (HOTKEY_TAP state=${state:-none} after 20 s); the signature may not match." \
+            "${backup:+Roll back: bash \"${backup}/rollback.sh\"}"
+    fi
+}
+
+# "draft", "published" or "none"; dies when GitHub cannot be read (never guesses).
+release_state() {
+    local out
+    if out="$(gh release view "$1" --repo "${REPO_SLUG}" --json isDraft --jq .isDraft 2>&1)"; then
+        [ "${out}" = "true" ] && echo draft || echo published
+    elif printf '%s' "${out}" | grep -qi 'not found'; then
+        echo none
+    else
+        die "cannot read the state of release $1 from GitHub:" "${out}"
+    fi
+}
+
+run_publish() {
+    local version="${1:-$(source_version)}" dmg="${2:-}"
+    local tag="v${version}" local_sum remote_sum
+    step "Publish ${tag}"
+    [ "$(release_state "${tag}")" = "draft" ] || die "${tag} is not a draft release (already published, or not drafted)."
+    gh release edit "${tag}" --repo "${REPO_SLUG}" --draft=false --latest >/dev/null
+    echo "Published. Checking the download..."
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        remote_sum="$(curl -fsSL "https://github.com/${REPO_SLUG}/releases/download/${tag}/MouthKeys-${version}.dmg" | shasum -a 256 | cut -d' ' -f1)" && break
+        remote_sum=""
+        sleep $((attempt * 3))
+    done
+    [ -n "${remote_sum}" ] || die "${tag} is public, but its DMG could not be downloaded to check it. Check it by hand."
+    echo "Download sha256: ${remote_sum}"
+    [ -z "${dmg}" ] && dmg="$(ship_dir "${version}")/dist/MouthKeys-${version}.dmg"
+    if [ -f "${dmg}" ]; then
+        local_sum="$(shasum -a 256 "${dmg}" | cut -d' ' -f1)"
+        [ "${local_sum}" = "${remote_sum}" ] || die "the download does not match ${dmg} (${local_sum})."
+        echo "Matches ${dmg}."
+    fi
+    echo "Published: https://github.com/${REPO_SLUG}/releases/tag/${tag}"
+}
+
+run_ship() {
+    local notes=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --notes) notes="${2:-}"; shift 2 ;;
+            *) die "unknown option for ship: $1 (use --notes FILE)." ;;
+        esac
+    done
+    [ -n "${notes}" ] && [ -s "${notes}" ] || die "ship needs release notes: scripts/release.sh ship --notes FILE" \
+        "Style: lowercase sentences, headings ending in a period, no em-dashes (see the last release)."
+    notes="$(cd "$(dirname "${notes}")" && pwd)/$(basename "${notes}")"
+
+    step "Preflight"
+    check_clean_main
+    local sha version tag work
+    sha="$(git -C "${PROJECT_DIR}" rev-parse HEAD)"
+    version="$(source_version)"
+    tag="v${version}"
+    work="$(ship_dir "${version}")"
+    echo "Releasing MouthKeys ${version} ($(plist_value "${PROJECT_DIR}/Info.plist" CFBundleVersion)) from ${sha:0:8}"
+    gh auth status >/dev/null 2>&1 || die "gh is not logged in."
+    [ "$(release_state "${tag}")" != "published" ] || die "${tag} is already published. Bump the version in Info.plist (a PR to main) first."
+    local tag_sha
+    tag_sha="$(git -C "${PROJECT_DIR}" ls-remote --tags origin "refs/tags/${tag}" | cut -f1)"
+    [ -z "${tag_sha}" ] || [ "${tag_sha}" = "${sha}" ] \
+        || die "tag ${tag} already exists at ${tag_sha:0:8}, not ${sha:0:8}. Delete the stale tag or bump the version."
+    resolve_identity
+    check_notary_profile
+    [ "${SKIP_NOTARIZE}" = "1" ] && die "ship publishes; it never runs with MOUTHKEYS_SKIP_NOTARIZE=1."
+    check_main_ci "${sha}"
+    [ "${BUILD_HOST}" = "local" ] || ssh -o ConnectTimeout=10 "${BUILD_HOST}" true 2>/dev/null \
+        || die "cannot reach the build host ${BUILD_HOST} (set MOUTHKEYS_BUILD_HOST, or local)."
+
+    CLEANUP_BUILD="${work}/build"
+    run_remote_build "${sha}" "${work}/build"
+    [ "$(app_version "${work}/build/${APP_NAME}")" = "${version}" ] || die "the build's version is not ${version}."
+
+    DIST_DIR="${work}/dist"
+    run_package "${work}/build/${APP_NAME}"
+    # The locally signed build has the release bundle ID and another signer: left on disk it can
+    # poison the Accessibility grant (CLAUDE.md, Agent pitfalls).
+    rm -rf "${work}/build"
+    CLEANUP_BUILD=""
+
+    local dmg="${work}/dist/MouthKeys-${version}.dmg"
+    step "Draft ${tag}"
+    local state
+    state="$(release_state "${tag}")"
+    [ "${state}" != "published" ] || die "${tag} was published while this ran. Nothing was uploaded."
+    if [ "${state}" = "draft" ]; then
+        gh release upload "${tag}" "${dmg}" --clobber --repo "${REPO_SLUG}"
+        gh release edit "${tag}" --repo "${REPO_SLUG}" --notes-file "${notes}" --target "${sha}" >/dev/null
+    else
+        gh release create "${tag}" --draft --repo "${REPO_SLUG}" --target "${sha}" \
+            --title "MouthKeys ${version}" --notes-file "${notes}" "${dmg}" >/dev/null
+    fi
+    echo "Draft ready (not public yet)."
+
+    run_install "${work}/dist/${APP_NAME}"
+
+    echo
+    if [ -t 0 ]; then
+        echo "Dictate into c11 once. When the text lands, type publish to make ${tag} public."
+        local answer=""
+        read -r -p "> " answer || true
+        if [ "${answer}" = "publish" ]; then
+            run_publish "${version}" "${dmg}"
+            return 0
+        fi
+        echo "Not published."
+    fi
+    echo "When dictation works: scripts/release.sh publish ${version}"
 }
 
 case "${1:-all}" in
@@ -406,10 +804,25 @@ case "${1:-all}" in
     verify)
         run_verify "${2:-${DIST_DIR}/${APP_NAME}}" "${3:-}"
         ;;
+    ship)
+        shift
+        run_ship "$@"
+        ;;
+    remote-build)
+        check_clean_main
+        run_remote_build "$(git -C "${PROJECT_DIR}" rev-parse HEAD)" "${2:-$(ship_dir "$(source_version)")/build}"
+        echo "Package it with: scripts/release.sh package <that app>; delete the unsigned copy afterwards."
+        ;;
+    install)
+        run_install "${2:-${DIST_DIR}/${APP_NAME}}"
+        ;;
+    publish)
+        run_publish "${2:-}"
+        ;;
     -h|--help|help)
-        sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '3,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         ;;
     *)
-        die "unknown command: $1 (use all, build, package or verify)."
+        die "unknown command: $1 (use ship, all, build, remote-build, package, verify, install or publish)."
         ;;
 esac

@@ -8,7 +8,7 @@ Install with Atin, never unattended, by the path that matches the installed app'
 
 ### Install over a Developer ID app
 
-The installed app came from a DMG (`Authority=Developer ID Application: …`). Never `./build.sh install` here: it signs with Apple Development, a different designated requirement, and Accessibility silently stops matching (hotkeys dead, `Attempt 1 failed` in the log). Instead:
+The installed app came from a DMG (`Authority=Developer ID Application: …`). `scripts/release.sh install <app>` runs steps 3 to 6 below (and `scripts/release.sh ship` runs all of them). Never `./build.sh install` here: it signs with Apple Development, a different designated requirement, and Accessibility silently stops matching (hotkeys dead, `Attempt 1 failed` in the log). Instead:
 
 1. **Build** Release from a clean checkout of `origin/main` (a fresh clone or worktree, never a checkout with local changes): `scripts/release.sh build`. It needs no certificate, so a separate build Mac can run it; copy the product back with `ditto -c -k --keepParent MouthKeys.app - | ditto -x -k - <dir>` (ditto keeps the framework symlinks).
 2. **Sign** with Developer ID into a scratch folder, without notarizing (a locally built app carries no quarantine, so Gatekeeper does not check it):
