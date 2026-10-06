@@ -48,8 +48,6 @@ final class SpokenSendController: ObservableObject {
     }
 
     @Published private(set) var indicator: Indicator = .hidden
-    /// False when the app being dictated into never gets the key (a terminal other than c11).
-    @Published private(set) var sendsInRecordingApp = true
     /// Changes with every countdown, so the overlay restarts its ring.
     @Published private(set) var countdownID: UInt64 = 0
 
@@ -58,7 +56,6 @@ final class SpokenSendController: ObservableObject {
         var phrase: String
         var stopsAfterPause: Bool
         var key: SettingsStore.SpokenSendKey
-        var allowsC11: Bool
 
         static func current() -> Configuration {
             let settings = SettingsStore.shared
@@ -66,8 +63,7 @@ final class SpokenSendController: ObservableObject {
                 enabled: settings.spokenSendEnabled,
                 phrase: settings.spokenSendPhrase,
                 stopsAfterPause: settings.spokenSendImmediatelyEnabled,
-                key: settings.spokenSendKey,
-                allowsC11: settings.spokenSendAllowsC11
+                key: settings.spokenSendKey
             )
         }
     }
@@ -76,7 +72,7 @@ final class SpokenSendController: ObservableObject {
     struct Hooks {
         /// A dictation that may send is recording now (dictation mode, normal output route).
         var isDictating: () -> Bool
-        /// The app being dictated into, for the indicator only. The stop target decides the send.
+        /// The app being dictated into, when the stop has no target to tell a terminal by.
         var recordingApp: () -> (bundleIdentifier: String?, name: String?)?
         /// A hold-to-talk shortcut is held down: letting go ends the dictation, so the pause
         /// countdown stays off (it could cut off speech while the key is still held).
@@ -138,14 +134,12 @@ final class SpokenSendController: ObservableObject {
 
     // MARK: - Is a Return pending?
 
-    /// Whether a Return is genuinely pending: the phrase armed a send that is not canceled, in an
-    /// app that gets one, and either the recording is live or its stop has begun and the send is
-    /// not decided yet. The one input to "should Esc drop only the Return?" besides the pill
+    /// Whether a Return is genuinely pending: the phrase armed a send that is not canceled, and
+    /// either the recording is live or its stop has begun and the send is not decided yet. The one input to "should Esc drop only the Return?" besides the pill
     /// visibly showing SEND (BottomOverlayWindowController.cancelSpokenSendIfArmed).
     var hasPendingReturn: Bool {
         (self.isRecordingLive || self.isAwaitingSendDecision)
             && (self.indicator == .armed || self.indicator == .countingDown)
-            && self.sendsInRecordingApp
     }
 
     /// The ASR's running state changed. Ended outside the stop pipeline: nothing is pending.
@@ -176,7 +170,6 @@ final class SpokenSendController: ObservableObject {
         self.autoStopTriggered = false
         self.lastVoiceActivityAt = self.now()
         self.setIndicator(.hidden)
-        self.setSendsInRecordingApp(true)
     }
 
     func handlePartial(_ text: String) {
@@ -187,10 +180,6 @@ final class SpokenSendController: ObservableObject {
         let isArmed = self.arming.update(partial: text, isEligible: isEligible, phrase: config.phrase)
         guard isEligible else { return }
         self.lastPartial = text
-        if let app = hooks.recordingApp() {
-            let verdict = SpokenSendPolicy.verdict(bundleIdentifier: app.bundleIdentifier, appName: app.name, allowsC11: config.allowsC11)
-            self.setSendsInRecordingApp(verdict.allowsSend)
-        }
 
         guard !self.isCanceled else { return }
         guard isArmed else {
@@ -241,6 +230,19 @@ final class SpokenSendController: ObservableObject {
     private func completeCountdown(session: UInt64, countdownID: UInt64) {
         // A newer recording or countdown owns the state now.
         guard session == self.session, countdownID == self.countdownID else { return }
+        // The tail of the phrase, heard in the grace period, can leave less quiet than the stop
+        // needs by the end of a short countdown: wait out the rest instead of giving up. Speech
+        // after the grace period still cancels (`handleVoiceLevel`).
+        let shortfall = SpokenSendParser.immediateStopRequiredSilenceDuration - (self.now() - self.lastVoiceActivityAt)
+        if shortfall > 0 {
+            DebugLogger.shared.info("SPOKEN_SEND countdown_extended session=\(session) waitMs=\(Int(shortfall * 1000))", source: "SpokenSend")
+            self.countdownTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(shortfall * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.completeCountdown(session: session, countdownID: countdownID)
+            }
+            return
+        }
         self.countdownTask = nil
         self.countdownStartedAt = nil
         self.stopVoiceActivityMonitoring()
@@ -313,11 +315,6 @@ final class SpokenSendController: ObservableObject {
     private func setIndicator(_ indicator: Indicator) {
         guard self.indicator != indicator else { return }
         self.indicator = indicator
-    }
-
-    private func setSendsInRecordingApp(_ sends: Bool) {
-        guard self.sendsInRecordingApp != sends else { return }
-        self.sendsInRecordingApp = sends
     }
 
     // MARK: - At stop
@@ -406,7 +403,7 @@ final class SpokenSendController: ObservableObject {
 
     /// The key to press after this dictation's text, or nil. Never when AI cleanup failed (the
     /// raw fallback is not what the user meant to submit), never without a destination chosen at
-    /// stop, and never in a blocked terminal.
+    /// stop.
     /// `stoppedAt`: when dictation stopped; a key press or click after it drops the key.
     func sendKeyRequest(for decision: SpokenSendDecision, target: DictationTarget?, aiFailed: Bool, stoppedAt: TimeInterval) -> SendKeyRequest? {
         guard decision.shouldSend else { return nil }
@@ -420,13 +417,12 @@ final class SpokenSendController: ObservableObject {
             return nil
         }
         let appName = NSRunningApplication(processIdentifier: target.pid)?.localizedName
-        let verdict = SpokenSendPolicy.verdict(bundleIdentifier: target.bundleIdentifier, appName: appName, allowsC11: config.allowsC11)
-        let key = SpokenSendPolicy.effectiveKey(config.key, verdict: verdict)
+        let isTerminal = SpokenSendPolicy.isTerminal(bundleIdentifier: target.bundleIdentifier, appName: appName)
+        let key = SpokenSendPolicy.effectiveKey(config.key, isTerminal: isTerminal)
         DebugLogger.shared.info(
-            "SPOKEN_SEND target app=\(target.bundleIdentifier ?? "pid\(target.pid)") verdict=\(verdict.rawValue) key=\(key.rawValue)",
+            "SPOKEN_SEND target app=\(target.bundleIdentifier ?? "pid\(target.pid)") terminal=\(isTerminal) key=\(key.rawValue)",
             source: "SpokenSend"
         )
-        guard verdict.allowsSend else { return nil }
         return SendKeyRequest(key: key, target: target, stoppedAt: stoppedAt)
     }
 

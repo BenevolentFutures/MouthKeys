@@ -3573,11 +3573,10 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     }
 
     func testSpokenSendPlacardAndSweepSteps() {
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .hidden, sendsInApp: true), SignalPlacard.none)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .armed, sendsInApp: true), .send)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .countingDown, sendsInApp: true), .send)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .armed, sendsInApp: false), .noReturn)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .canceled, sendsInApp: true), .noSend)
+        XCTAssertEqual(SignalOverlayModel.placard(indicator: .hidden), SignalPlacard.none)
+        XCTAssertEqual(SignalOverlayModel.placard(indicator: .armed), .send)
+        XCTAssertEqual(SignalOverlayModel.placard(indicator: .countingDown), .send)
+        XCTAssertEqual(SignalOverlayModel.placard(indicator: .canceled), .noSend)
         let drain = SignalDrain(startedAt: Date(timeIntervalSinceReferenceDate: 0), duration: 1.5)
         XCTAssertEqual(drain.remaining(at: Date(timeIntervalSinceReferenceDate: 0.6)), 0.9, accuracy: 0.0001)
         var canceled = drain

@@ -89,7 +89,8 @@ struct SettingsBackupPayload: Codable, Equatable {
     let spokenSendImmediatelyEnabled: Bool?
     let spokenSendPhrase: String?
     let spokenSendKey: SettingsStore.SpokenSendKey?
-    let spokenSendAllowsC11: Bool?
+    // Optional so backups created before the Q shortcut still decode.
+    let questionMarkShortcutEnabled: Bool?
     let weekendsDontBreakStreak: Bool
     let fillerWords: [String]
     let removeFillerWordsEnabled: Bool

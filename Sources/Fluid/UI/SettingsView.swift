@@ -681,6 +681,17 @@ struct SettingsView: View {
                                     )
                                     Divider().opacity(0.2)
 
+                                    self.optionToggleRow(
+                                        title: "Q for Question Mark",
+                                        description: "Say “Q” as the last word, or “Q Q” anywhere, to type a question mark. Say “\(self.settings.punctuationDictionaryPrefix) Q” to type the letter.",
+                                        isOn: Binding(
+                                            get: { self.settings.questionMarkShortcutEnabled },
+                                            set: { self.settings.questionMarkShortcutEnabled = $0 }
+                                        ),
+                                        allowsDescriptionWrapping: true
+                                    )
+                                    Divider().opacity(0.2)
+
                                     self.spokenSendSettings
                                     Divider().opacity(0.2)
 
@@ -2020,8 +2031,8 @@ struct SettingsView: View {
     }
 }
 
-// Spoken Send settings. Ported from altic-dev/FluidVoice@c679506d, plus MouthKeys'
-// "Allow in c11" (upstream blocks every terminal).
+// Spoken Send settings. Ported from altic-dev/FluidVoice@c679506d; unlike upstream, Return
+// goes to terminals too.
 private extension SettingsView {
     var spokenSendSettings: some View {
         Group {
@@ -2062,7 +2073,7 @@ private extension SettingsView {
 
                     self.optionToggleRow(
                         title: "Send After a Pause",
-                        description: "Once the phrase ends what you said, stop listening after a second and a half of quiet and send. Keep talking, or click the plane on the overlay, to cancel. Not while you hold the dictation key: letting go ends it.",
+                        description: "Once the phrase ends what you said, stop listening after half a second of quiet and send. Keep talking, or click the plane on the overlay, to cancel. Not while you hold the dictation key: letting go ends it.",
                         isOn: Binding(
                             get: { self.settings.spokenSendImmediatelyEnabled },
                             set: { self.settings.spokenSendImmediatelyEnabled = $0 }
@@ -2075,7 +2086,7 @@ private extension SettingsView {
                             Text("Send Key")
                                 .font(self.theme.typography.bodyStrong)
                                 .foregroundStyle(self.settingsTitleText)
-                            Text("The key the app sends with. c11 always gets Return.")
+                            Text("The key the app sends with. Terminals, c11 included, always get Return.")
                                 .font(self.theme.typography.bodySmall)
                                 .foregroundStyle(self.settingsSecondaryText)
                         }
@@ -2094,16 +2105,6 @@ private extension SettingsView {
                         .frame(width: 170, alignment: .trailing)
                         .accessibilityLabel("Spoken Send key")
                     }
-
-                    self.optionToggleRow(
-                        title: "Allow in c11",
-                        description: "Press Return in c11, for example to submit a Claude Code prompt. Only in the pane you stopped in, and not if you type or click before it goes. Other terminals never get it: Return there runs a shell command. The phrase is left out either way.",
-                        isOn: Binding(
-                            get: { self.settings.spokenSendAllowsC11 },
-                            set: { self.settings.spokenSendAllowsC11 = $0 }
-                        ),
-                        allowsDescriptionWrapping: true
-                    )
                 }
                 .padding(.leading, 12)
             }

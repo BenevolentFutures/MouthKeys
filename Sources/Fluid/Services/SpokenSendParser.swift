@@ -57,7 +57,8 @@ nonisolated struct SpokenSendArmingState: Equatable, Sendable {
 
 nonisolated enum SpokenSendParser {
     /// How long the quiet countdown runs after the phrase before dictation stops and sends.
-    static let immediateStopSettleDuration: TimeInterval = 1.5
+    /// Short, so the send follows the phrase almost at once; Esc or speech still cancels it.
+    static let immediateStopSettleDuration: TimeInterval = 0.5
     /// The silence the end of the countdown needs, measured from the last voice activity.
     static let immediateStopRequiredSilenceDuration: TimeInterval = 0.35
     /// Voice activity this soon after the countdown starts is the tail of the phrase itself.
@@ -176,9 +177,10 @@ nonisolated enum SpokenSendParser {
             return SpokenSendParseResult(text: text, shouldSend: false)
         }
 
+        // The transcriber may punctuate inside the phrase ("Send, send.").
         let phrasePattern = phraseWords
             .map(NSRegularExpression.escapedPattern(for:))
-            .joined(separator: #"\s+"#)
+            .joined(separator: #"[\s\p{P}]+"#)
         let trailingPunctuation = #"[\s\p{P}]*$"#
 
         if let literalRegex = try? NSRegularExpression(

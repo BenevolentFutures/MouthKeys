@@ -2330,7 +2330,7 @@ struct ContentView: View {
         // The held pill's placard follows the decision from here (no longer cancelable).
         BottomOverlayWindowController.shared.spokenSendDecided(
             spokenSend.shouldSend
-                ? (SpokenSendController.shared.sendsInRecordingApp ? .returnFollows : .noReturn)
+                ? .returnFollows
                 : (spokenSend.phraseDetected ? .canceled : .noPhrase)
         )
         if spokenSend.isPhraseOnly {
@@ -2343,7 +2343,8 @@ struct ContentView: View {
             )
             return
         }
-        let normalizedTranscribedText = spokenSend.text
+        // After the phrase is off, so a Q right before it ends the text ("Right Q send it").
+        let normalizedTranscribedText = QuestionMarkShortcut.apply(spokenSend.text)
 
         let shouldUseAI = activeDictationSlot.map {
             DictationAIPostProcessingGate.isConfigured(for: $0, appBundleID: appInfo.bundleId)
@@ -2600,7 +2601,7 @@ struct ContentView: View {
                 )
             } else if isTargetReady {
                 if spokenSend.shouldSend {
-                    // The phrase was said but no Return goes here (a blocked target, AI fallback).
+                    // The phrase was said but no Return goes here (AI fallback, no stop target).
                     BottomOverlayWindowController.shared.spokenSendDecided(.noReturn)
                 }
                 // The typing service finishes the trace once the paste is posted.
@@ -3122,11 +3123,13 @@ struct ContentView: View {
         var aiFallbackReason: String?
         var postProcessingModel: String?
         let appInfo = self.getCurrentAppInfo()
-        let normalizedTranscribedText = ASRService.applySpokenPunctuationFormatting(
-            transcribedText,
-            appName: appInfo.name,
-            bundleID: appInfo.bundleId,
-            windowTitle: appInfo.windowTitle
+        let normalizedTranscribedText = QuestionMarkShortcut.apply(
+            ASRService.applySpokenPunctuationFormatting(
+                transcribedText,
+                appName: appInfo.name,
+                bundleID: appInfo.bundleId,
+                windowTitle: appInfo.windowTitle
+            )
         )
         var finalText = normalizedTranscribedText
         let shouldUseAI = DictationAIPostProcessingGate.isConfigured(for: .primary, appBundleID: appInfo.bundleId)

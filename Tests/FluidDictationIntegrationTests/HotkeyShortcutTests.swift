@@ -2791,7 +2791,7 @@ final class EscapeCancelGateTests: XCTestCase {
         let asr = ASRService()
         let spokenSend = SpokenSendController()
         spokenSend.configuration = {
-            SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: false, key: .enter, allowsC11: true)
+            SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: false, key: .enter)
         }
         spokenSend.attach(
             partials: Empty().eraseToAnyPublisher(),
