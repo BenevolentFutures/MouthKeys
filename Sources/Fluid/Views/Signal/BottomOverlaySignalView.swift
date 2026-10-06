@@ -33,8 +33,6 @@ struct BottomOverlayView: View {
     private var micLabelAnchor: SignalChipAnchor {
         BottomOverlayMicrophonePickerController.shared.labelAnchor
     }
-    /// The pointer is over the mic label: a click there opens the card and never cancels Send.
-    @State private var isHoveringMic = false
     /// Where the overlay's visible content (the pill between its rails) is on screen: the history
     /// card centres on it.
     @State private var overlayAnchor = SignalOverlayAnchor()
@@ -320,7 +318,6 @@ struct BottomOverlayView: View {
             guard !presented else { return }
             BottomOverlayMicrophonePickerController.shared.hide(reason: "overlay_hidden")
             self.isHoveringPill = false
-            self.isHoveringMic = false
             self.hoveredChips.removeAll()
         }
         .onAppear {
@@ -361,8 +358,7 @@ struct BottomOverlayView: View {
                 onMicTap: self.canPickMicrophone(display) ? { self.toggleMicrophoneCard() } : nil,
                 micAnchor: self.micLabelAnchor,
                 isMicLatched: self.microphoneCard.isOpen,
-                isMicHoverForced: self.model.inspectionHover == "mic",
-                onMicHoverChanged: { hovering in self.isHoveringMic = hovering }
+                isMicHoverForced: self.model.inspectionHover == "mic"
             ),
             isBracketVisible: pillBracket
         ) {
@@ -373,7 +369,11 @@ struct BottomOverlayView: View {
         .simultaneousGesture(TapGesture().onEnded {
             // While SEND shows and the Return can still be dropped (listening, stopped or
             // transcribing, until the stop decides), a click cancels it.
-            guard self.isInteractive, self.canCancelSend, !self.isHoveringMic else { return }
+            // A click on the mic label opens the microphone card and never cancels Send. Judged by
+            // where the click is, not by hover state, which a hidden label can leave stale.
+            guard self.isInteractive, self.canCancelSend,
+                  !self.micLabelAnchor.frameInScreen.contains(NSEvent.mouseLocation)
+            else { return }
             BottomOverlayWindowController.shared.cancelSpokenSendIfArmed()
         })
         .help(self.canCancelSend ? "Click to cancel Send" : "")

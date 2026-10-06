@@ -212,7 +212,6 @@ struct SignalFootRow: View {
     var isMicLatched = false
     /// Draws the mic label's hover bracket regardless of the pointer (renders and inspection).
     var isMicHoverForced = false
-    var onMicHoverChanged: (Bool) -> Void = { _ in }
 
     @Environment(\.signalPalette) private var palette
     @State private var isMicHovered = false
@@ -253,6 +252,10 @@ struct SignalFootRow: View {
             }
         }
         .frame(height: metrics.micRowHeight)
+        // A label that stops being a button under the pointer never gets its hover-out.
+        .onChange(of: self.onMicTap == nil) { _, isPlain in
+            if isPlain { self.isMicHovered = false }
+        }
     }
 
     @ViewBuilder
@@ -289,9 +292,7 @@ struct SignalFootRow: View {
             .signalClickTarget()
             .signalBracket(.chip, visible: self.isMicHovered || self.isMicHoverForced)
             .onHover { hovering in
-                guard hovering != self.isMicHovered else { return }
-                self.isMicHovered = hovering
-                self.onMicHoverChanged(hovering)
+                if hovering != self.isMicHovered { self.isMicHovered = hovering }
             }
             .background(
                 PromptSelectorAnchorReader { [micAnchor] frameInScreen, window in

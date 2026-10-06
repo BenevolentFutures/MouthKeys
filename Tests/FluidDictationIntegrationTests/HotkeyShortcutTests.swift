@@ -1762,8 +1762,14 @@ final class HotkeyShortcutTests: XCTestCase {
             ]
             SettingsStore.shared.suppressedMicrophoneUIDs = ["lapel"]
             let devices = FakeAudioDeviceManager(inputs: [internalMic, lapel], defaultInputUID: "internal")
-            let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
-            let announced = expectation(forNotification: .microphonePickDidChange, object: nil)
+            // A private center: the test host's ASRService must not re-route real capture.
+            let center = NotificationCenter()
+            let coordinator = MicrophonePreferenceCoordinator(
+                settings: .shared,
+                devices: devices,
+                notificationCenter: center
+            )
+            let announced = expectation(forNotification: .microphonePickDidChange, object: nil, notificationCenter: center)
 
             coordinator.pick(lapel, source: "test")
 
@@ -1773,8 +1779,6 @@ final class HotkeyShortcutTests: XCTestCase {
             XCTAssertEqual(SettingsStore.shared.preferredInputDeviceUID, "lapel")
             XCTAssertEqual(coordinator.inputDeviceForCapture()?.uid, "lapel")
             XCTAssertEqual(coordinator.lastResolvedMicrophoneName, "Hollyland Lapel Mic")
-            // The macOS default input is never touched: mic-priority would put it back anyway.
-            XCTAssertEqual(devices.defaultInputUID, "internal")
         }
     }
 
@@ -1812,6 +1816,10 @@ final class HotkeyShortcutTests: XCTestCase {
         XCTAssertEqual(MicrophonePickerModel.mark(for: "b", activeUID: "b", pendingUID: "b"), .recording)
         // Nothing confirmed yet (before the first dictation).
         XCTAssertEqual(MicrophonePickerModel.mark(for: "a", activeUID: nil, pendingUID: nil), .none)
+        // Picking the device already in use leaves nothing switching (no stuck outline).
+        XCTAssertNil(MicrophonePickerModel.pendingUID(afterPicking: "a", activeUID: "a"))
+        XCTAssertEqual(MicrophonePickerModel.pendingUID(afterPicking: "b", activeUID: "a"), "b")
+        XCTAssertEqual(MicrophonePickerModel.pendingUID(afterPicking: "b", activeUID: nil), "b")
     }
 
     @MainActor

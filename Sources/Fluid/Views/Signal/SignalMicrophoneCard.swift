@@ -51,8 +51,13 @@ final class MicrophonePickerModel: ObservableObject {
 
     private var isWatching = false
     private var refreshGeneration = 0
+    /// Every caller waiting for a fresh list; the refresh that wins runs them all.
+    private var refreshCompletions: [() -> Void] = []
     private var deviceListListener: AudioObjectPropertyListenerBlock?
     private var cancellables: Set<AnyCancellable> = []
+    /// Lives for the app, card open or not, so a pick confirmed (or replaced by a fallback)
+    /// while the card is closed never leaves a stale "switching" mark.
+    private var confirmationSubscription: AnyCancellable?
 
     private init() {}
 
@@ -70,6 +75,11 @@ final class MicrophonePickerModel: ObservableObject {
                         (clamshellClosed == false || device.isUnavailableWhenClamshellClosed == false)
                 )
             }
+    }
+
+    /// After a pick of `pickedUID`: no pending mark when it is already the device in use.
+    nonisolated static func pendingUID(afterPicking pickedUID: String, activeUID: String?) -> String? {
+        pickedUID == activeUID ? nil : pickedUID
     }
 
     /// The mark a row carries: filled for the device capture is on, outlined for one picked and
@@ -93,18 +103,7 @@ final class MicrophonePickerModel: ObservableObject {
             return
         }
         self.isWatching = true
-        let coordinator = AppServices.shared.microphonePreferenceCoordinator
-        self.activeUID = coordinator.confirmedActiveInputUID
-        // A pick made while the card was closed, now confirmed, is no longer switching.
-        if self.pendingUID == self.activeUID { self.pendingUID = nil }
-        coordinator.$confirmedActiveInputUID
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] uid in
-                guard let self else { return }
-                self.activeUID = uid
-                if uid != nil, uid == self.pendingUID { self.pendingUID = nil }
-            }
-            .store(in: &self.cancellables)
+        self.observeConfirmationsIfNeeded()
         NotificationCenter.default.publisher(for: .inputDeviceAvailabilityDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refresh() }
@@ -117,6 +116,22 @@ final class MicrophonePickerModel: ObservableObject {
         self.refresh(then: ready)
     }
 
+    private func observeConfirmationsIfNeeded() {
+        guard self.confirmationSubscription == nil else { return }
+        let coordinator = AppServices.shared.microphonePreferenceCoordinator
+        self.activeUID = coordinator.confirmedActiveInputUID
+        self.confirmationSubscription = coordinator.$confirmedActiveInputUID
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] uid in
+                guard let self else { return }
+                self.activeUID = uid
+                // Capture settled after the pick: on it, or on a fallback when it failed. Either
+                // way it is no longer switching.
+                if uid != nil { self.pendingUID = nil }
+            }
+    }
+
     func stopWatching() {
         guard self.isWatching else { return }
         self.isWatching = false
@@ -126,13 +141,15 @@ final class MicrophonePickerModel: ObservableObject {
 
     func pick(_ row: Row) {
         guard row.isUsable else { return }
-        if row.id != self.activeUID { self.pendingUID = row.id }
+        self.observeConfirmationsIfNeeded()
+        self.pendingUID = Self.pendingUID(afterPicking: row.id, activeUID: self.activeUID)
         AppServices.shared.microphonePreferenceCoordinator.pick(row.device, source: "overlay")
     }
 
     /// Lists devices off the main thread (CoreAudio can stall while the HAL settles), then
     /// publishes on main. A newer refresh wins.
     func refresh(then completion: (() -> Void)? = nil) {
+        if let completion { self.refreshCompletions.append(completion) }
         self.refreshGeneration &+= 1
         let generation = self.refreshGeneration
         DispatchQueue.global(qos: .userInitiated).async {
@@ -149,7 +166,9 @@ final class MicrophonePickerModel: ObservableObject {
                     self.pendingUID = nil
                 }
                 if rows != self.rows { self.rows = rows }
-                completion?()
+                let completions = self.refreshCompletions
+                self.refreshCompletions.removeAll()
+                completions.forEach { $0() }
             }
         }
     }
@@ -368,7 +387,6 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
     private var panel: NSPanel?
     let floatShadow = SignalFloatShadow { state in SignalFloatShadowView(state: state).signalPalette() }
     private var hostingView: NSHostingView<BottomOverlayMicrophonePickerView>?
-    private var labelFrameInScreen: CGRect = .zero
     private var overlayFrameInScreen: CGRect = .zero
     private weak var parentWindow: NSWindow?
     private var sizeObserver: AnyCancellable?
@@ -385,7 +403,6 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
             return
         }
         guard labelFrameInScreen.width > 0, labelFrameInScreen.height > 0 else { return }
-        self.labelFrameInScreen = labelFrameInScreen
         self.overlayFrameInScreen = overlayFrameInScreen.width > 0 ? overlayFrameInScreen : labelFrameInScreen
         self.parentWindow = parentWindow
 
@@ -424,7 +441,8 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
     func dismissIfNeeded(for screenPoint: NSPoint) {
         guard self.panel?.isVisible == true else { return }
         let insidePanel = self.panel?.frame.contains(screenPoint) ?? false
-        if !insidePanel, !self.labelFrameInScreen.contains(screenPoint) {
+        // The label's live frame: it can widen while the card is open (a battery percent appears).
+        if !insidePanel, !self.labelAnchor.frameInScreen.contains(screenPoint) {
             self.hide(reason: "outside_click")
         }
     }

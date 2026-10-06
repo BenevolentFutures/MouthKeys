@@ -280,6 +280,9 @@ final class ASRService: ObservableObject {
     private var clamshellStateChangeObserver: NSObjectProtocol?
     private var inputDeviceAvailabilityChangeObserver: NSObjectProtocol?
     private var microphonePickObserver: NSObjectProtocol?
+    /// A stop owns capture from its first await until it returns: a microphone pick waits it out.
+    private var isStopInProgress = false
+    private var microphonePickWaitTask: Task<Void, Never>?
 
     // MARK: - Error Handling
 
@@ -1620,7 +1623,7 @@ final class ASRService: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleInputDeviceAvailabilityChanged(deviceID: nil, reason: "microphone picked")
+                self?.handleMicrophonePicked()
             }
         }
         self.inputDeviceAvailabilityChangeObserver = NotificationCenter.default.addObserver(
@@ -1668,9 +1671,57 @@ final class ASRService: ObservableObject {
         )
     }
 
-    /// Moves capture to the resolved input when it is no longer the one recording (or prepared):
-    /// mid-dictation through active route recovery, which keeps the session and its audio.
-    private func handleInputDeviceAvailabilityChanged(deviceID: AudioObjectID?, reason: String? = nil) {
+    /// The user picked a microphone (`MicrophonePreferenceCoordinator.pick`). Mid-dictation,
+    /// capture moves to it through active route recovery, which keeps the session and its audio;
+    /// idle, a prepared capture on another device is rebuilt. A start or stop in progress owns
+    /// capture, so the pick waits for it to finish (at most a few seconds) and is applied then.
+    private func handleMicrophonePicked() {
+        self.microphonePickWaitTask?.cancel()
+        if self.isStarting || self.isStopInProgress {
+            DebugLogger.shared.info(
+                "MIC_PICK deferred starting=\(self.isStarting) stopping=\(self.isStopInProgress)",
+                source: "ASRService"
+            )
+            self.microphonePickWaitTask = Task { @MainActor [weak self] in
+                for _ in 0 ..< 100 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard let self, Task.isCancelled == false else { return }
+                    if self.isStarting == false, self.isStopInProgress == false {
+                        self.handleMicrophonePicked()
+                        return
+                    }
+                }
+            }
+            return
+        }
+        let resolvedInput = AppServices.shared.microphonePreferenceCoordinator.inputDeviceForCapture()
+        let confirmedUID = AppServices.shared.microphonePreferenceCoordinator.confirmedActiveInputUID
+        // Mid-switch the confirmed device is still the old one: compare with the device the
+        // current attempt opened too, and always re-route while a recovery is in flight, so a pick
+        // back to the old device is never dropped.
+        let isSwitching = self.isRecoveringAudioRoute || self.pendingAudioRouteRecovery != nil
+        let activeSelectionChanged = self.isRunning && (
+            isSwitching ||
+                resolvedInput?.uid != confirmedUID ||
+                resolvedInput?.uid != self.audioStartAttemptInputUID
+        )
+        let preparedSelectionChanged = self.isRunning == false && self.hasPreparedAudioCapture &&
+            resolvedInput?.id != self.directAudioLifecycleController.snapshot.deviceID
+        DebugLogger.shared.info(
+            "MIC_PICK apply running=\(self.isRunning) switching=\(isSwitching) " +
+                "resolved=\(resolvedInput?.uid ?? "none") confirmed=\(confirmedUID ?? "none") " +
+                "reroute=\(activeSelectionChanged || preparedSelectionChanged)",
+            source: "ASRService"
+        )
+        guard activeSelectionChanged || preparedSelectionChanged else { return }
+        self.scheduleAudioRouteRecovery(
+            reason: "microphone picked",
+            requiresIdlePrewarm: true,
+            reconcilesInputSelection: true
+        )
+    }
+
+    private func handleInputDeviceAvailabilityChanged(deviceID: AudioObjectID?) {
         let resolvedInput = AppServices.shared.microphonePreferenceCoordinator.inputDeviceForCapture()
         let preparedDeviceID = self.directAudioLifecycleController.snapshot.deviceID
         let confirmedUID = AppServices.shared.microphonePreferenceCoordinator.confirmedActiveInputUID
@@ -1679,7 +1730,7 @@ final class ASRService: ObservableObject {
         guard activeSelectionChanged || preparedSelectionChanged else { return }
 
         self.scheduleAudioRouteRecovery(
-            reason: reason ?? "input availability changed:\(deviceID ?? 0)",
+            reason: "input availability changed:\(deviceID ?? 0)",
             requiresIdlePrewarm: true,
             reconcilesInputSelection: true
         )
@@ -2859,6 +2910,8 @@ final class ASRService: ObservableObject {
             DebugLogger.shared.warning("⚠️ STOP() - not running, returning empty string", source: "ASRService")
             return ""
         }
+        self.isStopInProgress = true
+        defer { self.isStopInProgress = false }
         // Released: a slow media query must not pause after this. A confirmed
         // pause stays owned until this transcription finishes, then resumes.
         let stoppingSessionID = self.benchmarkSessionID
@@ -3247,6 +3300,8 @@ final class ASRService: ObservableObject {
             await self.cancelPendingAudioCaptureStart(reason: "stop_without_transcription")
         }
         guard self.isRunning else { return }
+        self.isStopInProgress = true
+        defer { self.isStopInProgress = false }
         let stoppingSessionID = self.benchmarkSessionID
         MediaPlaybackService.shared.recordingStopped(sessionID: stoppingSessionID)
         defer { MediaPlaybackService.shared.sessionFinished(sessionID: stoppingSessionID) }

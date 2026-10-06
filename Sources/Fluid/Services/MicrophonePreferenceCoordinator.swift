@@ -41,6 +41,8 @@ extension Notification.Name {
 final class MicrophonePreferenceCoordinator: ObservableObject {
     private let settings: SettingsStore
     private let devices: any AudioDeviceManaging
+    /// Where `pick` announces itself (ASRService listens on the default one); tests pass their own.
+    private let notificationCenter: NotificationCenter
     private var lastResolvedInputUID: String?
     private var lastResolvedInputName: String?
     private var hasConfirmedActiveSelection = false
@@ -53,10 +55,12 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
 
     init(
         settings: SettingsStore? = nil,
-        devices: (any AudioDeviceManaging)? = nil
+        devices: (any AudioDeviceManaging)? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.settings = settings ?? .shared
         self.devices = devices ?? CoreAudioDeviceManager()
+        self.notificationCenter = notificationCenter
     }
 
     var needsMicrophonePriorityMigration: Bool {
@@ -244,7 +248,7 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
                 "previous='\(previousName ?? "none")'",
             source: "MicrophonePreferenceCoordinator"
         )
-        NotificationCenter.default.post(name: .microphonePickDidChange, object: nil)
+        self.notificationCenter.post(name: .microphonePickDidChange, object: nil)
     }
 
     /// The microphone capture resolved last, for the overlay's mic row.
