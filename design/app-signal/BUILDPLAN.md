@@ -1,13 +1,13 @@
 # MouthKeys app: Datasheet Mono build plan
 
-Turns the approved prototype ([`index.html`](index.html), [`DIRECTION.md`](DIRECTION.md)) into the shipping SwiftUI window. Prepared 2026-10-05 against `main` at `dd4cbfae` (0.1.3). The prototype is the binding reference: reproduce it one to one, and change no behavior.
+Turns the approved prototype ([`index.html`](index.html), [`DIRECTION.md`](DIRECTION.md)) into the shipping SwiftUI window. Prepared 2026-10-05 against `main` at `dd4cbfae` (0.1.3); open questions settled with Atin 2026-10-07, when `main` also took PR #57 (`e5e48a4e`), which changed Settings. The prototype is the binding reference: reproduce it one to one, and change no behavior.
 
 Read first, in order: `CLAUDE.md` (repo rules: never touch the installed app, quiet test host, Atlas for full suites), `design/visual-language/DESIGN.md` (the locked Datasheet Mono tokens), `DIRECTION.md` (thesis, bracket rule, grid, screens, native mapping, decisions), then this file.
 
 ## Ground rules
 
-1. **Restyle only.** Every control in today's window keeps its binding, its `SettingsStore` key and its side effects. A control may move (Settings zones, inline tables instead of popovers); none may disappear except the Accent Color picker (decision 1). The parity checklist below proves it.
-2. **States the prototype never drew still ship.** Permission recovery on Getting Started (Open Settings, the floating guide, "Already switched on?", `ConflictingAppCopyDetector`'s Show in Finder list, the `failed_trusted` Relaunch MouthKeys button, Grant Access), "Settings are disabled during active recording", hotkey initializing, model download progress and errors, the regional filler-word offer (added after the prototype, `c6190877`, `f712eaa9`, `03b457b8`), and the overlay microphone picker (`340d9ca0`). Style each in Datasheet Mono with the nearest prototype pattern: a ruled banner, a row with a status square, an orange "needs you" step.
+1. **Restyle only.** Every control in today's window keeps its binding, its `SettingsStore` key and its side effects. A control may move (Settings zones, inline tables instead of popovers); none may disappear except the Accent Color picker (decision 1) and "Allow in c11", which PR #57 removed from the app after the prototype was drawn (terminals, c11 included, now always get Return). The prototype still draws that row; don't build it. The parity checklist below proves it.
+2. **States the prototype never drew still ship.** Permission recovery on Getting Started (Open Settings, the floating guide, "Already switched on?", `ConflictingAppCopyDetector`'s Show in Finder list, the `failed_trusted` Relaunch MouthKeys button, Grant Access), "Settings are disabled during active recording", hotkey initializing, model download progress and errors, the regional filler-word offer (added after the prototype, `c6190877`, `f712eaa9`, `03b457b8`), the overlay microphone picker (`340d9ca0`), and the Q for Question Mark toggle in Spoken Send (PR #57). Style each in Datasheet Mono with the nearest prototype pattern: a ruled banner, a row with a status square, an orange "needs you" step.
 3. **The live recording overlay, the menu bar mark and text delivery are untouched** (decision 8). They are already Datasheet Mono. The only menu change is the header grin and the new "MouthKeys on GitHub ↗" item.
 4. **Tokens come from one place.** Extend `SignalTheme` (`Sources/Fluid/Theme/SignalTheme.swift`, `DatasheetTheme` after the phase 0 rename) with the window tokens `rule`, `ruleSoft`, `sidebar` and `field` (values in `index.html`'s `:root` and light blocks, lines 39 to 72; `desk` is the prototype's stage, not product). Nothing hardcodes a colour. `AppTheme` stays for code not yet converted and is retired at the end if nothing uses it.
 5. **No layout jumps** (global quality bar): fixed-width toggles with reserved ON/OFF, fixed segment cells, fixed readout boxes, constant row counts.
@@ -38,7 +38,7 @@ Each phase lands as one or more PRs that leave `main` shippable. Phases 0 and 1 
 
 **0. Foundations** (one PR). First, as its own commit, the mechanical rename to the language's name (Atin, 2026-10-06): `Signal*` types and files become `Datasheet*` (`SignalTheme` → `DatasheetTheme`, `Views/Signal/` → `Views/Datasheet/`, and so on), log tags and `design/visual-language/prototypes/signal/` included; no behavior change, the full suite proves it. The new components below then take the `Datasheet` prefix. Window tokens in the theme. A `Theme/DatasheetWindow/` folder (app sources are a synchronized folder, so no project edits) with: `DatasheetSheetHeader` (placard, title, lede, rule), `DatasheetSection` (zone letter, title, rule to the edge), `DatasheetRow` (label, help, trailing control, bottom rule, `.indent` leader), `DatasheetToggleStyle`, `DatasheetSegmented`, `DatasheetPicker` (a `Menu` with a field-box label), `DatasheetSlider`, `DatasheetHotkeyWell` (wraps the existing recorder), `DatasheetTableRow` with hover and selection inversion, `DatasheetMeter`, `DatasheetStatusSquare` (ink, orange, outline), `DatasheetBracketed(rest:)`, `DatasheetEmptyState`, and `DatasheetGrin` (Canvas, three detail tiers by pixel width, `jaw` input). Render test: a gallery of every component in both themes against `shots/`.
 
-**1. Window chrome** (one PR). Hidden title bar plus the 40 pt title strip (Today, Theme, Report; traffic lights stay the system's). Sidebar becomes a `ScrollView` of `DatasheetNavRow`: the bare `00 Getting Started` row on top, then Configure, Use, Activity, Advanced, Help (Feedback only), numbered 01 to 09. Corner stamp bottom-left: grin, MOUTHKEYS wordmark and version, engine / input / hotkey cells, GITHUB ↗. ⌘0 to ⌘9 jump to the screens (our assumption; the prototype's bare digits would fire while typing in a field). Remove the Accent Color picker and its uses. Screens keep their old bodies for now.
+**1. Window chrome** (one PR). Hidden title bar plus the 40 pt title strip (Today, Theme, Report; traffic lights stay the system's). Sidebar becomes a `ScrollView` of `DatasheetNavRow`: the bare `00 Getting Started` row on top, then Configure, Use, Activity, Advanced, Help (Feedback only), numbered 01 to 09. Corner stamp bottom-left: grin, MOUTHKEYS wordmark and version, engine / input / hotkey cells, GITHUB ↗. No keyboard shortcuts jump between screens (Atin, 2026-10-07; the prototype's 0 to 9 keys are prototype controls only). Remove the Accent Color picker and its uses. Screens keep their old bodies for now.
 
 **2. Settings** (lane A). One sheet, zones A Microphone, B Hotkeys, C Dictation, D App, E History, F Format, G Alerts, H Overlay, I Backup, J Debug, in that order (decision 10), with the sticky zone strip. Every existing control rewired into `DatasheetRow`s. Hardest lane: run the parity checklist control by control.
 
@@ -60,7 +60,7 @@ Each phase lands as one or more PRs that leave `main` shippable. Phases 0 and 1 
 
 ## Parity checklist (lane A writes it, every lane extends it)
 
-`design/app-signal/PARITY.md`: one line per control in today's window: old screen and label, `SettingsStore` key or binding, new zone or screen, status (moved, restyled, removed by decision). Seed it from `SettingsView.swift`, `ContentView.swift`'s `preferencesView` bindings and each screen file. A 2026-10-05 label diff found every Settings row in the prototype except messages and states (covered by rule 2) and the Accent Color picker (removed by decision).
+`design/app-signal/PARITY.md`: one line per control in today's window: old screen and label, `SettingsStore` key or binding, new zone or screen, status (moved, restyled, removed by decision). Seed it from `main` at `e5e48a4e` or later (after PR #57): `SettingsView.swift`, `ContentView.swift`'s `preferencesView` bindings and each screen file. A 2026-10-05 label diff found every Settings row in the prototype except messages and states (covered by rule 2) and the Accent Color picker (removed by decision).
 
 ## Risks
 
@@ -69,10 +69,11 @@ Each phase lands as one or more PRs that leave `main` shippable. Phases 0 and 1 
 - Shortcut recorder and capture monitor live in `ContentView` state; `DatasheetHotkeyWell` wraps the existing recorder rather than reimplementing capture.
 - SF Mono: use `.monospaced()` design fonts as the overlay does; the prototype screenshots were taken in Safari with SF Mono.
 
-## Open with Atin
+## Decided with Atin (2026-10-07)
 
-Decisions the build assumes; any can change before it starts:
+Settled; the build does not reopen them:
 
-1. ⌘0 to ⌘9 for screen jumps (above).
-2. Round 2 items never reviewed (decision 6): the grin is tileless and themed (it prints ink on white in light mode), the stamp sits bottom-left, and outline grins appear only in the two empty states. Built as prototyped.
-3. Command Mode shows its honest "not ready" banner for a straight-dictation user.
+1. No keyboard shortcuts jump between screens (phase 1). The prototype's 0 to 9 keys are prototype navigation only.
+2. The round 2 grin is approved as prototyped (decision 6): tileless and themed (ink on white in light mode), the stamp bottom-left on every screen, outline grins only in the two empty states.
+3. Command Mode keeps its honest "not ready" banner for a straight-dictation user.
+4. PR #57 merged before the build: no "Allow in c11" row, and a Q for Question Mark toggle the prototype never drew (rules 1 and 2).

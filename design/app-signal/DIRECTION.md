@@ -2,11 +2,11 @@
 
 **Status: direction accepted by Atin, round 2 (2026-10-02).** Round 1: "Holy shit. This looks sick." All five round 1 decisions accepted. Round 2 adds the grin as a literal logo. No Swift was touched.
 
-**Build:** ready to start, not started (2026-10-05). Plan: [`BUILDPLAN.md`](BUILDPLAN.md). Paste-ready orchestrator prompt: [`BUILD-PROMPT.md`](BUILD-PROMPT.md).
+**Build:** ready to start, not started; every open question answered by Atin 2026-10-07. Plan: [`BUILDPLAN.md`](BUILDPLAN.md). Paste-ready orchestrator prompt: [`BUILD-PROMPT.md`](BUILD-PROMPT.md).
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 
-Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it (Getting Started only).
+Keys: **T** toggles dark and light (the page follows `prefers-color-scheme` until you press it), **O** opens the first-run wizard (arrows step through it), **S** cycles Getting Started's setup state (0 to 4 steps done), **0–9** jump to the ten sidebar screens (0 is Getting Started; prototype navigation only, the app gets no screen-jump shortcuts), **Esc** closes menus. The menu bar mark (top right) opens the status menu. Press **Start Recording** on Getting Started to drive the overlay reference; every live grin opens its jaw with the voice. Hover any part of the reference pill and a callout names it (Getting Started only).
 
 ## Thesis, applied to the window
 
@@ -107,14 +107,17 @@ The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked 
 3. Custom Dictionary popovers became inline tables. (Atin, round 2)
 4. History detail shows delivery (Pasted / NOT PASTED) to match the overlay card; AI Processed moves to the details line. The detail actions are the app's own: Copy, Audio, Export Pair, Delete (icon). (Atin, round 2)
 5. The wizard is the window's first state with a step rail, not a cinematic backdrop. (Atin, round 2)
-6. Round 2, ours, not yet reviewed: the grin is tileless and themed (print in light); the stamp lives bottom-left; outline grins only in the two empty states.
+6. The grin is tileless and themed (print in light); the stamp lives bottom-left; outline grins only in the two empty states. (Ours in round 2, approved by Atin 2026-10-07: "all three work great")
 7. Getting Started is Quick Setup plus the playground, nothing else; Fig. 1 lives on the Welcome step and in Feedback's About. (Atin, round 3)
 8. A GitHub link in the stamp, Feedback and the menu (Atin, round 4). Hover callouts live only on Getting Started's reference pill; the live overlay is unchanged (Atin, round 6).
-9. Getting Started is the bare 00 row at the top of the sidebar; 0 jumps to it. (Atin, round 5)
+9. Getting Started is the bare 00 row at the top of the sidebar. (Atin, round 5)
 10. Getting Started teaches the dictation key with a practice drill; the reference pill shows its hoverable zones in dashed orange; Settings leads with the microphone, then hotkeys, then dictation. (Atin, round 7)
+11. No keyboard shortcuts jump between screens; the prototype's digit keys are for clicking through the prototype. (Atin, 2026-10-07)
+12. Command Mode's honest state for a straight-dictation user is "not ready", shown with its banner. (Atin, 2026-10-07)
+13. Spoken Send follows `main` after PR #57, not the prototype: no "Allow in c11" row (terminals always get Return), and a Q for Question Mark toggle. (Atin, 2026-10-07)
 
 ## Unsure
 
-- Command Mode's honest state for a straight-dictation user is "not ready". The sample chat is shown so the confirm panel can be judged.
+- The Command Mode sample chat is shown so the confirm panel can be judged; the real screen opens on the not-ready banner (decision 12).
 - Sound cue names (Liquid SFX 0–4) and the AI Prompt picker are kept as they are.
 - Stats figures, the app version string and the file-transcription transcript are invented for realism.

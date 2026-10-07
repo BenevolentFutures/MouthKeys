@@ -1,6 +1,6 @@
 # Build prompt: MouthKeys Datasheet Mono window
 
-Paste everything below the line into a fresh seat (Claude Code on Opus, or Codex) opened in `~/Projects/MouthKeys` inside c11. It runs as the orchestrator: it builds phases 0 and 1 itself, then fans out lanes. Before pasting, check that the "Open with Atin" items in `BUILDPLAN.md` still stand, and that `design/app-signal` is pushed (the lanes branch from it).
+Paste everything below the line into a fresh seat (Claude Code on Opus, or Codex) opened in `~/Projects/MouthKeys` inside c11. It runs as the orchestrator: it builds phases 0 and 1 itself, then fans out lanes. Ready to paste: every open question was answered on 2026-10-07 (`BUILDPLAN.md`, "Decided with Atin") and `design/app-signal` is pushed.
 
 ---
 
@@ -10,8 +10,8 @@ You are building the approved Datasheet Mono redesign of the MouthKeys main wind
 1. `CLAUDE.md`. Its rules bind every agent you launch: never touch `/Applications/MouthKeys.app` or its data, never install or release, keep the XCTest host invisible and silent, full suites on Atlas.
 2. `design/visual-language/DESIGN.md`, the locked Datasheet Mono tokens.
 3. `design/app-signal/DIRECTION.md`: thesis, bracket rule, layout grid, screen table, native mapping, decisions on record.
-4. `design/app-signal/BUILDPLAN.md`: ground rules, where things live, phases, validation loop, parity checklist, risks. It is the contract; follow it.
-5. The prototype itself. Serve it with `PORT=8767 design/app-signal/serve.sh` (8766 is often held by the visual-language prototypes server, which serves a different folder and returns 404 here) and open it in a c11 browser tab. Keys: T theme, O wizard, S setup state, 0 to 9 screens. Screenshots of every screen in both themes are in `design/app-signal/shots/`.
+4. `design/app-signal/BUILDPLAN.md`: ground rules, where things live, phases, validation loop, parity checklist, risks, and the decisions Atin settled on 2026-10-07. It is the contract; follow it, and don't reopen a settled decision.
+5. The prototype itself. Serve it with `PORT=8767 design/app-signal/serve.sh` (8766 is often held by the visual-language prototypes server, which serves a different folder and returns 404 here) and open it in a c11 browser tab. Keys: T theme, O wizard, S setup state, 0 to 9 screens (prototype navigation only; the app gets no screen-jump shortcuts). Screenshots of every screen in both themes are in `design/app-signal/shots/`.
 
 **Branching.** Start from `origin/main`. Work on `feature/signal-window` and one branch per lane off it, or off `main` after phases 0 and 1 merge. Bring `design/app-signal/` into the first PR so the reference lives in the repo. PRs go to `--repo BenevolentFutures/MouthKeys --base main`.
 
@@ -22,7 +22,7 @@ You are building the approved Datasheet Mono redesign of the MouthKeys main wind
 4. Last: one Debug-build walkthrough of every screen in both themes, the wizard and the status menu, against the prototype. Fix what differs. Add the real-path checks to `docs/INSTALL-CHECKLIST.md`.
 
 **Hard rules.**
-- Nothing disappears except the Accent Color picker. States the prototype never drew still ship, styled in Datasheet Mono (BUILDPLAN rule 2: permission recovery, conflicting copies, Relaunch, recording-disabled settings, model download states, the regional filler offer, the overlay mic picker).
+- Nothing disappears except the Accent Color picker. Where `main` changed after the prototype, `main` wins: PR #57 removed "Allow in c11" (the prototype still draws it; don't build it) and added Q for Question Mark. States and controls the prototype never drew still ship, styled in Datasheet Mono (BUILDPLAN rule 2: permission recovery, conflicting copies, Relaunch, recording-disabled settings, model download states, the regional filler offer, the overlay mic picker, Q for Question Mark).
 - The live overlay, the menu bar mark and text delivery stay untouched. Delivery into c11 and Ghostty must never regress.
 - Tokens only from `SignalTheme`; reuse the existing `Signal*` primitives; no layout jumps.
 - One agent at a time drives the screen with a Debug build, its shortcuts first moved off Atin's keys (CLAUDE.md, Validate). Confine it to a verified display, quit the Debug build when done, and never touch the installed app. Anything that could quit the installed app waits for an idle dictation log.
