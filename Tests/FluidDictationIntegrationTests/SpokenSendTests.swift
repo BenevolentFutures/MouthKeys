@@ -24,6 +24,16 @@ final class SpokenSendParserTests: XCTestCase {
         XCTAssertEqual(self.parse("Ship the build. SEND IT"), SpokenSendParseResult(text: "Ship the build.", shouldSend: true))
     }
 
+    /// "send send": the transcriber may punctuate between the two words.
+    func testATwoWordPhraseMatchesWithPunctuationBetweenItsWords() {
+        for text in ["Is that right? Send send", "Is that right? Send, send.", "Is that right? Send. Send."] {
+            XCTAssertEqual(self.parse(text, phrase: "send send"), SpokenSendParseResult(text: "Is that right?", shouldSend: true), text)
+        }
+        XCTAssertEqual(self.parse("Fix the typo send send", phrase: "send send"), SpokenSendParseResult(text: "Fix the typo.", shouldSend: true))
+        XCTAssertEqual(self.parse("Send. Send.", phrase: "send send"), SpokenSendParseResult(text: "", shouldSend: true))
+        XCTAssertEqual(self.parse("Click send", phrase: "send send"), SpokenSendParseResult(text: "Click send", shouldSend: false))
+    }
+
     func testPhraseMidSentenceNeverSends() {
         for text in [
             "I'll send it tomorrow",
@@ -518,26 +528,96 @@ final class SpokenSendParserTests: XCTestCase {
     }
 }
 
-// MARK: - Which apps get the key
+// MARK: - Q for a question mark
 
-final class SpokenSendPolicyTests: XCTestCase {
-    func testC11IsAllowedAheadOfTheTerminalBlockList() {
-        XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11", appName: "c11", allowsC11: true), .allowedC11)
-        // Even when its identity would match a blocked term, c11 is decided by its bundle ID first.
-        XCTAssertEqual(
-            SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11", appName: "c11 (Ghostty Terminal)", allowsC11: true),
-            .allowedC11
-        )
-        XCTAssertTrue(SpokenSendPolicy.Verdict.allowedC11.allowsSend)
+final class QuestionMarkShortcutTests: XCTestCase {
+    private func apply(_ text: String) -> String {
+        QuestionMarkShortcut.apply(text, literalPrefix: "literal")
     }
 
-    func testC11BuildsAreC11AndLookAlikesAreNot() {
-        XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11.debug", appName: "c11 DEV", allowsC11: true), .allowedC11)
-        XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11mux", appName: "c11mux", allowsC11: true), .allowedC11)
-        XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11x", appName: "Other", allowsC11: true), .allowed)
-        XCTAssertTrue(SpokenSendPolicy.isTerminal(bundleIdentifier: "com.stage11.c11", appName: "c11"))
-        XCTAssertTrue(SpokenSendPolicy.isTerminal(bundleIdentifier: "com.apple.Terminal", appName: "Terminal"))
-        XCTAssertFalse(SpokenSendPolicy.isTerminal(bundleIdentifier: "com.tinyspeck.slackmacgap", appName: "Slack"))
+    func testATrailingQOrCueBecomesAQuestionMark() {
+        for text in ["Is that right Q", "Is that right Q.", "Is that right, Q?", "Is that right? Q.", "Is that right cue"] {
+            XCTAssertEqual(self.apply(text), "Is that right?", text)
+        }
+        XCTAssertEqual(self.apply("is it done q"), "is it done?")
+        XCTAssertEqual(self.apply("Q"), "?")
+    }
+
+    func testTwoQsBecomeAQuestionMarkAnywhere() {
+        XCTAssertEqual(self.apply("Is this OK Q Q and then deploy it"), "Is this OK? And then deploy it")
+        XCTAssertEqual(self.apply("Is this OK QQ. Then deploy"), "Is this OK? Then deploy")
+        XCTAssertEqual(self.apply("Is this OK queue, queue"), "Is this OK?")
+        XCTAssertEqual(self.apply("Is this OK cue cue."), "Is this OK?")
+        XCTAssertEqual(self.apply("Was it fast Q. Q."), "Was it fast?")
+    }
+
+    func testRealWordsAreLeftAlone() {
+        for text in [
+            "Add it to the queue", "Add it to the queue.", "The Q3 numbers and IQ tests", "Star Trek's Q is back", "Q&A",
+            "uv run pytest -q", "apt-get install -qq", "cd ~/q", "Make a Q-Q plot",
+        ] {
+            XCTAssertEqual(self.apply(text), text, text)
+        }
+    }
+
+    func testTextAfterTwoQsKeepsItsLineBreakAndItsCase() {
+        XCTAssertEqual(self.apply("Is this OK Q Q\nNext item"), "Is this OK?\nNext item")
+        XCTAssertEqual(self.apply("Does it work Q Q iPhone first"), "Does it work? iPhone first")
+        XCTAssertEqual(self.apply("Is it fast Q Q the API is"), "Is it fast? The API is")
+    }
+
+    func testTheLiteralPrefixTypesTheLetter() {
+        XCTAssertEqual(self.apply("Plan literal Q"), "Plan Q")
+        XCTAssertEqual(self.apply("Call it literal Q Q"), "Call it Q Q")
+        XCTAssertEqual(QuestionMarkShortcut.apply("Plan verbatim Q", literalPrefix: "verbatim"), "Plan Q")
+    }
+
+    /// It runs on the text Spoken Send leaves, so a Q right before the phrase ends the question.
+    func testAQBeforeTheSendPhraseEndsTheQuestion() {
+        for forTerminal in [false, true] {
+            let parse = SpokenSendParser.parse("Is that right Q send send", phrase: "send send", enabled: true, forTerminal: forTerminal)
+            XCTAssertTrue(parse.shouldSend)
+            XCTAssertEqual(self.apply(parse.text), "Is that right?")
+        }
+        let doubled = SpokenSendParser.parse("Is it OK q q send it", phrase: "send it", enabled: true)
+        XCTAssertEqual(self.apply(doubled.text), "Is it OK?")
+    }
+}
+
+// MARK: - Which apps are terminals, and which key they get
+
+final class SpokenSendPolicyTests: XCTestCase {
+    private static let terminals: [(String, String)] = [
+        ("com.apple.Terminal", "Terminal"),
+        ("com.googlecode.iterm2", "iTerm2"),
+        ("net.kovidgoyal.kitty", "kitty"),
+        ("org.alacritty", "Alacritty"),
+        ("dev.warp.Warp-Stable", "Warp"),
+        ("com.mitchellh.ghostty", "Ghostty"),
+        ("com.github.wez.wezterm", "WezTerm"),
+        ("org.tabby", "Tabby"),
+        ("co.zeit.hyper", "Hyper"),
+        ("com.raphaelamorim.rio", "Rio"),
+    ]
+
+    func testC11BuildsAreTerminalsAndLookAlikesAreNot() {
+        for bundleID in ["com.stage11.c11", "com.stage11.c11.debug", "com.stage11.c11mux"] {
+            XCTAssertTrue(SpokenSendPolicy.isTerminal(bundleIdentifier: bundleID, appName: nil), bundleID)
+        }
+        XCTAssertFalse(SpokenSendPolicy.isTerminal(bundleIdentifier: "com.stage11.c11x", appName: "Other"))
+    }
+
+    func testEveryKnownTerminalIsATerminal() {
+        for (bundleID, name) in Self.terminals {
+            XCTAssertTrue(SpokenSendPolicy.isTerminal(bundleIdentifier: bundleID, appName: name), bundleID)
+        }
+    }
+
+    func testOrdinaryAppsAreNotTerminals() {
+        for (bundleID, name) in [("com.tinyspeck.slackmacgap", "Slack"), ("com.apple.TextEdit", "TextEdit"), ("com.google.Chrome", "Google Chrome")] {
+            XCTAssertFalse(SpokenSendPolicy.isTerminal(bundleIdentifier: bundleID, appName: name), bundleID)
+        }
+        XCTAssertFalse(SpokenSendPolicy.isTerminal(bundleIdentifier: nil, appName: nil))
     }
 
     /// One c11 predicate: every build the send policy treats as c11 also gets c11's Reliable
@@ -546,7 +626,7 @@ final class SpokenSendPolicyTests: XCTestCase {
         for bundleID in ["com.stage11.c11", "com.stage11.c11.debug", "com.stage11.c11.nightly", "com.stage11.c11mux"] {
             XCTAssertTrue(TypingService.isC11(bundleIdentifier: bundleID), bundleID)
             XCTAssertTrue(TypingService.isGhosttyFamily(bundleIdentifier: bundleID), bundleID)
-            XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: bundleID, appName: nil, allowsC11: true), .allowedC11, bundleID)
+            XCTAssertTrue(SpokenSendPolicy.isC11(bundleIdentifier: bundleID), bundleID)
         }
         for bundleID in ["com.stage11.c11x", "com.stage11.acetate", "com.stage11"] {
             XCTAssertFalse(TypingService.isC11(bundleIdentifier: bundleID), bundleID)
@@ -555,45 +635,10 @@ final class SpokenSendPolicyTests: XCTestCase {
         XCTAssertTrue(TypingService.isGhosttyFamily(bundleIdentifier: "com.mitchellh.ghostty"))
     }
 
-    func testTheC11ToggleTurnsItOff() {
-        let verdict = SpokenSendPolicy.verdict(bundleIdentifier: "com.stage11.c11", appName: "c11", allowsC11: false)
-        XCTAssertEqual(verdict, .c11Disabled)
-        XCTAssertFalse(verdict.allowsSend)
-    }
-
-    func testEveryOtherTerminalIsBlocked() {
-        let terminals: [(String, String)] = [
-            ("com.apple.Terminal", "Terminal"),
-            ("com.googlecode.iterm2", "iTerm2"),
-            ("net.kovidgoyal.kitty", "kitty"),
-            ("org.alacritty", "Alacritty"),
-            ("dev.warp.Warp-Stable", "Warp"),
-            ("com.mitchellh.ghostty", "Ghostty"),
-            ("com.github.wez.wezterm", "WezTerm"),
-            ("org.tabby", "Tabby"),
-            ("co.zeit.hyper", "Hyper"),
-            ("com.raphaelamorim.rio", "Rio"),
-        ]
-        for (bundleID, name) in terminals {
-            for allowsC11 in [true, false] {
-                let verdict = SpokenSendPolicy.verdict(bundleIdentifier: bundleID, appName: name, allowsC11: allowsC11)
-                XCTAssertEqual(verdict, .blockedTerminal, bundleID)
-                XCTAssertFalse(verdict.allowsSend, bundleID)
-            }
-        }
-    }
-
-    func testOrdinaryAppsAreAllowed() {
-        for (bundleID, name) in [("com.tinyspeck.slackmacgap", "Slack"), ("com.apple.TextEdit", "TextEdit"), ("com.google.Chrome", "Google Chrome")] {
-            XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: bundleID, appName: name, allowsC11: false), .allowed, bundleID)
-        }
-        XCTAssertEqual(SpokenSendPolicy.verdict(bundleIdentifier: nil, appName: nil, allowsC11: true), .allowed)
-    }
-
-    func testC11AlwaysGetsAPlainReturn() {
+    func testTerminalsAlwaysGetAPlainReturn() {
         for key in SettingsStore.SpokenSendKey.allCases {
-            XCTAssertEqual(SpokenSendPolicy.effectiveKey(key, verdict: .allowedC11), .enter, key.rawValue)
-            XCTAssertEqual(SpokenSendPolicy.effectiveKey(key, verdict: .allowed), key, key.rawValue)
+            XCTAssertEqual(SpokenSendPolicy.effectiveKey(key, isTerminal: true), .enter, key.rawValue)
+            XCTAssertEqual(SpokenSendPolicy.effectiveKey(key, isTerminal: false), key, key.rawValue)
         }
     }
 
@@ -706,27 +751,42 @@ final class SpokenSendPolicyTests: XCTestCase {
             settings.spokenSendImmediatelyEnabled = original.stopsAfterPause
             settings.spokenSendPhrase = original.phrase
             settings.spokenSendKey = original.key
-            settings.spokenSendAllowsC11 = original.allowsC11
         }
 
         settings.spokenSendEnabled = true
         settings.spokenSendImmediatelyEnabled = false
         settings.spokenSendPhrase = "ship it"
         settings.spokenSendKey = .commandEnter
-        settings.spokenSendAllowsC11 = false
 
         let document = await BackupService.shared.makeBackupDocument()
         XCTAssertEqual(document.settings.spokenSendEnabled, true)
         XCTAssertEqual(document.settings.spokenSendImmediatelyEnabled, false)
         XCTAssertEqual(document.settings.spokenSendPhrase, "ship it")
         XCTAssertEqual(document.settings.spokenSendKey, .commandEnter)
-        XCTAssertEqual(document.settings.spokenSendAllowsC11, false)
 
         settings.spokenSendEnabled = false
-        settings.spokenSendAllowsC11 = true
         settings.restore(from: document.settings)
         XCTAssertTrue(settings.spokenSendEnabled)
-        XCTAssertFalse(settings.spokenSendAllowsC11)
+    }
+
+    @MainActor
+    func testTheQuestionMarkShortcutIsOffByDefaultAndBackedUp() async {
+        let settings = SettingsStore.shared
+        let original = settings.questionMarkShortcutEnabled
+        defer { settings.questionMarkShortcutEnabled = original }
+
+        UserDefaults.standard.removeObject(forKey: "QuestionMarkShortcutEnabled")
+        XCTAssertFalse(settings.questionMarkShortcutEnabled)
+        XCTAssertEqual(QuestionMarkShortcut.apply("Is that right Q", settings: settings), "Is that right Q")
+
+        settings.questionMarkShortcutEnabled = true
+        XCTAssertEqual(QuestionMarkShortcut.apply("Is that right Q", settings: settings), "Is that right?")
+        let document = await BackupService.shared.makeBackupDocument()
+        XCTAssertEqual(document.settings.questionMarkShortcutEnabled, true)
+
+        settings.questionMarkShortcutEnabled = false
+        settings.restore(from: document.settings)
+        XCTAssertTrue(settings.questionMarkShortcutEnabled)
     }
 }
 
@@ -740,7 +800,7 @@ final class SpokenSendControllerTests: XCTestCase {
     private var recordingApp: (bundleIdentifier: String?, name: String?)? = ("com.tinyspeck.slackmacgap", "Slack")
     private var stops = 0
     private var holding = false
-    private var config = SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: true, key: .enter, allowsC11: true)
+    private var config = SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: true, key: .enter)
 
     override func setUp() async throws {
         try await super.setUp()
@@ -877,6 +937,22 @@ final class SpokenSendControllerTests: XCTestCase {
         XCTAssertEqual(self.finish("Git status, send it.", isNormalRoute: true, target: slack).text, "Git status.")
     }
 
+    /// The tail of the phrase in the grace period leaves too little quiet when the countdown
+    /// ends: it waits out the rest and still stops, instead of expiring armed.
+    func testATailInTheGracePeriodDelaysTheStopInsteadOfLosingIt() async {
+        self.controller.settleDuration = 0.02
+        self.controller.handlePartial("Ship it, send it")
+        self.clock += SpokenSendParser.immediateStopVoiceActivityGraceDuration - 0.05
+        self.controller.handleVoiceLevel(0.5) // still the end of "send it"
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(self.stops, 0, "not enough quiet yet")
+        XCTAssertEqual(self.controller.indicator, .countingDown)
+        // The extra wait is the full required silence in real time, from the countdown's end.
+        self.clock += 1.0
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(self.stops, 1)
+    }
+
     func testTheTailOfThePhraseItselfDoesNotCancelTheCountdown() async {
         self.controller.handlePartial("Ship it, send it")
         self.clock += 0.05
@@ -897,12 +973,11 @@ final class SpokenSendControllerTests: XCTestCase {
         )
     }
 
-    func testABlockedTerminalShowsAHollowPlaneButStillStripsThePhrase() {
+    func testATerminalArmsTheSendLikeAnyOtherApp() {
         self.config.stopsAfterPause = false
         self.recordingApp = ("com.apple.Terminal", "Terminal")
         self.controller.handlePartial("ls -la send it")
         XCTAssertEqual(self.controller.indicator, .armed)
-        XCTAssertFalse(self.controller.sendsInRecordingApp)
     }
 
     func testARecordingStartedDuringTranscriptionCannotChangeTheDecision() {
@@ -996,14 +1071,13 @@ final class SpokenSendControllerTests: XCTestCase {
         XCTAssertFalse(self.controller.hasPendingReturn)
     }
 
-    /// A terminal that never gets Return shows NO SEND from the start: no Return is pending there.
-    func testNoReturnIsPendingInATerminalThatNeverGetsOne() {
+    /// Every terminal gets Return now, so Esc there drops only the Return, as anywhere else.
+    func testAReturnIsPendingInATerminal() {
         self.recordingApp = ("com.apple.Terminal", "Terminal")
         self.config.stopsAfterPause = false
         self.controller.recordingStateChanged(isRunning: true)
         self.controller.handlePartial("echo hello send it")
-        XCTAssertFalse(self.controller.sendsInRecordingApp)
-        XCTAssertFalse(self.controller.hasPendingReturn)
+        XCTAssertTrue(self.controller.hasPendingReturn)
     }
 
     func testStoppingEndsTheCountdown() async {
@@ -1040,7 +1114,7 @@ final class SpokenSendControllerTests: XCTestCase {
         XCTAssertEqual(self.finish("Anything, send it.", isNormalRoute: true), .unchanged("Anything, send it."))
     }
 
-    func testTheKeyGoesOnlyWhereThePolicyAllowsIt() {
+    func testTheKeyGoesToEveryAppAndTerminalsGetAPlainReturn() {
         let send = SpokenSendDecision(text: "Fix it.", phraseDetected: true, shouldSend: true)
         let c11 = DictationTarget(pid: 99901, bundleIdentifier: "com.stage11.c11", window: nil, element: nil)
         let terminal = DictationTarget(pid: 99902, bundleIdentifier: "com.apple.Terminal", window: nil, element: nil)
@@ -1049,20 +1123,17 @@ final class SpokenSendControllerTests: XCTestCase {
         self.config.key = .commandEnter
         let c11Request = self.controller.sendKeyRequest(for: send, target: c11, aiFailed: false, stoppedAt: 77)
         XCTAssertEqual(c11Request?.target.pid, 99901)
-        XCTAssertEqual(c11Request?.key, .enter, "c11 always gets a plain Return")
+        XCTAssertEqual(c11Request?.key, .enter, "a terminal always gets a plain Return")
         XCTAssertEqual(c11Request?.stoppedAt, 77)
         XCTAssertEqual(self.controller.sendKeyRequest(for: send, target: slack, aiFailed: false, stoppedAt: 0)?.key, .commandEnter)
 
-        XCTAssertNil(self.controller.sendKeyRequest(for: send, target: terminal, aiFailed: false, stoppedAt: 0))
+        XCTAssertEqual(self.controller.sendKeyRequest(for: send, target: terminal, aiFailed: false, stoppedAt: 0)?.key, .enter)
         XCTAssertNil(self.controller.sendKeyRequest(for: send, target: nil, aiFailed: false, stoppedAt: 0))
         XCTAssertNil(self.controller.sendKeyRequest(for: send, target: c11, aiFailed: true, stoppedAt: 0), "never submit an AI fallback")
         let own = DictationTarget(pid: ProcessInfo.processInfo.processIdentifier, bundleIdentifier: nil, window: nil, element: nil)
         XCTAssertNil(self.controller.sendKeyRequest(for: send, target: own, aiFailed: false, stoppedAt: 0))
         let canceled = SpokenSendDecision(text: "Fix it.", phraseDetected: true, shouldSend: false)
         XCTAssertNil(self.controller.sendKeyRequest(for: canceled, target: c11, aiFailed: false, stoppedAt: 0))
-
-        self.config.allowsC11 = false
-        XCTAssertNil(self.controller.sendKeyRequest(for: send, target: c11, aiFailed: false, stoppedAt: 0))
     }
 
     func testTheOverlayIndicatorVisibility() {

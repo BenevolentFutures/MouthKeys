@@ -3248,13 +3248,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Spoken Send may press Return in c11 (Claude Code prompts). Every other terminal is
-    /// blocked, because Return there runs a shell command. On by default once Spoken Send is on.
-    var spokenSendAllowsC11: Bool {
-        get { self.defaults.object(forKey: Keys.spokenSendAllowsC11) as? Bool ?? true }
+    /// "Q" as the last word, or "Q Q" anywhere, types a question mark (`QuestionMarkShortcut`).
+    /// Off by default: a dictation can end on a real Q ("plan Q").
+    var questionMarkShortcutEnabled: Bool {
+        get { self.defaults.object(forKey: Keys.questionMarkShortcutEnabled) as? Bool ?? false }
         set {
             objectWillChange.send()
-            self.defaults.set(newValue, forKey: Keys.spokenSendAllowsC11)
+            self.defaults.set(newValue, forKey: Keys.questionMarkShortcutEnabled)
         }
     }
 
@@ -3332,7 +3332,7 @@ final class SettingsStore: ObservableObject {
             spokenSendImmediatelyEnabled: self.spokenSendImmediatelyEnabled,
             spokenSendPhrase: self.spokenSendPhrase,
             spokenSendKey: self.spokenSendKey,
-            spokenSendAllowsC11: self.spokenSendAllowsC11,
+            questionMarkShortcutEnabled: self.questionMarkShortcutEnabled,
             weekendsDontBreakStreak: self.weekendsDontBreakStreak,
             fillerWords: self.fillerWords,
             removeFillerWordsEnabled: self.removeFillerWordsEnabled,
@@ -3487,8 +3487,8 @@ final class SettingsStore: ObservableObject {
         if let spokenSendKey = payload.spokenSendKey {
             self.spokenSendKey = spokenSendKey
         }
-        if let spokenSendAllowsC11 = payload.spokenSendAllowsC11 {
-            self.spokenSendAllowsC11 = spokenSendAllowsC11
+        if let questionMarkShortcutEnabled = payload.questionMarkShortcutEnabled {
+            self.questionMarkShortcutEnabled = questionMarkShortcutEnabled
         }
         self.weekendsDontBreakStreak = payload.weekendsDontBreakStreak
         self.fillerWords = payload.fillerWords
@@ -5346,7 +5346,7 @@ private extension SettingsStore {
         static let spokenSendImmediatelyEnabled = "SpokenSendImmediatelyEnabled"
         static let spokenSendPhrase = "SpokenSendPhrase"
         static let spokenSendKey = "SpokenSendKey"
-        static let spokenSendAllowsC11 = "SpokenSendAllowsC11"
+        static let questionMarkShortcutEnabled = "QuestionMarkShortcutEnabled"
         static let visualizerNoiseThreshold = "VisualizerNoiseThreshold"
         static let launchAtStartup = "LaunchAtStartup"
         static let showInDock = "ShowInDock"

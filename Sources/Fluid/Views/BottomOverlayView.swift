@@ -434,7 +434,7 @@ final class BottomOverlayWindowController {
         if SettingsStore.shared.spokenSendEnabled, NotchContentState.shared.mode == .dictation {
             placard = model.sendDrain?.isCanceled == true
                 ? .noSend
-                : SignalOverlayModel.placard(indicator: spokenSend.indicator, sendsInApp: spokenSend.sendsInRecordingApp)
+                : SignalOverlayModel.placard(indicator: spokenSend.indicator)
         }
         Self.logTraceSummary(model.trace)
         model.stopRecording(preview: Self.previewAtStop(), placard: placard)
@@ -790,10 +790,6 @@ final class BottomOverlayWindowController {
         }
         switch indicator {
         case .countingDown:
-            guard SpokenSendController.shared.sendsInRecordingApp else {
-                model.clearSendCountdown()
-                return
-            }
             self.sendCancelHold?.cancel()
             model.startSendCountdown(duration: SpokenSendController.shared.settleDuration)
         case .canceled:

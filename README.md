@@ -23,7 +23,8 @@ the problem is not hearing you. the problem is. delivery.
 - **paste you can trust.** when a paste fails in a way the app can detect, a card shows, and the text goes on your clipboard unless you copied something since. your own clipboard comes back, images and files included. back-to-back dictations queue instead of dropping. [#4], [`8ab26a8`][8ab26a8]
 - **a faster stop.** in a headless benchmark with a 13,600-entry history, stop-path work outside the model fell from a 145 ms median to 4 ms; model time is unchanged. a stalled model no longer loses the recording: it is kept for Reprocess, even across a restart. [#9], [#10]
 - **built for terminals.** Ghostty and [c11](https://github.com/Stage-11-Agentics/c11), Stage 11's terminal multiplexer, always get Reliable Paste. upstream forces Ghostty; we added c11. [`8ed75b9`][8ed75b9]
-- **Spoken Send.** end with "send it" and Return follows the text. upstream blocks terminals; we allow c11, only in the pane you stopped in, and other terminals never get it. off by default. [#7], [#8]
+- **Spoken Send.** end with "send it" (or any phrase you pick, like "send send") and Return follows the text half a second later. upstream blocks terminals; we send in every app, only to the pane or field you stopped in. off by default. [#7], [#8]
+- **Q for a question mark.** end with "Q", or say "Q Q" anywhere, and it types "?". off by default.
 - **a live voice trace.** a scrolling trace of your voice, calibrated to the recording, so you can see it hearing you. [#22], [#24]
 - **live counters.** a timer, a word count and words per minute while you speak. [#27]
 - **your mic at a glance.** the active mic shows in the overlay, with the battery level of a Hollyland lapel mic. [#29], [#30]

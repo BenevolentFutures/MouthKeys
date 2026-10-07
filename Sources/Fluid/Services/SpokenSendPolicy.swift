@@ -2,66 +2,45 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-// Where Spoken Send may press its key, and how the key is pressed.
+// How Spoken Send presses its key.
 //
 // Upstream (altic-dev/FluidVoice@c679506d, @9778fe46) blocks Spoken Send in every terminal,
-// because Return in a shell runs a command. MouthKeys keeps that block list and adds an
-// allow list checked first: c11, where Atin dictates Claude Code prompts all day. c11 is
-// allowed by its bundle ID even when its name or identity would match a blocked term.
+// because Return in a shell runs a command. MouthKeys sends in every app: the phrase is said on
+// purpose, and the key still goes only to the pane or field that had focus at stop, and never
+// after a key press or click (`SendKeyStep`). Terminals are still recognized, for two things:
+// no sentence ending before the key, and always a plain Return.
 
-/// Which apps get the Spoken Send key. Pure, so the c11 carve-out is tested.
+/// How the Spoken Send key is pressed in each app. Pure, so the terminal rules are tested.
 nonisolated enum SpokenSendPolicy {
-    enum Verdict: String, Equatable, Sendable {
-        /// An ordinary app: the key follows the text.
-        case allowed
-        /// c11, on the allow list, with "Allow in c11" on.
-        case allowedC11 = "allowed_c11"
-        /// c11 with "Allow in c11" turned off.
-        case c11Disabled = "c11_disabled"
-        /// A terminal: Return would run a shell command. The text still lands.
-        case blockedTerminal = "blocked_terminal"
-
-        var allowsSend: Bool {
-            self == .allowed || self == .allowedC11
-        }
-    }
-
-    /// Checked before the block list, with the paste path's own c11 predicate
-    /// (`TypingService.isC11`: c11, its build variants, and the legacy c11mux).
+    /// The paste path's own c11 predicate (`TypingService.isC11`: c11, its build variants, and
+    /// the legacy c11mux). c11's name and bundle ID carry none of the terms below.
     static func isC11(bundleIdentifier: String?) -> Bool {
         TypingService.isC11(bundleIdentifier: bundleIdentifier)
     }
 
-    /// Upstream's block list, matched against "<app name> <bundle ID>" in lowercase.
-    static let blockedIdentityTerms = ["terminal", "iterm", "warp", "ghostty", "kitty", "alacritty", "wezterm", "tabby"]
+    /// Upstream's terminal list, matched against "<app name> <bundle ID>" in lowercase.
+    static let terminalIdentityTerms = ["terminal", "iterm", "warp", "ghostty", "kitty", "alacritty", "wezterm", "tabby"]
 
     /// Terminals whose name and bundle ID carry none of the terms above.
-    static let blockedBundleIdentifiers: Set<String> = ["co.zeit.hyper", "com.raphaelamorim.rio"]
+    static let terminalBundleIdentifiers: Set<String> = ["co.zeit.hyper", "com.raphaelamorim.rio"]
 
-    static func verdict(bundleIdentifier: String?, appName: String?, allowsC11: Bool) -> Verdict {
-        if self.isC11(bundleIdentifier: bundleIdentifier) {
-            return allowsC11 ? .allowedC11 : .c11Disabled
-        }
-        if let bundleIdentifier, self.blockedBundleIdentifiers.contains(bundleIdentifier) {
-            return .blockedTerminal
-        }
-        let identity = "\(appName ?? "") \(bundleIdentifier ?? "")".lowercased()
-        if self.blockedIdentityTerms.contains(where: { identity.contains($0) }) {
-            return .blockedTerminal
-        }
-        return .allowed
-    }
-
-    /// c11 or a blocked terminal: the text before the phrase is a prompt or a command, so the
+    /// c11 or another terminal: the text before the phrase is a prompt or a command, so the
     /// parser adds no sentence ending ("/compact", not "/compact.").
     static func isTerminal(bundleIdentifier: String?, appName: String?) -> Bool {
-        self.verdict(bundleIdentifier: bundleIdentifier, appName: appName, allowsC11: true) != .allowed
+        if self.isC11(bundleIdentifier: bundleIdentifier) {
+            return true
+        }
+        if let bundleIdentifier, self.terminalBundleIdentifiers.contains(bundleIdentifier) {
+            return true
+        }
+        let identity = "\(appName ?? "") \(bundleIdentifier ?? "")".lowercased()
+        return self.terminalIdentityTerms.contains(where: { identity.contains($0) })
     }
 
-    /// The key actually pressed. c11 always gets a plain Return: it is what submits a Claude
-    /// Code prompt, and Command + Return is a terminal binding (full screen in Ghostty).
-    static func effectiveKey(_ key: SettingsStore.SpokenSendKey, verdict: Verdict) -> SettingsStore.SpokenSendKey {
-        verdict == .allowedC11 ? .enter : key
+    /// The key actually pressed. A terminal always gets a plain Return: it is what submits a
+    /// prompt or a command, and Command + Return is a terminal binding (full screen in Ghostty).
+    static func effectiveKey(_ key: SettingsStore.SpokenSendKey, isTerminal: Bool) -> SettingsStore.SpokenSendKey {
+        isTerminal ? .enter : key
     }
 }
 

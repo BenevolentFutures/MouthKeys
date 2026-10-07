@@ -2791,7 +2791,7 @@ final class EscapeCancelGateTests: XCTestCase {
         let asr = ASRService()
         let spokenSend = SpokenSendController()
         spokenSend.configuration = {
-            SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: false, key: .enter, allowsC11: true)
+            SpokenSendController.Configuration(enabled: true, phrase: "send it", stopsAfterPause: false, key: .enter)
         }
         spokenSend.attach(
             partials: Empty().eraseToAnyPublisher(),
@@ -2876,7 +2876,7 @@ final class EscapeCancelGateTests: XCTestCase {
         XCTAssertTrue(self.asr.isRunning, "the dictation keeps recording")
         XCTAssertEqual(self.otherCancels, 0)
         XCTAssertEqual(self.spokenSend.indicator, .canceled)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: self.spokenSend.indicator, sendsInApp: true), .noSend)
+        XCTAssertEqual(SignalOverlayModel.placard(indicator: self.spokenSend.indicator), .noSend)
         try self.release()
 
         XCTAssertTrue(try self.press(), "as before PR #17: Esc while recording cancels it")

@@ -160,10 +160,10 @@ final class SignalOverlayModel: ObservableObject {
     // MARK: Spoken Send (DESIGN.md §15)
 
     /// The placard for Spoken Send's current state.
-    static func placard(indicator: SpokenSendController.Indicator, sendsInApp: Bool) -> SignalPlacard {
+    static func placard(indicator: SpokenSendController.Indicator) -> SignalPlacard {
         switch indicator {
         case .hidden: .none
-        case .armed, .countingDown: sendsInApp ? .send : .noReturn
+        case .armed, .countingDown: .send
         case .canceled: .noSend
         }
     }

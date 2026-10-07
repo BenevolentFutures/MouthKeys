@@ -472,7 +472,7 @@ struct BottomOverlayView: View {
             // A canceled countdown keeps NO SEND while its bar is held (it only exists with Spoken Send).
             if model.sendDrain?.isCanceled == true { return .noSend }
             guard spokenSendEnabled, mode == .dictation else { return .none }
-            return SignalOverlayModel.placard(indicator: spokenSend.indicator, sendsInApp: spokenSend.sendsInRecordingApp)
+            return SignalOverlayModel.placard(indicator: spokenSend.indicator)
         case .stopped, .transcribing, .delivered:
             return model.stopPlacard
         case .notice, .noticeRow, .idle:
