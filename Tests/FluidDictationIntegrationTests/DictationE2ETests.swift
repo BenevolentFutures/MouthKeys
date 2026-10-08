@@ -5436,3 +5436,147 @@ private struct DatasheetWindowFoundationGallery: View {
         .frame(width: width + 24)
     }
 }
+
+/// Lane D's page renders in both appearance modes. This uses only the Debug test host's own
+/// stores and restores them after rendering; no window, clipboard, microphone capture, or audio
+/// playback is involved.
+@MainActor
+final class DatasheetLaneDRenderTests: XCTestCase {
+    private var outputFolder: URL? {
+        ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private var savedHistory: [TranscriptionHistoryEntry] = []
+    private var savedFileHistory: [FileTranscriptionEntry] = []
+    private var savedFileSelection: UUID?
+
+    override func setUp() {
+        super.setUp()
+        self.savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
+        TranscriptionHistoryStore.shared.restore(from: DatasheetRenderStage.sampleHistory)
+
+        let fileHistory = FileTranscriptionHistoryStore.shared
+        self.savedFileHistory = fileHistory.entries
+        self.savedFileSelection = fileHistory.selectedEntryID
+        fileHistory.clearAll()
+        fileHistory.addEntry(TranscriptionResult(
+            text: "We will send the revised agenda after the call.",
+            confidence: 0.97,
+            duration: 184,
+            processingTime: 42,
+            fileName: "weekly-review.m4a"
+        ))
+        fileHistory.addEntry(TranscriptionResult(
+            text: "The launch review is scheduled for Thursday morning.",
+            confidence: 0.94,
+            duration: 322,
+            processingTime: 66,
+            fileName: "launch-review.wav"
+        ))
+    }
+
+    override func tearDown() {
+        TranscriptionHistoryStore.shared.restore(from: self.savedHistory)
+
+        let fileHistory = FileTranscriptionHistoryStore.shared
+        fileHistory.clearAll()
+        for entry in self.savedFileHistory.reversed() {
+            fileHistory.addEntry(entry.toTranscriptionResult())
+        }
+        fileHistory.selectedEntryID = self.savedFileSelection
+        super.tearDown()
+    }
+
+    func testHistoryStatsAndFileTranscriptionRenderInBothThemes() throws {
+        let appearances: [(String, NSAppearance.Name)] = [("dark", .darkAqua), ("light", .aqua)]
+
+        for (theme, appearance) in appearances {
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-populated",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-full-detail",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 780)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-minimum-window",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-full-page",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 1180)
+            )
+            try self.render(
+                MeetingTranscriptionView(asrService: ASRService()),
+                name: "\(theme)-file-transcription-drop-and-recent",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 900)
+            )
+            try self.render(
+                MessageBubble(message: .init(role: .user, content: "List files in my Downloads folder")),
+                name: "\(theme)-command-user-message",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 84)
+            )
+            try self.render(
+                MessageBubble(message: .init(
+                    role: .assistant,
+                    content: "I will check the folder and list the files.",
+                    toolCall: .init(id: "render", command: "ls -la ~/Downloads", workingDirectory: nil, purpose: "List files")
+                )),
+                name: "\(theme)-command-tool-call",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 140)
+            )
+        }
+
+        TranscriptionHistoryStore.shared.restore(from: [])
+        for (theme, appearance) in appearances {
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-empty",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-empty",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+        }
+    }
+
+    private func render<Content: View>(
+        _ content: Content,
+        name: String,
+        appearance: NSAppearance.Name,
+        size: CGSize
+    ) throws {
+        let view = content
+            .frame(width: size.width, height: size.height)
+            .datasheetPalette()
+        let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+        XCTAssertGreaterThan(rep.pixelsWide, 0, name)
+        XCTAssertGreaterThan(rep.pixelsHigh, 0, name)
+
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+
+        if let folder = self.outputFolder {
+            try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(name).png"))
+        }
+    }
+}
