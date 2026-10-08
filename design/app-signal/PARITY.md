@@ -63,81 +63,95 @@ These components have no independent `SettingsStore` binding. The consuming scre
 
 Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.preferencesView`.
 
+Implementation status: all listed controls are wired in the new ten-zone sheet; the incremental Debug build and focused meter render test pass. Dark/light meter artifacts are under `/Users/atin/Projects/MouthKeys-worktrees/datasheet-run/renders/A/`. Native ten-zone screenshots and walkthrough still await the coordinator's serialized screen turn. No permissions, system devices, login item, backup action, shortcut capture, or alerts were exercised.
+
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
-| Microphone permission: Grant Access | `ASRService.requestMicAccess()` | A Microphone permission row | Restyle; preserve system prompt timing |
-| Microphone permission: Open Settings | `ASRService.openSystemSettingsForMic()` | A Microphone permission row | Restyle |
-| Audio Devices: Refresh | `refreshDevices()`; refreshes the default input/output cache | A Microphone header action | Preserve refresh effect |
-| Input Device Priority: drag reorder | `SettingsStore.microphonePriority` | A Microphone table | Move/restyle |
-| Input Device Priority: remove | `SettingsStore.microphonePriority` / suppressed microphone set | A Microphone table row action | Move/restyle |
-| Input Device Priority: Restore Removed | `restoreRemovedMicrophones(with:)` | A Microphone table action | Move/restyle |
-| Prototype: Input device picker | `selectedInputUID` is reconciled from priority order; explicit selection currently uses status-menu `selectMicrophone(_:)` | A Microphone | Add picker using the existing selection action; add no settings key |
-| Prototype: live input-level meter | Prototype-only readout; no SettingsStore key or SettingsView binding | A Microphone | Add display only from an existing level stream; do not add capture behavior or change system defaults |
-| Output Device picker | `selectedOutputUID`, `SettingsStore.preferredOutputDeviceUID` | A Microphone | Restyle |
-| Sensitivity slider | `visualizerNoiseThreshold` | H Overlay | Restyle |
-| Sensitivity Reset | Sets `visualizerNoiseThreshold` to `0.4` | H Overlay | Preserve effect |
-| Accessibility permission state / Open Settings | `accessibilityEnabled`, `AccessibilityTrustMonitor` | B Hotkeys status row and recovery states | Restyle |
-| Accessibility recovery: Relaunch MouthKeys | `restartApp` callback after trusted-but-failed tap | B Hotkeys recovery row | Restyle |
-| Accessibility recovery: Reveal in Finder | `revealAppInFinder()` | B Hotkeys recovery actions | Preserve destination |
-| Accessibility recovery: Open Applications | `openApplicationsFolder()` | B Hotkeys recovery actions | Preserve destination |
-| Shortcut capture state / capture message | `activeShortcutRecordingTarget`, `shortcutRecordingMessage` | B Hotkeys status and `DatasheetHotkeyWell` | Restyle |
-| Primary Dictation Shortcuts: Add / Change / Cancel / Remove | `primaryDictationShortcuts` and existing recorder callbacks | B Hotkeys | Preserve recorder and one-shortcut minimum |
-| Primary Dictation AI Prompt picker | `dictationPromptSelection(for: .primary)` | B Hotkeys | Restyle |
-| Command Mode shortcut and enable toggle | `commandModeShortcut`, `commandModeShortcutEnabled` | B Hotkeys | Restyle |
-| Edit Mode shortcut and enable toggle | `rewriteShortcut`, `rewriteShortcutEnabled` | B Hotkeys | Restyle |
-| Cancel Recording shortcut | `cancelRecordingShortcut` | B Hotkeys | Restyle |
-| Paste Last Transcription shortcut and enable toggle | `pasteLastTranscriptionShortcut`, `pasteLastTranscriptionShortcutEnabled` | B Hotkeys | Restyle |
-| Reprocess Last Dictation shortcut and enable toggle | `reprocessLastDictationShortcut`, `reprocessLastDictationShortcutEnabled` | B Hotkeys | Restyle |
-| Activation Mode picker | `hotkeyMode`; updates `GlobalHotkeyManager` | B Hotkeys | Restyle |
-| Global Hotkey: “Hotkey initializing…” status | `hotkeyManagerInitialized`; `ContentView.preferencesView` passes the state and `SettingsView` renders this branch while accessibility is enabled | B Hotkeys status row | Preserve; style the initializing state |
-| Input Device Priority: Move Up | `SettingsStore.moveMicrophonePriority(uid:by: -1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
-| Input Device Priority: Move Down | `SettingsStore.moveMicrophonePriority(uid:by: 1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
-| Copy to Clipboard | `copyToClipboard` / `SettingsStore.copyTranscriptionToClipboard` | C Dictation | Restyle |
-| Text Insertion Mode picker | `SettingsStore.textInsertionMode` | C Dictation | Restyle |
-| Return to Starting Field | `SettingsStore.returnDictationToStartingField` | C Dictation | Restyle |
-| Q for Question Mark | `SettingsStore.questionMarkShortcutEnabled` | C Dictation | Restyle; added after prototype by PR #57 |
-| Spoken Send | `SettingsStore.spokenSendEnabled` | C Dictation | Restyle |
-| Spoken Send phrase field | `SettingsStore.spokenSendPhrase` | C Dictation | Restyle |
-| Send After a Pause | `SettingsStore.spokenSendImmediatelyEnabled`; baseline settle duration is 0.5 s, prototype copy says 1.5 s | C Dictation | Restyle; preserve baseline timing |
-| Send Key picker | `SettingsStore.spokenSendKey`; terminal target still sends Return | C Dictation | Restyle |
+| Microphone permission: Grant Access | `ASRService.requestMicAccess()` | A Microphone permission row | Wired; existing ASR permission action and timing retained. |
+| Microphone permission: Open Settings | `ASRService.openSystemSettingsForMic()` | A Microphone permission row | Wired; existing ASR permission action and timing retained. |
+| Audio Devices: Refresh | `refreshDevices()`; refreshes the default input/output cache | A Microphone device-list action | Wired; refreshes device lists and cached default device names. |
+| Input Device Priority: drag reorder | `SettingsStore.microphonePriority` | A Microphone table | Wired; existing ordering, removal, restore, and recording gates retained. |
+| Input Device Priority: remove | `SettingsStore.microphonePriority` / suppressed microphone set | A Microphone table row action | Wired; existing ordering, removal, restore, and recording gates retained. |
+| Input Device Priority: Restore Removed | `restoreRemovedMicrophones(with:)` | A Microphone table action | Wired; existing ordering, removal, restore, and recording gates retained. |
+| Prototype: Input device picker | `selectedInputUID` reconciles from priority order; explicit choice calls `MicrophonePreferenceCoordinator.pick(_:source: "settings")` | A Microphone | Wired; uses the existing MouthKeys selection path and adds no setting. |
+| Prototype: live input-level meter | `ASRService.audioLevelPublisher`; no SettingsStore key | A Microphone | Wired; actual publisher levels only; neutral at idle and reset on stop/disappear. |
+| Output Device picker | `selectedOutputUID`, `SettingsStore.preferredOutputDeviceUID` | A Microphone | Wired; existing preferred-output key and Core Audio effect retained; disabled while recording. |
+| Sensitivity slider | `visualizerNoiseThreshold` | H Overlay | Wired; existing binding and effect retained. |
+| Sensitivity Reset | Sets `visualizerNoiseThreshold` to `0.4` | H Overlay | Wired; intrinsic control widths retained and the whole sensitivity row reflows below its label at minimum width. Existing binding and effect retained. |
+| Accessibility permission state / Open Settings | `accessibilityEnabled`, `AccessibilityTrustMonitor` | B Hotkeys status row and recovery states | Wired; enabled/paused state and recovery hints retained. |
+| Accessibility recovery: Relaunch MouthKeys | `restartApp` callback after trusted-but-failed tap | B Hotkeys recovery row | Wired; existing callback and destination retained. |
+| Accessibility recovery: Reveal in Finder | `revealAppInFinder()` | B Hotkeys recovery actions | Wired; existing callback and destination retained. |
+| Accessibility recovery: Open Applications | `openApplicationsFolder()` | B Hotkeys recovery actions | Wired; existing callback and destination retained. |
+| Shortcut capture state / capture message | `activeShortcutRecordingTarget`, `shortcutRecordingMessage` | B Hotkeys status and `DatasheetHotkeyWell` | Wired; existing capture target and message state retained. |
+| Primary Dictation Shortcuts: Add / Change / Cancel / Remove | `primaryDictationShortcuts` and existing recorder callbacks | B Hotkeys | Wired; recorder callbacks, add/change/cancel/remove, and one-shortcut minimum retained. |
+| Primary Dictation AI Prompt picker | `dictationPromptSelection(for: .primary)` | B Hotkeys | Wired; existing binding and effect retained. |
+| Command Mode shortcut and enable toggle | `commandModeShortcut`, `commandModeShortcutEnabled` | B Hotkeys | Wired; existing binding and effect retained. |
+| Edit Mode shortcut and enable toggle | `rewriteShortcut`, `rewriteShortcutEnabled` | B Hotkeys | Wired; existing binding and effect retained. |
+| Cancel Recording shortcut | `cancelRecordingShortcut` | B Hotkeys | Wired; existing binding and effect retained. |
+| Paste Last Transcription shortcut and enable toggle | `pasteLastTranscriptionShortcut`, `pasteLastTranscriptionShortcutEnabled` | B Hotkeys | Wired; existing binding and effect retained. |
+| Reprocess Last Dictation shortcut and enable toggle | `reprocessLastDictationShortcut`, `reprocessLastDictationShortcutEnabled` | B Hotkeys | Wired; existing binding and effect retained. |
+| Activation Mode picker | `hotkeyMode`; updates `GlobalHotkeyManager` | B Hotkeys segmented Toggle / Hold / Both | Wired; existing enum, binding, persistence and hotkey-manager propagation retained. Both maps to the existing automatic mode. |
+| Global Hotkey: “Hotkey initializing…” status | `hotkeyManagerInitialized`; `ContentView.preferencesView` passes the state and `SettingsView` renders this branch while accessibility is enabled | B Hotkeys status row | Wired; initializing state retained. |
+| Input Device Priority: Move Up | `SettingsStore.moveMicrophonePriority(uid:by: -1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Wired; context-menu and accessibility actions, ordering limits, and disabled state retained. |
+| Input Device Priority: Move Down | `SettingsStore.moveMicrophonePriority(uid:by: 1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Wired; context-menu and accessibility actions, ordering limits, and disabled state retained. |
+| Copy to Clipboard | `copyToClipboard` / `SettingsStore.copyTranscriptionToClipboard` | C Dictation | Wired; existing binding and effect retained. |
+| Text Insertion Mode picker | `SettingsStore.textInsertionMode` | C Dictation | Wired; existing binding and effect retained. |
+| Return to Starting Field | `SettingsStore.returnDictationToStartingField` | C Dictation | Wired; existing binding and effect retained. |
+| Q for Question Mark | `SettingsStore.questionMarkShortcutEnabled` | C Dictation | Wired; retained from PR #57 although absent from the prototype. |
+| Spoken Send | `SettingsStore.spokenSendEnabled` | C Dictation | Wired; existing binding and effect retained. |
+| Spoken Send phrase field | `SettingsStore.spokenSendPhrase` | C Dictation | Wired; existing binding and effect retained. |
+| Send After a Pause | `SettingsStore.spokenSendImmediatelyEnabled`; baseline settle duration is 0.5 s, prototype copy says 1.5 s | C Dictation | Wired; baseline half-second behavior retained. |
+| Send Key picker | `SettingsStore.spokenSendKey`; terminal target still sends Return | C Dictation | Wired; existing binding and effect retained. |
 | Allow in c11 | No baseline setting after PR #57; terminals always receive Return | No C Dictation control | Removed by decision; prototype predates PR #57 |
-| Pause Media During Transcription | `SettingsStore.pauseMediaDuringTranscription` | C Dictation | Restyle |
-| Skip Silent Recordings | `SettingsStore.skipSilentRecordingsEnabled` | C Dictation | Restyle |
-| Launch at startup | `SettingsStore.setLaunchAtStartup(_:)` | D App | Restyle; do not change during QA |
-| Launch at startup registration status | `SettingsStore.launchAtStartupStatusMessage` | D App status text | Preserve actual login-item status |
-| Launch at startup error | `SettingsStore.launchAtStartupErrorMessage` | D App error state | Preserve error recovery |
-| Show window when launched at login | `SettingsStore.showMainWindowAtLoginLaunch` | D App | Restyle |
-| Hide from Dock & App Switcher | `SettingsStore.hideFromDockAndAppSwitcher` | D App | Restyle |
-| Self-update statement and Latest release link | Static statement; `MouthKeysLinks.latestRelease` | D App | Preserve link; no updater |
-| Transcription Sounds picker | `SettingsStore.transcriptionStartSound`; selecting previews the sound | D App | Restyle; preserve preview effect |
-| Volume slider | `SettingsStore.transcriptionSoundVolume`; release previews volume | D App | Restyle; preserve preview effect |
-| Analytics Details | `showAnalyticsPrivacy`; telemetry remains hard-off | E History | Restyle; retain no-telemetry statement |
-| Save Transcription History | `SettingsStore.saveTranscriptionHistory` | E History | Restyle; preserve usage refresh side effect |
-| Save Audio With History | `SettingsStore.saveAudioWithTranscriptionHistory` | E History | Restyle; remains disabled when history is off |
-| Weekends Don't Break Streak | `SettingsStore.weekendsDontBreakStreak` | E History | Restyle |
-| Audio Storage usage and meter | `audioHistoryUsageBytes`, `audioHistoryUsageFraction()`, `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve live usage display |
-| Audio budget field and Apply | `audioHistoryBudgetText`; writes `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve validation/pruning |
-| Export Audio | `exportAudioZip()` | E History | Restyle |
-| Delete Audio | `deleteSavedAudio()`; deletes saved audio only after confirmation and is disabled at zero usage | E History | Preserve confirmation and disabled state |
-| Lowercase First Letter | `SettingsStore.gaavLowercaseFirstLetterEnabled` | F Format | Restyle |
-| Remove Trailing Period | `SettingsStore.gaavRemoveTrailingPeriodEnabled` | F Format | Restyle |
-| Slash Commands & @ Formatting | `SettingsStore.literalDictationFormattingEnabled` | F Format | Restyle |
-| Space Between Dictations | `SettingsStore.continuousDictationSpacingEnabled` | F Format | Restyle |
-| Smart Capitalization | `SettingsStore.contextAwareCapitalizationEnabled` | F Format | Restyle |
-| AI Enhancement Failures | `SettingsStore.notifyAIProcessingFailures` | G Alerts | Restyle |
-| Microphone Changes | `SettingsStore.showMicrophoneChangeAlerts` | G Alerts | Restyle; preserve dismiss/reset side effect |
-| Paste Check | `SettingsStore.showPasteCheckAlerts` | G Alerts | Restyle |
-| Overlay Position | `SettingsStore.overlayPosition` | H Overlay | Restyle |
-| Transcription Preview Length slider | `SettingsStore.transcriptionPreviewCharLimit` | H Overlay | Restyle |
-| Overlay Size picker | `SettingsStore.overlaySize` | H Overlay | Restyle |
-| Notch Style picker | `SettingsStore.notchPresentationMode` | H Overlay | Restyle |
-| Live Preview | `enableStreamingPreview` / `SettingsStore.enableStreamingPreview` | H Overlay | Restyle |
-| Bottom Offset slider | `SettingsStore.overlayBottomOffset` | H Overlay | Restyle |
-| Backup Export / Import | `exportBackup()` / `importBackup()`; API keys excluded | I Backup | Restyle; preserve document contents and confirmations |
-| Show Debug Logs in App | `SettingsStore.enableDebugLogs` | J Debug | Restyle |
-| Debug log location/help | `AppStorageLocation.logFolderName` | J Debug | Preserve path and diagnostics wording |
-| Reveal Log File | `FileLogger.shared.currentLogFileURL()` and `NSWorkspace.shared.activateFileViewerSelecting` | J Debug action | Preserve Finder destination |
-| Prototype: settings recording notice | Output Device is disabled while `asr.isRunning`; microphone-priority edits are disabled while running or starting | Settings status notice; retain those two individual disabled states | Add notice; do not disable every Settings row |
+| Pause Media During Transcription | `SettingsStore.pauseMediaDuringTranscription` | C Dictation | Wired; existing binding and effect retained. |
+| Skip Silent Recordings | `SettingsStore.skipSilentRecordingsEnabled` | C Dictation | Wired; existing binding and effect retained. |
+| Launch at startup | `SettingsStore.setLaunchAtStartup(_:)` | D App | Wired; existing binding and effect retained. |
+| Launch at startup registration status | `SettingsStore.launchAtStartupStatusMessage` | D App status text | Wired; existing binding and effect retained. |
+| Launch at startup error | `SettingsStore.launchAtStartupErrorMessage` | D App error state | Wired; existing binding and effect retained. |
+| Show window when launched at login | `SettingsStore.showMainWindowAtLoginLaunch` | D App | Wired; existing binding and effect retained. |
+| Hide from Dock & App Switcher | `SettingsStore.hideFromDockAndAppSwitcher` | D App | Wired; existing binding and effect retained. |
+| Self-update statement and Latest release link | Static statement; `MouthKeysLinks.latestRelease` | D App | Wired; existing binding and effect retained. |
+| Transcription Sounds picker | `SettingsStore.transcriptionStartSound`; selecting previews the sound | D App | Wired; existing binding and effect retained. |
+| Volume slider | `SettingsStore.transcriptionSoundVolume`; release previews volume | D App | Wired; existing binding and effect retained. |
+| Analytics Details | `showAnalyticsPrivacy`; telemetry remains hard-off | E History | Wired; existing binding and effect retained. |
+| Save Transcription History | `SettingsStore.saveTranscriptionHistory` | E History | Wired; existing binding and effect retained. |
+| Save Audio With History | `SettingsStore.saveAudioWithTranscriptionHistory` | E History | Wired; storage refresh retained and toggle stays disabled when history is off. |
+| Weekends Don't Break Streak | `SettingsStore.weekendsDontBreakStreak` | E History | Wired; existing binding and effect retained. |
+| Audio Storage usage and meter | `audioHistoryUsageBytes`, `SettingsStore.audioHistoryBudgetBytes` | E History | Wired; current usage and budget feed the Datasheet meter. |
+| Audio budget field and Apply | `audioHistoryBudgetText`; writes `SettingsStore.audioHistoryBudgetGB` | E History | Wired; existing binding and effect retained. |
+| Export Audio | `exportAudioZip()` | E History | Wired; existing binding and effect retained. |
+| Delete Audio | `deleteSavedAudio()`; deletes saved audio only after confirmation and is disabled at zero usage | E History | Wired; confirmation and zero-usage disabled state retained. |
+| Lowercase First Letter | `SettingsStore.gaavLowercaseFirstLetterEnabled` | F Format | Wired; existing binding and effect retained. |
+| Remove Trailing Period | `SettingsStore.gaavRemoveTrailingPeriodEnabled` | F Format | Wired; existing binding and effect retained. |
+| Slash Commands & @ Formatting | `SettingsStore.literalDictationFormattingEnabled` | F Format | Wired; existing binding and effect retained. |
+| Space Between Dictations | `SettingsStore.continuousDictationSpacingEnabled` | F Format | Wired; existing binding and effect retained. |
+| Smart Capitalization | `SettingsStore.contextAwareCapitalizationEnabled` | F Format | Wired; existing binding and effect retained. |
+| AI Enhancement Failures | `SettingsStore.notifyAIProcessingFailures` | G Alerts | Wired; existing binding and effect retained. |
+| Microphone Changes | `SettingsStore.showMicrophoneChangeAlerts` | G Alerts | Wired; disabling also dismisses the current microphone-change overlay. |
+| Paste Check | `SettingsStore.showPasteCheckAlerts` | G Alerts | Wired; existing binding and effect retained. |
+| Overlay Position | `SettingsStore.overlayPosition` | H Overlay | Wired; existing binding and effect retained. |
+| Transcription Preview Length slider | `SettingsStore.transcriptionPreviewCharLimit` | H Overlay | Wired; existing binding and effect retained. |
+| Overlay Size picker | `SettingsStore.overlaySize` | H Overlay segmented Pill / Small / Medium / Large | Wired; existing binding and bottom-position condition retained. |
+| Notch Style picker | `SettingsStore.notchPresentationMode` | H Overlay | Wired; existing binding and effect retained. |
+| Live Preview | `enableStreamingPreview` / `SettingsStore.enableStreamingPreview` | H Overlay | Wired; existing binding and effect retained. |
+| Bottom Offset slider | `SettingsStore.overlayBottomOffset` | H Overlay | Wired; existing binding and effect retained. |
+| Backup Export / Import | `exportBackup()` / `importBackup()`; API keys excluded | I Backup | Wired; document contents and confirmations retained; API keys stay excluded. |
+| Show Debug Logs in App | `SettingsStore.enableDebugLogs` | J Debug | Wired; existing binding and effect retained. |
+| Debug log location/help | `AppStorageLocation.logFolderName` | J Debug | Wired; dynamic log folder and diagnostics wording retained. |
+| Reveal Log File | `FileLogger.shared.currentLogFileURL()` and `NSWorkspace.shared.activateFileViewerSelecting` | J Debug action | Wired; existing binding and effect retained. |
+| Prototype: settings recording notice | Output Device is disabled while `asr.isRunning`; microphone-priority edits are disabled while running or starting | Settings status notice; retain those two individual disabled states | Wired in A and H notes; all other Settings rows remain enabled. |
+
+
+### A state and evidence notes
+
+- Zone navigation retains the pinned strip but realizes all ten section anchors together before scrolling. Selection follows the explicit tab or microphone navigation request, matching the prototype's tab actions; the added geometry-driven scrollspy was removed by coordinator decision 9. This prevents lazy extent estimates from landing on the wrong section and prevents bottom clamping from replacing the chosen Backup/Debug tab. Each anchor includes 24 additional points above the section's existing 34-point top spacing to expose its heading below the pinned strip, including the native horizontal scroller. No geometry callback changes selection or layout. The original normal native SwiftUI hang remains unexplained; the earlier 44 responsive frames do not establish its cause or resolution.
+- PR62 r1 repairs preserve the sensitivity slider's 150-point track, 46-point readout, endpoint labels and complete Reset action. The whole row uses a horizontal layout when its label and controls fit and stacks them at minimum width. Activation Mode and bottom-only Overlay Size use the existing fixed-cell segmented primitive. Exact-head normal validation of these repairs and actual menu dismissal/clean quit remain pending a fresh screen lease. The earlier Input Device menu persisted; later picker open/dismiss results are invalid and the subsequent quit delay remains unresolved.
+- The mic meter subscribes to `ASRService.audioLevelPublisher`, shows only received values while capture is active, and resets to neutral when capture stops or is cancelled and when the view disappears. It uses 16 segments at 4 × 14 points with 2 points between segments. The approved optional `DatasheetMeter.accentLastFilled` flag colors only the final filled segment with the palette accent; earlier filled segments remain ink and unfilled segments retain their existing treatment. An empty meter means no current level; it does not report readiness or failure.
+- `ASettingsMeterRenderTests` renders the default, live-zero, live-partial, and live-full meter states in both themes without simulating audio input. The default caller stays neutral; zero has no accent; partial and full states accent only the final filled segment. See `datasheet-run/renders/A/manifest.json` and its attached PNGs.
+- The input picker calls the same `MicrophonePreferenceCoordinator.pick` path used by the status menu. It changes MouthKeys priority and capture selection, not the macOS default input. Unavailable saved microphones remain in the priority table.
+- Recording restrictions remain local: output-device changes are disabled while `asr.isRunning`; microphone priority edits are disabled while `asr.isRunning || asr.isStarting`. Other Settings controls stay enabled.
+- Accessibility recovery retains stale-grant, conflicting-copy paths and Finder actions, Relaunch MouthKeys, Open Settings, Reveal in Finder, and Open Applications. Hotkey initializing and shortcut capture messages remain visible.
+- Prototype-only `Allow in c11` is not present; current behavior always sends Return to terminals. Q for Question Mark remains in Dictation. Audio-history timeout retention, telemetry-off statement, API-key exclusion, and updater-off statement remain.
 
 ## B — Getting Started
 
