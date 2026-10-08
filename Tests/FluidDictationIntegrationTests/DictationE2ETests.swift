@@ -5452,6 +5452,140 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         }
     }
 
+    /// No SettingsStore/AppServices instance, cache, defaults, menu opening or system input.
+    /// Complete production-row composition is also checked by the retained source-extracted
+    /// RED/GREEN matrix; this guards the real field's native geometry, value and disabled hit path.
+    func testModelLanguageFieldKeepsLongValuesAndNativeHitSurfaceInInversePalettes() throws {
+        let font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        func textWidth(_ value: String) -> CGFloat {
+            (value as NSString).size(withAttributes: [.font: font]).width
+        }
+        let longestCohere = try XCTUnwrap(SettingsStore.CohereLanguage.allCases.max {
+            textWidth($0.displayName) < textWidth($1.displayName)
+        })
+        let longestNemotron = try XCTUnwrap(SettingsStore.NemotronLanguage.allCases.max {
+            textWidth($0.compactDisplayName) < textWidth($1.compactDisplayName)
+        })
+        let germanNemotron = try XCTUnwrap(SettingsStore.NemotronLanguage.supportedLanguage(rawValue: "de-DE"))
+        var cases: [(String, AnyView)] = []
+        for language in [SettingsStore.CohereLanguage.german, longestCohere] {
+            cases.append((language.displayName, AnyView(DatasheetSpeechModelLanguageField(
+                value: language.displayName, selection: .constant(language),
+                choices: SettingsStore.CohereLanguage.allCases, itemTitle: { $0.displayName }
+            ))))
+        }
+        for language in [germanNemotron, longestNemotron] {
+            cases.append((language.compactDisplayName, AnyView(DatasheetSpeechModelLanguageField(
+                value: language.compactDisplayName, selection: .constant(language),
+                choices: SettingsStore.NemotronLanguage.allCases, itemTitle: { $0.displayName }
+            ))))
+        }
+
+        let enhanced = NSSelectorFromString("accessibilitySetValue:forAttribute:")
+        let originalManual = self.languageFieldAXAttribute(NSApp, "AXManualAccessibility") ?? NSNumber(value: false)
+        let originalEnhanced = self.languageFieldAXAttribute(NSApp, "AXEnhancedUserInterface") ?? NSNumber(value: false)
+        _ = NSApp.perform(enhanced, with: NSNumber(value: true), with: "AXManualAccessibility")
+        _ = NSApp.perform(enhanced, with: NSNumber(value: true), with: "AXEnhancedUserInterface")
+        defer {
+            _ = NSApp.perform(enhanced, with: originalEnhanced, with: "AXEnhancedUserInterface")
+            _ = NSApp.perform(enhanced, with: originalManual, with: "AXManualAccessibility")
+        }
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+            let fieldPalette = appearance == .darkAqua ? DatasheetTheme.Palette.light : .dark
+            for (value, field) in cases {
+                for blocked in [false, true] {
+                    let view = field.environment(\.datasheetPalette, fieldPalette)
+                        .disabled(blocked).padding(20)
+                        .frame(width: 220, height: 72, alignment: .topLeading)
+                        .background(fieldPalette.surface).environment(\.colorScheme, scheme)
+                    let host = NSHostingView(rootView: view)
+                    let window = NSWindow(
+                        contentRect: NSRect(x: -10000, y: -10000, width: 220, height: 72),
+                        styleMask: .borderless, backing: .buffered, defer: false
+                    )
+                    window.isReleasedWhenClosed = false
+                    window.appearance = NSAppearance(named: appearance)
+                    window.contentView = host
+                    defer { window.contentView = nil; window.close() }
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertFalse(window.isVisible)
+                    XCTAssertFalse(window.isKeyWindow)
+                    let popup = try XCTUnwrap(self.languageFieldPopups(in: host).first)
+                    let native = try XCTUnwrap(popup.superview)
+                    let painted = host.convert(native.bounds, from: native)
+                    XCTAssertEqual(painted, NSRect(x: 20, y: 20, width: 180, height: 32))
+                    XCTAssertEqual(popup.isEnabled, !blocked)
+                    XCTAssertGreaterThanOrEqual(painted.width, textWidth(value) + 40, "Full value needs text, insets and disclosure: \(value)")
+                    for y in [CGFloat(0.05), 0.5, 0.95] {
+                        for x in [CGFloat(0.02), 0.5, 0.98] {
+                            let point = NSPoint(x: painted.minX + painted.width * x, y: painted.minY + painted.height * y)
+                            XCTAssertEqual(host.hitTest(host.convert(point, to: host.superview)) === popup, !blocked)
+                        }
+                    }
+                    let accessible = self.languageFieldAXNodes(host).filter {
+                        ["AXMenuButton", "AXPopUpButton"].contains($0["AXRole"] ?? "")
+                    }
+                    XCTAssertEqual(accessible.count, 1)
+                    let menu = try XCTUnwrap(accessible.first)
+                    XCTAssertEqual(menu["AXValue"], value)
+                    XCTAssertTrue([menu["AXTitle"], menu["AXDescription"]].contains("Model language"))
+                    XCTAssertEqual(menu["AXEnabled"], blocked ? "0" : "1")
+
+                    let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: rep)
+                    let background = try XCTUnwrap(NSColor(fieldPalette.field).usingColorSpace(.sRGB))
+                    let sx = CGFloat(rep.pixelsWide) / host.bounds.width
+                    let sy = CGFloat(rep.pixelsHigh) / host.bounds.height
+                    var ink = 0
+                    // Exclude the border and disclosure: these pixels must come from the value.
+                    for y in Int(28 * sy)..<Int(45 * sy) {
+                        for x in Int(32 * sx)..<Int((32 + textWidth(value)) * sx) {
+                            let color = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                            if abs(color.redComponent - background.redComponent)
+                                + abs(color.greenComponent - background.greenComponent)
+                                + abs(color.blueComponent - background.blueComponent) > 1.2
+                            { ink += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(ink, 30, "\(appearance.rawValue) \(value) blocked=\(blocked): readable value ink")
+                }
+            }
+        }
+    }
+
+    private func languageFieldPopups(in view: NSView) -> [NSPopUpButton] {
+        if let popup = view as? NSPopUpButton { return [popup] }
+        return view.subviews.flatMap { self.languageFieldPopups(in: $0) }
+    }
+
+    private func languageFieldAXAttribute(_ object: Any, _ name: String) -> Any? {
+        if let element = object as? NSAccessibilityProtocol {
+            switch name {
+            case "AXRole": return element.accessibilityRole()?.rawValue
+            case "AXDescription": return element.accessibilityLabel()
+            case "AXValue": return element.accessibilityValue()
+            case "AXEnabled": return NSNumber(value: element.isAccessibilityEnabled())
+            case "AXChildren": return element.accessibilityChildren()
+            default: break
+            }
+        }
+        let selector = NSSelectorFromString("accessibilityAttributeValue:")
+        guard let object = object as? NSObject, object.responds(to: selector) else { return nil }
+        return object.perform(selector, with: name)?.takeUnretainedValue()
+    }
+
+    private func languageFieldAXNodes(_ object: Any, depth: Int = 0) -> [[String: String]] {
+        guard depth < 15 else { return [] }
+        var node: [String: String] = [:]
+        for key in ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXEnabled"] {
+            if let value = self.languageFieldAXAttribute(object, key) { node[key] = String(describing: value) }
+        }
+        let children = self.languageFieldAXAttribute(object, "AXChildren") as? [Any] ?? []
+        return (node.isEmpty ? [] : [node]) + children.flatMap { self.languageFieldAXNodes($0, depth: depth + 1) }
+    }
+
     func testRendersLaneCScreensInBothThemes() throws {
         let settings = SettingsStore.shared
         let appServices = AppServices.shared

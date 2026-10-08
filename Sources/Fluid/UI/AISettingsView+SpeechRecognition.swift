@@ -228,13 +228,13 @@ extension VoiceEngineSettingsView {
                 self.monoLabel("Languages").frame(width: 112, alignment: .leading)
                 self.monoLabel("Speed").frame(width: 42, alignment: .trailing)
                 self.monoLabel("Acc").frame(width: 42, alignment: .trailing)
-                self.monoLabel("State").frame(width: 136, alignment: .trailing)
+                self.monoLabel("State").frame(width: 280, alignment: .trailing)
             }
             .frame(minWidth: 720)
             HStack {
                 self.monoLabel("Model / Specifications")
                 Spacer(minLength: 0)
-                self.monoLabel("State").frame(width: 136, alignment: .trailing)
+                self.monoLabel("State").frame(width: 280, alignment: .trailing)
             }
         }
         .padding(.horizontal, 14)
@@ -281,7 +281,7 @@ extension VoiceEngineSettingsView {
                 self.monoLabel("\(Int(model.accuracyPercent * 100))", color: metaText)
                     .frame(width: 42, alignment: .trailing)
                 self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive, palette: actionPalette)
-                    .frame(width: 136, alignment: .trailing)
+                    .frame(width: 280, alignment: .trailing)
             }
             .frame(minWidth: 720)
             VStack(alignment: .leading, spacing: 8) {
@@ -296,7 +296,7 @@ extension VoiceEngineSettingsView {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive, palette: actionPalette)
-                        .frame(width: 136, alignment: .trailing)
+                        .frame(width: 280, alignment: .trailing)
                 }
                 Text("Size: \(model.downloadSize) · Languages: \(model.languageSupport) · Speed: \(Int(model.speedPercent * 100)) · Accuracy: \(Int(model.accuracyPercent * 100))")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -343,6 +343,7 @@ extension VoiceEngineSettingsView {
                             .environment(\.datasheetPalette, palette)
                         self.monoLabel("Active", color: palette.text)
                     }
+                    .fixedSize()
                 } else {
                     self.actionButton("Activate", palette: palette) {
                         self.viewModel.activateSpeechModel(model)
@@ -591,61 +592,27 @@ extension VoiceEngineSettingsView {
     @ViewBuilder
     private func speechModelLanguagePicker(for model: SettingsStore.SpeechModel, palette: DatasheetTheme.Palette) -> some View {
         if model == .cohereTranscribeSixBit {
-            Menu {
-                ForEach(SettingsStore.CohereLanguage.allCases) { language in
-                    Button {
+            DatasheetSpeechModelLanguageField(
+                value: self.settings.selectedCohereLanguage.displayName,
+                selection: Binding(
+                    get: { self.settings.selectedCohereLanguage },
+                    set: { language in
                         guard language != self.settings.selectedCohereLanguage else { return }
                         self.settings.selectedCohereLanguage = language
-                    } label: {
-                        HStack {
-                            Text(language.displayName)
-                            if language == self.settings.selectedCohereLanguage {
-                                Image(systemName: "checkmark")
-                            }
-                        }
                     }
-                }
-            } label: {
-                self.languageChipLabel(self.settings.selectedCohereLanguage.displayName, palette: palette)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.visible)
+                ),
+                choices: SettingsStore.CohereLanguage.allCases,
+                itemTitle: { $0.displayName }
+            )
+            .environment(\.datasheetPalette, palette)
         } else if model == .nemotronOffline || model == .nemotronStreaming || model == .nemotronStreaming320 {
-            Menu {
-                ForEach(SettingsStore.NemotronLanguage.allCases) { language in
-                    Button {
-                        self.settings.selectedNemotronLanguage = language
-                    } label: {
-                        HStack {
-                            Text(language.displayName)
-                            if language == self.settings.selectedNemotronLanguage {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                self.languageChipLabel(self.settings.selectedNemotronLanguage.compactDisplayName, palette: palette)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.visible)
-        }
-    }
-
-    private func languageChipLabel(_ title: String, palette: DatasheetTheme.Palette) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "globe")
-            Text(title).lineLimit(1)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .medium))
-        }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .tracking(0.3)
-        .foregroundStyle(palette.text2)
-        .padding(.horizontal, 6)
-        .frame(height: 24)
-        .overlay {
-            Rectangle().strokeBorder(palette.edge, lineWidth: 1)
+            DatasheetSpeechModelLanguageField(
+                value: self.settings.selectedNemotronLanguage.compactDisplayName,
+                selection: self.$settings.selectedNemotronLanguage,
+                choices: SettingsStore.NemotronLanguage.allCases,
+                itemTitle: { $0.displayName }
+            )
+            .environment(\.datasheetPalette, palette)
         }
     }
 
@@ -655,6 +622,31 @@ extension VoiceEngineSettingsView {
             return "Nemotron Speech 3.5 · Streaming capable"
         default:
             return "\(model.brandName) · \(model.displayName)"
+        }
+    }
+}
+
+/// A separately drawn value retains contrast above AppKit's transparent native menu hit surface.
+struct DatasheetSpeechModelLanguageField<Language: Identifiable & Equatable>: View {
+    let value: String
+    @Binding var selection: Language
+    let choices: [Language]
+    let itemTitle: (Language) -> String
+
+    var body: some View {
+        DatasheetPicker(title: "Model language", value: self.value, minimumWidth: 180) {
+            ForEach(self.choices) { language in
+                Button {
+                    self.selection = language
+                } label: {
+                    HStack {
+                        Text(self.itemTitle(language))
+                        if language == self.selection {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
         }
     }
 }
