@@ -14,7 +14,7 @@ These components have no independent `SettingsStore` binding. The consuming scre
 | Setting label, help, indent leader, row rule | Caller-supplied binding/control | `DatasheetRow` | Foundation |
 | On/off control | Caller-supplied `Binding<Bool>` | `DatasheetToggleStyle` | Foundation |
 | Fixed-cell choice control | Caller-supplied selection binding | `DatasheetSegmented` | Foundation |
-| Field-box menu | Caller-supplied menu actions/current value | `DatasheetPicker` | Foundation; verify native appearance in Debug |
+| Field-box menu | Caller-supplied menu actions/current value | `DatasheetPicker` | Foundation; native 240 × 32 field and stable Medium-to-Small width verified; native label inset and trailing arrow spacing differ from prototype, pending Astra review |
 | Gridded value control and fixed readout | Caller-supplied `Binding<Double>` and range | `DatasheetSlider` | Foundation |
 | Shortcut display/capture well | Wrap the existing shortcut recorder and its callbacks | `DatasheetHotkeyWell` | Foundation |
 | Selectable table row | Caller-supplied action and selection | `DatasheetTableRow` | Foundation |
@@ -57,9 +57,11 @@ Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.p
 | Input Device Priority: drag reorder | `SettingsStore.microphonePriority` | A Microphone table | Move/restyle |
 | Input Device Priority: remove | `SettingsStore.microphonePriority` / suppressed microphone set | A Microphone table row action | Move/restyle |
 | Input Device Priority: Restore Removed | `restoreRemovedMicrophones(with:)` | A Microphone table action | Move/restyle |
+| Prototype: Input device picker | `selectedInputUID` is reconciled from priority order; explicit selection currently uses status-menu `selectMicrophone(_:)` | A Microphone | Add picker using the existing selection action; add no settings key |
+| Prototype: live input-level meter | Prototype-only readout; no SettingsStore key or SettingsView binding | A Microphone | Add display only from an existing level stream; do not add capture behavior or change system defaults |
 | Output Device picker | `selectedOutputUID`, `SettingsStore.preferredOutputDeviceUID` | A Microphone | Restyle |
-| Sensitivity slider | `visualizerNoiseThreshold` | A Microphone | Restyle |
-| Sensitivity Reset | Sets `visualizerNoiseThreshold` to `0.4` | A Microphone | Preserve effect |
+| Sensitivity slider | `visualizerNoiseThreshold` | H Overlay | Restyle |
+| Sensitivity Reset | Sets `visualizerNoiseThreshold` to `0.4` | H Overlay | Preserve effect |
 | Accessibility permission state / Open Settings | `accessibilityEnabled`, `AccessibilityTrustMonitor` | B Hotkeys status row and recovery states | Restyle |
 | Accessibility recovery: Relaunch MouthKeys | `restartApp` callback after trusted-but-failed tap | B Hotkeys recovery row | Restyle |
 | Accessibility recovery: Reveal in Finder | `revealAppInFinder()` | B Hotkeys recovery actions | Preserve destination |
@@ -79,8 +81,9 @@ Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.p
 | Q for Question Mark | `SettingsStore.questionMarkShortcutEnabled` | C Dictation | Restyle; added after prototype by PR #57 |
 | Spoken Send | `SettingsStore.spokenSendEnabled` | C Dictation | Restyle |
 | Spoken Send phrase field | `SettingsStore.spokenSendPhrase` | C Dictation | Restyle |
-| Send After a Pause | `SettingsStore.spokenSendImmediatelyEnabled` | C Dictation | Restyle |
+| Send After a Pause | `SettingsStore.spokenSendImmediatelyEnabled`; baseline settle duration is 0.5 s, prototype copy says 1.5 s | C Dictation | Restyle; preserve baseline timing |
 | Send Key picker | `SettingsStore.spokenSendKey`; terminal target still sends Return | C Dictation | Restyle |
+| Allow in c11 | No baseline setting after PR #57; terminals always receive Return | No C Dictation control | Removed by decision; prototype predates PR #57 |
 | Pause Media During Transcription | `SettingsStore.pauseMediaDuringTranscription` | C Dictation | Restyle |
 | Skip Silent Recordings | `SettingsStore.skipSilentRecordingsEnabled` | C Dictation | Restyle |
 | Launch at startup | `SettingsStore.setLaunchAtStartup(_:)` | D App | Restyle; do not change during QA |
@@ -89,20 +92,21 @@ Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.p
 | Show window when launched at login | `SettingsStore.showMainWindowAtLoginLaunch` | D App | Restyle |
 | Hide from Dock & App Switcher | `SettingsStore.hideFromDockAndAppSwitcher` | D App | Restyle |
 | Self-update statement and Latest release link | Static statement; `MouthKeysLinks.latestRelease` | D App | Preserve link; no updater |
-| Analytics Details | `showAnalyticsPrivacy`; telemetry remains hard-off | D App | Restyle; retain no-telemetry statement |
+| Transcription Sounds picker | `SettingsStore.transcriptionStartSound`; selecting previews the sound | D App | Restyle; preserve preview effect |
+| Volume slider | `SettingsStore.transcriptionSoundVolume`; release previews volume | D App | Restyle; preserve preview effect |
+| Analytics Details | `showAnalyticsPrivacy`; telemetry remains hard-off | E History | Restyle; retain no-telemetry statement |
 | Save Transcription History | `SettingsStore.saveTranscriptionHistory` | E History | Restyle; preserve usage refresh side effect |
 | Save Audio With History | `SettingsStore.saveAudioWithTranscriptionHistory` | E History | Restyle; remains disabled when history is off |
 | Weekends Don't Break Streak | `SettingsStore.weekendsDontBreakStreak` | E History | Restyle |
-| Audio budget field and Apply | `audioHistoryBudgetText`; writes `SettingsStore.audioHistoryBudgetGB` | I Backup | Restyle; preserve validation/pruning |
-| Export Audio | `exportAudioHistory()` | I Backup | Restyle |
-| Delete Audio | `deleteSavedAudio()`; deletes saved audio only after confirmation and is disabled at zero usage | I Backup | Preserve confirmation and disabled state |
+| Audio Storage usage and meter | `audioHistoryUsageBytes`, `audioHistoryUsageFraction()`, `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve live usage display |
+| Audio budget field and Apply | `audioHistoryBudgetText`; writes `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve validation/pruning |
+| Export Audio | `exportAudioZip()` | E History | Restyle |
+| Delete Audio | `deleteSavedAudio()`; deletes saved audio only after confirmation and is disabled at zero usage | E History | Preserve confirmation and disabled state |
 | Lowercase First Letter | `SettingsStore.gaavLowercaseFirstLetterEnabled` | F Format | Restyle |
 | Remove Trailing Period | `SettingsStore.gaavRemoveTrailingPeriodEnabled` | F Format | Restyle |
 | Slash Commands & @ Formatting | `SettingsStore.literalDictationFormattingEnabled` | F Format | Restyle |
 | Space Between Dictations | `SettingsStore.continuousDictationSpacingEnabled` | F Format | Restyle |
 | Smart Capitalization | `SettingsStore.contextAwareCapitalizationEnabled` | F Format | Restyle |
-| Transcription Sounds picker | `SettingsStore.transcriptionStartSound`; selecting previews the sound | G Alerts | Restyle; preserve preview effect |
-| Volume slider | `SettingsStore.transcriptionSoundVolume`; release previews volume | G Alerts | Restyle; preserve preview effect |
 | AI Enhancement Failures | `SettingsStore.notifyAIProcessingFailures` | G Alerts | Restyle |
 | Microphone Changes | `SettingsStore.showMicrophoneChangeAlerts` | G Alerts | Restyle; preserve dismiss/reset side effect |
 | Paste Check | `SettingsStore.showPasteCheckAlerts` | G Alerts | Restyle |
@@ -116,7 +120,7 @@ Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.p
 | Show Debug Logs in App | `SettingsStore.enableDebugLogs` | J Debug | Restyle |
 | Debug log location/help | `AppStorageLocation.logFolderName` | J Debug | Preserve path and diagnostics wording |
 | Reveal Log File | `FileLogger.shared.currentLogFileURL()` and `NSWorkspace.shared.activateFileViewerSelecting` | J Debug action | Preserve Finder destination |
-| Settings disabled during active recording | Existing `asr.isRunning` disabled state | All affected Settings rows | Preserve; express with ruled/status treatment |
+| Prototype: settings recording notice | Output Device is disabled while `asr.isRunning`; microphone-priority edits are disabled while running or starting | Settings status notice; retain those two individual disabled states | Add notice; do not disable every Settings row |
 
 ## B — Getting Started
 
@@ -179,6 +183,7 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 | Provider delete | Existing provider delete confirmation and view-model mutation | Provider row action | Restyle; preserve confirmation |
 | Advanced Prompts: add/edit/delete prompt | Existing prompt profile and prompt editor bindings | Advanced Prompts tab | Restyle |
 | Advanced Prompts: prompt name/body/model | `draftPromptName`, prompt content and prompt-model picker bindings | Prompt editor | Restyle |
+| Advanced Prompts: Reset to Built-in | `resetDefaultPromptOverride(for:)`; available when a default prompt override exists | Prompt editor | Preserve reset and viewer-opening effects |
 | Advanced Prompts: mode tabs | `selectedPromptMode` and `SettingsStore.PromptMode.visiblePromptModes` | Advanced Prompts | Preserve per-mode configuration |
 | Advanced Prompts: routing scope | `viewModel.promptRoutingScope(for:)` and existing per-mode scope store | Advanced Prompts | Preserve app routing |
 | Dictation: Send Custom Prompt Only | `customPromptOnlyToggleRow` and existing custom-prompt selection behavior | Advanced Prompts / Dictate | Preserve routing effect |
@@ -187,9 +192,11 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 | Prompt Test Mode | `promptTest.isActive`; runs only the draft-prompt preview path | Prompt editor test panel | Preserve; never types into another app |
 | Prompt test progress, error and raw/output results | `promptTest.isProcessing`, `lastError`, `lastTranscriptionText`, `lastOutputText` | Prompt editor test panel | Preserve every result state |
 | Advanced Prompts: per-app overrides and sync | Existing app prompt binding and linked-mode bindings | Advanced Prompts table | Restyle; preserve routing |
+| Feedback: message editor | `feedbackText` | Feedback form | Restyle; preserve editable text |
 | Feedback: Include app and macOS version | `includeSystemInfo` | Feedback form | Restyle |
 | Feedback: open issue | `openFeedbackIssue` and `MouthKeysLinks.newIssue` | Feedback action | Preserve destination; do not submit during QA |
 | About: Fig. 1 and GitHub link | Static grin drawing; GitHub URL | About section | Add per approved design |
+| About: FluidVoice credit and support links | `MouthKeysLinks.upstreamRepository`, `MouthKeysLinks.upstreamSponsor`; static attribution text | About section | Preserve both links and attribution |
 
 ## D — History, Stats, Command Mode, File Transcription
 

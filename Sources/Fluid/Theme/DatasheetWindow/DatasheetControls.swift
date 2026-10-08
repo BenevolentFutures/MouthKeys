@@ -199,6 +199,7 @@ struct DatasheetPicker<Content: View>: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(self.palette.text)
+                        .frame(width: 72, alignment: .leading)
 
                     if let detail = self.detail {
                         Text(detail.uppercased())
@@ -208,21 +209,19 @@ struct DatasheetPicker<Content: View>: View {
                             .padding(.leading, 8)
                     }
 
-                    Spacer(minLength: 12)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(self.palette.text2)
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
-                .frame(minWidth: self.minimumWidth, minHeight: 32, alignment: .leading)
-                .background(self.palette.field)
-                .overlay {
-                    Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
-                }
+                .frame(width: self.minimumWidth, height: 32, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .buttonStyle(.plain)
+            .frame(width: self.minimumWidth, height: 32, alignment: .leading)
+            .background(self.palette.field)
+            .overlay {
+                Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+            }
             .accessibilityLabel(self.title)
         }
     }
