@@ -56,7 +56,7 @@ struct StatsView: View {
             streak: self.historyStore.currentStreak
         )) {
             HStack(spacing: 6) {
-                DatasheetStatusSquare(kind: self.historyStore.currentStreak > 0 ? .ink : .outline)
+                DatasheetStatusSquare(kind: self.historyStore.currentStreak > 0 ? .orange : .outline)
                 DatasheetMonoLabel(
                     text: self.historyStore.currentStreak > 0
                         ? "\(self.historyStore.currentStreak) DAY STREAK"
