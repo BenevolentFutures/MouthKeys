@@ -236,38 +236,39 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
-| History search | `searchQuery` | History list header | Restyle |
-| History row selection | `selectedEntryID` | History list | Restyle |
-| History copy processed/raw/both | `copyToClipboard` and `combinedText(for:)` | History detail actions | Restyle; preserve copied text selection |
-| History audio playback | Existing dictation audio playback action | History detail | Restyle |
-| History Export Pair | `exportPair(entry)` | History detail action | Restyle |
-| History Reveal Audio | `revealAudio(entry)` | History detail action | Restyle |
-| History Delete / Delete Entry | `historyStore.deleteEntry(id:)` | History detail action | Restyle; preserve selection update |
-| History Clear All | Existing clear-all confirmation and store mutation | History header action | Restyle; preserve confirmation |
-| History empty state / Open Playground | Empty-state route to `.welcome` | Empty-state panel | Restyle; outline grin in lane F |
-| Stats date-range picker | `chartDays` | Stats chart control | Restyle |
-| Stats WPM edit field | `editingWPM` | Typing-speed KPI cell | Restyle |
-| Stats WPM Save / Cancel | Existing user typing WPM setter | Typing-speed KPI cell | Preserve validation and save |
-| Stats Reset Everything | Existing destructive reset confirmation | Stats action | Restyle; preserve confirmation |
-| Command Mode: New Chat | `service.createNewChat()` | Command Mode header | Restyle |
-| Command Mode: chat selector/menu | Existing chat selection/deletion callbacks | Command Mode header | Restyle; preserve selection and confirmation |
-| Command Mode: clear/delete history | Existing clear confirmation and chat store | Command Mode header | Restyle; preserve confirmation |
-| Command Mode: Confirm Before Execute | `settings.commandModeConfirmBeforeExecute` | Confirm panel | Restyle |
-| Command Mode: how-to expander | `showHowTo` | Not-ready/help panel | Restyle |
-| Command Mode: prompt field | `inputText` | Composer | Restyle |
-| Command Mode: Sync | `settings.commandModeLinkedToGlobal` | Provider/model controls | Restyle |
-| Command Mode: provider/model pickers | Existing command-mode provider/model bindings | Provider/model controls | Restyle |
-| Command Mode: AI Settings | Routes to AI Enhancement settings | Not-ready/help panel | Preserve route |
-| Command Mode: record, Run, cancel pending command | Existing dictation and command service callbacks | Composer actions | Restyle; preserve behavior |
-| Command Mode: thinking detail expander | `isThinkingExpanded` | Result detail | Restyle |
-| File Transcription: choose file / drag and drop | Existing file picker and `.fileURL` drop handler | Drop zone | Restyle |
-| File Transcription: remove selected file | Clears selected file and resets transcription service | File header action | Preserve effect |
-| File Transcription: Label speakers | `settings.fileTranscriptionSpeakerLabelsEnabled` | Options zone | Restyle |
-| File Transcription: Number of speakers | `settings.fileTranscriptionExpectedSpeakerCount` | Options zone | Restyle |
-| File Transcription: Transcribe / Cancel | Existing transcription service state/actions | Primary action and progress | Restyle; preserve progress/errors |
-| File Transcription result: Copy / Export | Existing clipboard and export dialog callbacks | Result actions | Restyle |
-| File Transcription history: select / Copy / Export / Delete | Existing file history store and selected entry | Recent table and detail | Restyle; preserve mutations |
-| File Transcription history: Clear all | Existing confirmation and history store action | Recent table action | Preserve confirmation |
+| History search / clear search / no results | `searchQuery`; `historyStore.search(query:)` | Search field, no-matches state | Restyled; clear-search space stays reserved; normal Debug matrix recorded; relevant state limits below |
+| History row selection / day grouping | `selectedEntryID`, entry timestamps | Full-bleed history index | Restyled; normal Debug matrix recorded; relevant state limits below |
+| History title facts | app, duration when audio exists, word count, character count | Detail title block | Restyled; normal Debug matrix recorded; relevant state limits below |
+| History delivery outcome | No delivery field exists in `TranscriptionHistoryEntry`; never infer from app name, text, or AI state | Neutral outlined `UNKNOWN` with accessible note | Sol decision: record not recorded; prototype Pasted / NOT PASTED capability is unavailable |
+| History final / original transcript and AI error | `processedText`, `rawText`, `aiProcessingError`, `wasAIProcessed`, `processingModel` | Detail transcript and secondary facts | Restyled; raw text and failure fallback preserved; normal Debug matrix recorded; relevant state limits below |
+| History copy processed / raw / both | `copyToClipboard` and `combinedText(for:)` | Detail Copy action and row context menu | Restyled; preserve copied text selection and existing choices |
+| History Reveal Audio / Export Pair | `revealAudio(entry)`, `exportPair(entry)` | Detail actions and row context menu | Restyled; disabled when audio is unavailable |
+| History Delete Entry / Clear All | `historyStore.deleteEntry(id:)`; existing destructive clear confirmation | Detail action and index footer | Restyled; preserve selection update and confirmation |
+| History empty state / Open Playground | Lane-owned closure sets `selectedSidebarItem = .welcome` in the `.history` detail case | Empty-state panel | Restyled; outline grin remains in lane F |
+| Stats today / total words / time saved / streak / session KPIs | Existing `TranscriptionHistoryStore` metrics and `settings.userTypingWPM` | Four KPI cells; today words in Total Words, today sessions in Transcriptions, today saved time in the window title strip | Restyled; real store values retained; KPI footers reserve equal height; streak square follows the binding prototype |
+| Stats WPM edit / Save / Cancel | `editingWPM`; existing positive integer validation and `userTypingWPM` setter | Time-saved KPI editor | Restyled; preserve validation and save |
+| Stats 7 / 30 day chart and hover details | `chartDays`; `dailyWordCounts(days:)` | Square bar chart and fixed-cell range selector | Restyled; today uses accent; no-data chart state retained |
+| Stats milestones / insights / personal records | Existing milestone, aggregate and record store accessors | Milestone grid and ruled tables | Restyled; zero-data fallbacks retained |
+| Stats Reset Everything | Existing destructive reset confirmation and `clearAllHistory()` | Stats footer action | Restyled; preserve confirmation |
+| Command Mode readiness | `settings.commandModeReadinessIssue` | Fixed status row; issue links to AI Settings | Restyled; ready and not-ready states reserve the same row height |
+| Command Mode New Chat / recent chat selector / delete chat | `service.createNewChat()`, `getRecentChats()`, `switchToChat(id:)`, `deleteCurrentChat()` | Header controls and confirmation | Restyled; preserve processing disables and delete confirmation |
+| Command Mode Confirm Before Execute | `settings.commandModeConfirmBeforeExecute` | Header toggle and pending command panel | Restyled; pending command remains explicit |
+| Command Mode how-to expander / examples | `showHowTo`, current shortcut display | Help row | Restyled; preserves examples and caution |
+| Command Mode prompt / Sync / provider / model | `inputText`, `commandModeLinkedToGlobal`, existing provider and model bindings | Two-row composer | Restyled; linked-mode disables the local pickers |
+| Command Mode record / Run / cancel pending command | Existing ASR and command service callbacks | Composer actions and confirmation panel | Restyled; preserves recording, readiness gate, confirm, and cancel |
+| Command Mode thinking / tool call / output / errors | `Message.thinking`, `toolCall`, tool JSON output and current step | Chat messages and processing status | Restyled; text selection and thinking preference retained |
+| File Transcription choose / drag / unsupported drop | Existing `.fileImporter`, `.fileURL` drop handler, `dropErrorMessage` | Drop zone and dismissible unsupported-file message | Restyled; picker and error behavior retained |
+| File Transcription selected file / engine / speaker options | `selectedFileURL`, `asrService.activeProviderName`, `fileTranscriptionSpeakerLabelsEnabled`, `fileTranscriptionExpectedSpeakerCount` | File header and options rows | Restyled; video diarization disable and model selection retained |
+| File Transcription run / progress / error | Existing `MeetingTranscriptionService` state and `transcribeFile(_:)` | Primary action, progress, dismissible error | Restyled; no new cancel behavior added |
+| File Transcription result / fallback notice / speaker segments | Existing result, fallback notice, confidence, timing and segments | Result panel | Restyled; copy/export and selectable text retained |
+| File Transcription recent rows / detail / Copy / Export / Delete / Clear all | `FileTranscriptionHistoryStore` and existing confirmation-free clear action | Recent table and selected detail | Restyled; mutations and selection retained |
+| Lane D omitted prototype states | History AI failure/raw text, empty/no-result/audio-missing; stats empty chart and WPM editor; command processing/tool output/provider readiness; file errors/fallback/speaker segments/recent selection | Existing per-screen states above | Retained and accounted for; relevant state limits below |
+
+Offscreen render test: `DatasheetLaneDRenderTests` passes for both themes. Its `ImageRenderer` output cannot show native `HSplitView` or the file drop destination; scroll surfaces also render blank in this host. Those files are retained only as test attachments, not visual proof. The normal Debug matrix records all four screens in both themes at 1000×700 and 800×500. Its first pass exposed responsive defects; the repair reflows History actions and metadata, uses a two-column Stats KPI grid below the four-cell minimum width, moves Command Mode header/composer controls onto separate rows with vertical scrolling, and aligns recent-file timestamps under WHEN. Repaired normal captures show readable History actions, Stats KPI headings and Command header controls; a guarded scroll shows File timestamps in the correct column. History search produced NO MATCHES, Clear Search returned the entries, and AI-error selection was observed. No audio or clipboard action was invoked.
+
+`DatasheetLaneDNativeLayoutTests` verifies native narrow/wide action-bar sizing in both themes and audio availability states without ordering a window. `DatasheetLaneDCommandScrollTests` instantiates the real Command Mode body in an unordered native host, measures the outer scroll extent and verifies that native scrolling makes the full composer reachable at default/minimum sizes in both themes. A separate diagnostic comparison found a 738pt document in a 460pt viewport with a 278pt range, and the composer visible at that native limit; the previous layout had no outer page scroll. Live minimum-size composer input routing remains a targeted normal Debug validation item, so these native geometry tests are not a claim of complete live coverage. Provider readiness, command execution, audio-present playback/export, real file processing and full empty/reset/destructive states remain unexercised in the normal walkthrough; existing bindings and service paths are retained and the complete automated suite is a separate gate.
+
+The Command scroll fixture snapshots chat sessions, current chat ID and selected model before constructing any service/view, then restores their original presence, type and value after all native hosts are dismantled. Its synthetic-domain regression covers stale, absent and typed model values, including a throwing render body. Separate actual-view probes with data-only settings/services establish that Sync-off model normalization triggers the write; no operator Debug preferences are seeded for that proof. Production normalization and geometry assertions are unchanged.
 
 ## E — First-run wizard
 

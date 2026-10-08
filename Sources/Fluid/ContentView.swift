@@ -1431,7 +1431,7 @@ struct ContentView: View {
         case .rewriteMode:
             return AnyView(self.rewriteModeView)
         case .history:
-            return AnyView(TranscriptionHistoryView())
+            return AnyView(TranscriptionHistoryView(onOpenPlayground: { self.selectedSidebarItem = .welcome }))
         }
     }
 
