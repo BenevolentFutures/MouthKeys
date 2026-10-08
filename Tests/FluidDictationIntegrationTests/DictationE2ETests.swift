@@ -5633,18 +5633,46 @@ final class DatasheetLaneDNativeLayoutTests: XCTestCase {
 @MainActor
 final class DatasheetLaneDCommandScrollTests: XCTestCase {
     func testNativeOuterScrollReachesComposerAtMinimumAndDefaultSizes() throws {
-        let defaults = UserDefaults.standard
-        let chatKeys = ["CommandModeChatSessions", "CommandModeCurrentChatID"]
-        let saved = chatKeys.map { ($0, defaults.object(forKey: $0)) }
-        defer {
-            for (key, value) in saved {
-                if let value { defaults.set(value, forKey: key) }
-                else { defaults.removeObject(forKey: key) }
+        try DatasheetLaneDCommandPreferences.preservingValues(in: .standard) {
+            for scheme in [ColorScheme.light, .dark] {
+                for size in [CGSize(width: 549, height: 460), CGSize(width: 749, height: 660)] {
+                    try self.verifyComposerReachability(size: size, scheme: scheme)
+                }
             }
         }
-        for scheme in [ColorScheme.light, .dark] {
-            for size in [CGSize(width: 549, height: 460), CGSize(width: 749, height: 660)] {
-                try self.verifyComposerReachability(size: size, scheme: scheme)
+    }
+
+    func testFixtureRestoresStaleAbsentAndTypedModelValuesInSyntheticDomains() throws {
+        // The independent actual-view probe covers Sync-off onAppear normalization.
+        // Exercise its writes here without constructing a live service or changing Debug defaults.
+        let initialModels: [Any?] = [nil, "stale-model", Data([0x01, 0x02])]
+        for initialModel in initialModels {
+            let suiteName = "DatasheetLaneDCommandPreferences-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            defaults.set(Data([0x03]), forKey: "CommandModeChatSessions")
+            defaults.set("original-chat", forKey: "CommandModeCurrentChatID")
+            if let initialModel { defaults.set(initialModel, forKey: "CommandModeSelectedModel") }
+            let original = try XCTUnwrap(defaults.persistentDomain(forName: suiteName))
+
+            enum FixtureError: Error { case renderingFailed }
+            for failRendering in [false, true] {
+                do {
+                    try DatasheetLaneDCommandPreferences.preservingValues(in: defaults) {
+                        // Data-only lifecycle double: an unlinked provider normalizes a stale/absent model.
+                        defaults.set("synthetic-first-model", forKey: "CommandModeSelectedModel")
+                        defaults.set(Data([0x04]), forKey: "CommandModeChatSessions")
+                        defaults.removeObject(forKey: "CommandModeCurrentChatID")
+                        XCTAssertEqual(defaults.string(forKey: "CommandModeSelectedModel"), "synthetic-first-model")
+                        if failRendering { throw FixtureError.renderingFailed }
+                    }
+                    XCTAssertFalse(failRendering)
+                } catch FixtureError.renderingFailed {
+                    XCTAssertTrue(failRendering)
+                }
+                let restored = try XCTUnwrap(defaults.persistentDomain(forName: suiteName))
+                XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: restored),
+                              "Restore exact presence, type and value even when rendering throws")
             }
         }
     }
@@ -5700,5 +5728,20 @@ final class DatasheetLaneDCommandScrollTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
         XCTAssertFalse(window.isKeyWindow)
         XCTAssertFalse(window.isMainWindow)
+    }
+}
+
+private enum DatasheetLaneDCommandPreferences {
+    static func preservingValues<T>(in defaults: UserDefaults, _ body: () throws -> T) rethrows -> T {
+        let keys = ["CommandModeChatSessions", "CommandModeCurrentChatID", "CommandModeSelectedModel"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        // The body constructs services/views and returns only after its hosts are dismantled.
+        return try body()
     }
 }
