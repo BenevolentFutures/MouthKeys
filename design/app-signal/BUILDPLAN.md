@@ -54,13 +54,13 @@ Each phase lands as one or more PRs that leave `main` shippable. Phases 0 and 1 
 
 1. Inner loop on Hyperion: incremental Debug build, the lane's render test with `-only-testing:`. Copy DerivedData into a new worktree with `/bin/cp -c -R` (APFS clone) so the first build is incremental.
 2. Compare: offscreen renders of each screen in dark and light, side by side with `shots/` (see `scripts/compose_render_compare.py` for the pattern). Missing or different elements are bugs unless the parity checklist or rule 2 explains them. Controls backed by AppKit can render blank in `ImageRenderer`; check those in the running Debug build instead.
-3. Full suite before the PR: on Atlas, never Hyperion (`/atlas-jobs`; memory: ad-hoc signing, a git bundle, about 35 s for 648 tests).
+3. Full suite before the PR: on Atlas, never Hyperion: `design/app-signal/atlas-suite.sh <label> <sha>` (fetches the pushed commit from GitHub, ad-hoc signing, about 30 s for 655 tests). Local builds and single targets: `design/app-signal/local-build.sh`.
 4. Real app, once per lane: launch the Debug build (`MouthKeys Debug.app`, `.dev` identity) from a c11 shell after moving its shortcuts off Atin's keys (CLAUDE.md, Validate), look at the screen and click through it. One agent at a time drives the screen; confine to a verified display; quit the Debug build when done.
 5. Fresh-context review, then merge. No release and no install: Atin installs (Developer ID path in `docs/INSTALL-CHECKLIST.md`) and runs the checklist.
 
-## Parity checklist (lane A writes it, every lane extends it)
+## Parity checklist (phase 0 seeds it, one section per lane)
 
-`design/app-signal/PARITY.md`: one line per control in today's window: old screen and label, `SettingsStore` key or binding, new zone or screen, status (moved, restyled, removed by decision). Seed it from `main` at `e5e48a4e` or later (after PR #57): `SettingsView.swift`, `ContentView.swift`'s `preferencesView` bindings and each screen file. A 2026-10-05 label diff found every Settings row in the prototype except messages and states (covered by rule 2) and the Accent Color picker (removed by decision).
+`design/app-signal/PARITY.md`, seeded by phase 0 with one section per lane; each lane edits only its own section: one line per control in today's window: old screen and label, `SettingsStore` key or binding, new zone or screen, status (moved, restyled, removed by decision). Seed it from `main` at `e5e48a4e` or later (after PR #57): `SettingsView.swift`, `ContentView.swift`'s `preferencesView` bindings and each screen file. A 2026-10-05 label diff found every Settings row in the prototype except messages and states (covered by rule 2) and the Accent Color picker (removed by decision).
 
 ## Risks
 
