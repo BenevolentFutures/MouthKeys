@@ -295,6 +295,10 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(SettingsZone.allCases) { zone in
                             self.settingsZoneContent(zone)
+                                // Section headings already have 34 pt of top spacing.
+                                // Reserve the rest of the pinned strip, including a
+                                // legacy horizontal scroller, above each heading.
+                                .padding(.top, 24)
                                 .id(zone.anchor)
                         }
                     }
@@ -1464,16 +1468,13 @@ private extension SettingsView {
                         help: self.hotkeyMode.description,
                         showsBottomRule: false,
                         control: {
-                            DatasheetPicker(title: "Activation Mode", value: self.hotkeyMode.displayName, minimumWidth: 210) {
-                                ForEach(HotkeyActivationMode.allCases) { mode in
-                                    Button {
-                                        self.hotkeyMode = mode
-                                    } label: {
-                                        if mode == self.hotkeyMode { Label(mode.displayName, systemImage: "checkmark") }
-                                        else { Text(mode.displayName) }
-                                    }
-                                }
-                            }
+                            DatasheetSegmented(
+                                selection: self.$hotkeyMode,
+                                choices: HotkeyActivationMode.allCases.map {
+                                    .init(value: $0, title: $0 == .automatic ? "BOTH" : $0.displayName)
+                                },
+                                cellWidth: 70
+                            )
                         }
                     )
                 }
@@ -1899,28 +1900,60 @@ private extension SettingsView {
         }
     }
 
+    private var sensitivitySettingsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 24) {
+                self.sensitivitySettingsLabel
+                    .frame(minWidth: 180, idealWidth: 180, maxWidth: .infinity, alignment: .leading)
+                self.sensitivitySettingsControls
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                self.sensitivitySettingsLabel
+                self.sensitivitySettingsControls
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(.vertical, 12)
+        .frame(minHeight: 60)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
+        }
+    }
+
+    private var sensitivitySettingsLabel: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Sensitivity")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(self.datasheetPalette.text)
+            Text("Control how sensitive the audio visualizer is to sound input.")
+                .font(.system(size: 13, weight: .regular))
+                .lineSpacing(2)
+                .foregroundStyle(self.datasheetPalette.text2)
+                .frame(maxWidth: 470, alignment: .leading)
+        }
+    }
+
+    private var sensitivitySettingsControls: some View {
+        HStack(spacing: 12) {
+            Text("MORE")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.datasheetPalette.text2)
+            DatasheetSlider(value: self.$visualizerNoiseThreshold, in: 0.01...0.8, step: 0.01, label: "Visualizer sensitivity", width: 150, readout: { String(format: "%.2f", $0) })
+            Text("LESS")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.datasheetPalette.text2)
+            self.sheetAction("Reset") {
+                self.visualizerNoiseThreshold = 0.4
+                SettingsStore.shared.visualizerNoiseThreshold = self.visualizerNoiseThreshold
+            }
+        }
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
     var overlaySettingsZone: some View {
         DatasheetSection(letter: "H", title: "Overlay", note: self.asr.isRunning ? "Only the existing output-device and microphone-priority restrictions apply during a recording." : nil) {
             VStack(spacing: 0) {
-                DatasheetRow(
-                    label: "Sensitivity",
-                    help: "Control how sensitive the audio visualizer is to sound input.",
-                    control: {
-                        HStack(spacing: 12) {
-                            Text("MORE")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(self.datasheetPalette.text2)
-                            DatasheetSlider(value: self.$visualizerNoiseThreshold, in: 0.01...0.8, step: 0.01, label: "Visualizer sensitivity", width: 150, readout: { String(format: "%.2f", $0) })
-                            Text("LESS")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(self.datasheetPalette.text2)
-                            self.sheetAction("Reset") {
-                                self.visualizerNoiseThreshold = 0.4
-                                SettingsStore.shared.visualizerNoiseThreshold = self.visualizerNoiseThreshold
-                            }
-                        }
-                    }
-                )
+                self.sensitivitySettingsRow
                 DatasheetRow(
                     label: "Overlay Position",
                     help: "Where the recording indicator appears on screen.",
@@ -1956,16 +1989,11 @@ private extension SettingsView {
                         label: "Overlay Size",
                         help: "How large the recording indicator appears.",
                         control: {
-                            DatasheetPicker(title: "Overlay Size", value: self.settings.overlaySize.displayName, minimumWidth: 210) {
-                                ForEach(SettingsStore.OverlaySize.allCases, id: \.self) { size in
-                                    Button {
-                                        self.settings.overlaySize = size
-                                    } label: {
-                                        if size == self.settings.overlaySize { Label(size.displayName, systemImage: "checkmark") }
-                                        else { Text(size.displayName) }
-                                    }
-                                }
-                            }
+                            DatasheetSegmented(
+                                selection: self.$settings.overlaySize,
+                                choices: SettingsStore.OverlaySize.allCases.map { .init(value: $0, title: $0.displayName) },
+                                cellWidth: 64
+                            )
                         }
                     )
                 } else {
