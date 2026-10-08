@@ -290,24 +290,17 @@ struct SettingsView: View {
 
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    ForEach(SettingsZone.allCases) { zone in
-                        self.settingsZoneContent(zone)
-                            .id(zone.anchor)
-                            .background {
-                                GeometryReader { geometry in
-                                    Color.clear.preference(
-                                        key: SettingsZoneOffsetPreferenceKey.self,
-                                        value: [zone.rawValue: geometry.frame(in: .named("settings-scroll")).minY]
-                                    )
-                                }
-                            }
+                    // Realize the ten anchors together so scrollTo uses their final
+                    // extents rather than estimates for unloaded lazy sections.
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(SettingsZone.allCases) { zone in
+                            self.settingsZoneContent(zone)
+                                .id(zone.anchor)
+                        }
                     }
                 } header: {
                     self.settingsZoneStrip(scrollProxy: scrollProxy)
                 }
-            }
-            .onPreferenceChange(SettingsZoneOffsetPreferenceKey.self) { offsets in
-                self.updateSelectedSettingsZone(from: offsets)
             }
         }
         .frame(maxWidth: 900, alignment: .leading)
@@ -335,15 +328,6 @@ struct SettingsView: View {
                 scrollProxy.scrollTo(SettingsZone.microphone.anchor, anchor: .top)
             }
         })
-    }
-
-    private func updateSelectedSettingsZone(from offsets: [String: CGFloat]) {
-        guard let active = offsets
-            .filter({ $0.value <= 118 })
-            .max(by: { $0.value < $1.value })?.key,
-            let zone = SettingsZone(rawValue: active)
-        else { return }
-        self.selectedSettingsZone = zone
     }
 
     private func initializeSettings() {
@@ -721,14 +705,6 @@ private extension SettingsView {
         return self.inputDevices.first { $0.uid == confirmedUID }
     }
 
-}
-
-private struct SettingsZoneOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGFloat] = [:]
-
-    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
 }
 
 private extension SettingsView {
