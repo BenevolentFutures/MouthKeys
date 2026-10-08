@@ -321,9 +321,14 @@ Prototype omissions explicitly covered by the native inventory: microphone autho
 
 ## F — Menu and finish
 
+Source: the lane-F presentation work below. The menu, screen bindings, and delivery actions stay on their existing paths. Debug build, Atlas suite, and the observer-owned native walkthrough remain separate proof gates.
+
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
-| Status menu header | Current menu title/state | Datasheet grin and MouthKeys wordmark | Restyle |
+| Main-window Today words and time | `TranscriptionHistoryStore.todaySummary`; existing Stats navigation | Fixed 208 pt title-strip control with a compact, one-line word count and saved time | Restyled; exact values remain in help and accessibility text; Stats action unchanged |
+| Main-window sidebar grin | `DatasheetMenuBarMark.listeningJaw` from the overlay trace | Large Datasheet grin with a 0 / 1.5 / 3 pt jaw | Mapped from the existing menu jaw’s 0 / 1 / 2 states; menu mark geometry is unchanged |
+| Main-window MouthKeys wordmark | MouthKeys repository URL | Keyboard-accessible repository action with underline on hover | Wired; hover underline does not change layout |
+| Status menu header | Current recording/processing/permission state | Datasheet mark, MOUTHKEYS wordmark, state, and live orange square | Restyled; current state binding retained |
 | Status menu: Start Dictation | `toggleDictation` | Status menu | Preserve action |
 | Status menu: hotkeys-paused recovery | `resolveHotkeysPaused`; visible while configured hotkeys lack Accessibility trust | Status menu recovery item | Preserve visibility and route |
 | Status menu: microphone selection submenu | `selectMicrophone(_:)` from the prioritized available inputs | Microphone submenu | Preserve current-device state and selection |
@@ -331,13 +336,30 @@ Prototype omissions explicitly covered by the native inventory: microphone autho
 | Status menu: Copy Last Transcript | `copyLastTranscript(_:)` | Status menu | Preserve availability and clipboard effect |
 | Status menu: Custom Dictionary | `openCustomDictionary` | Status menu | Preserve route |
 | Status menu: Open MouthKeys | `openMainWindow` | Status menu | Preserve route |
+| Status menu: MouthKeys on GitHub | No current item | Repository row after Open MouthKeys | Added; opens the repository URL |
 | Status menu: Settings | `openPreferences` | Status menu | Preserve route |
 | Status menu: Quit MouthKeys | `NSApplication.terminate(_:)` | Status menu | Preserve action |
-| MouthKeys on GitHub | No current item | New status-menu item | Add per approved design |
-| Custom Dictionary empty state grin | Existing empty-state condition | Outline grin | Add in lane F |
-| History empty state grin | Existing empty-state condition | Outline grin | Add in lane F |
-| Legacy `AppTheme` / `ThemedCard` / `ThemedGroupBox` / `GlossyEffects` | Shared app styles used by unconverted code | Remove only when no references remain | Retire after reference audit |
-| Real-path install checks | Current Developer ID checklist | `docs/INSTALL-CHECKLIST.md` | Add at lane F; file stays untouched in this phase |
+| AI settings: fixed-size button chrome | 27 `DatasheetAIButtonStyle` callers | No-padding `.fixed` variant for six 34×34 / 76×34 icon/action controls | Added opt-in at four `AIConfiguration.swift` and two `AdvancedSettings.swift` callers; remaining 21 keep `.padded`; actions and disabled states retained |
+| History: selected entry metadata | Entry number, window/context label, and full timestamp | Three reserved 10 pt rows above the transcript | Restyled; selection and transcript actions unchanged |
+| History: empty state | Existing empty-history condition and Open Playground action | Quiet outline grin above the placard | Added; Open Playground action retained |
+| Stats: lower insights and records | Existing history/store values and row contents | Two 280 pt columns at widths ≥580 pt; stacked tables and wrapped rows below that width | Restyled; 0.7 / 0.65 text scale factors removed; KPI and metric bindings unchanged |
+| Command Mode: provider and model selectors | Effective provider/model bindings; Sync-linked disabled state; model availability | Square Datasheet searchable controls | Restyled only for Command Mode; all picker callers keep standard chrome by default; search, bindings, selection, and disabled semantics retained |
+| Settings: selected zone | Existing explicit Settings tab selection | Selected tab remains inverted without a resting bracket | Restyled; navigation and selection unchanged |
+| Settings: microphone priority and live level | `SettingsStore.microphonePriority`, `MicrophonePreferenceCoordinator.pick`, and `ASRService.audioLevelPublisher` | Picker and meter share a responsive table layout | Restyled; current pick, refresh, reorder, and live meter paths retained |
+| Settings: Sensitivity endpoints | Existing `visualizerNoiseThreshold` range and binding | Endpoint labels at 10 pt or larger | Restyled; range and reset value unchanged |
+| Settings: Backup Export / Import | Existing export/import handlers | Side-by-side neutral actions | Restyled; both callbacks retained |
+| Settings: initialization and hotkey recovery | Hotkey tap state and `AccessibilityTrustMonitor.hint` | Hide initializing row for failed-trusted/relaunch recovery; retain Relaunch action | Restyled; genuine initializing and recording states remain |
+| Inline playground rail and preview icons | Existing inline playground buttons | Square icons with the new default-preserving fixed button variant | Restyled only in the inline playground; live overlay and menu chips unchanged |
+| Welcome: Figure 1 grin | Existing onboarding view and controls | Tileless grin with the existing prototype coordinates | Restyled; onboarding actions/defaults unchanged |
+| Welcome: practice detail | Existing practice count and readiness | Reserved detail height across zero-to-three words at the approved 443 pt width | Restyled; status, keycaps, and actions retain position |
+| Try MouthKeys: typography and conflict detail | Existing shortcut, accessibility, and provider-conflict state | Mono text ≥10 pt; prose ≥13 pt; fixed height for the full conflict sentence | Restyled; actions and stored values unchanged |
+| Custom Dictionary: `No replacements yet` | Existing replacement-empty condition and Teach Words route | Quiet outline grin above the placard | Added only for this state; custom-word and punctuation empty states unchanged |
+| Legacy `ThemedGroupBox` | No references in `Sources/Fluid` or `Tests` | Remove dead wrapper | Retired after final zero-reference audit |
+| Legacy `GlossyEffects.swift` | `buttonHoverEffect()` remains used by `ContentView` and `RecordingView`; `HoverableGlossyCard` itself has no callers | Keep shared file and live modifier | Retained; no broad theme cleanup |
+| Legacy `AppTheme` / `ThemedCard` | Existing app theme and RecordingView callers | Keep shared types | Retained for live callers |
+| Real-path install checks | Existing Developer ID checklist and c11 delivery checks | F presentation walkthrough plus Ghostty Reliable Paste pass | Added to `docs/INSTALL-CHECKLIST.md`; no app install or live-runtime proof performed here |
+
+The F screenshots do not replace native proof for real history data, menu actions, Settings persistence, mic routing, searchable provider/model selection, hotkey recovery, or c11/Ghostty delivery. No new keys, service paths, or delivery actions are introduced. The apphost build and full suite run on Atlas; the native walkthrough belongs to the coordinator’s post-F observer rig.
 
 ## Change log by lane
 
@@ -350,4 +372,4 @@ Prototype omissions explicitly covered by the native inventory: microphone autho
 | C | Pending |  |
 | D | Pending |  |
 | E | Pending |  |
-| F | Pending |  |
+| F | Pending | Source inventory and install checks updated; Debug build passed; Atlas suite and native walkthrough remain pending. |

@@ -12,6 +12,11 @@ enum DatasheetGrinDetailTier: Equatable {
     }
 }
 
+enum DatasheetGrinStyle: Equatable {
+    case solid
+    case outline
+}
+
 struct DatasheetGrinLayout: Equatable {
     let viewport: CGRect
     let scale: CGFloat
@@ -115,6 +120,7 @@ enum DatasheetGrinGeometry {
 struct DatasheetGrin: View {
     /// The lower jaw's displacement in the 64-unit drawing grid, from 0 (closed) to 3 (open).
     var jaw: CGFloat = 0
+    var style: DatasheetGrinStyle = .solid
 
     @Environment(\.datasheetPalette) private var palette
     @Environment(\.displayScale) private var displayScale
@@ -161,14 +167,55 @@ struct DatasheetGrin: View {
             let upperRect = Self.map(upper, viewport: layout.viewport, origin: origin, scale: layout.scale)
             let lowerRect = Self.map(lower, viewport: layout.viewport, origin: origin, scale: layout.scale)
 
-            context.fill(Path(upperRect), with: .color(self.palette.ink))
-            context.fill(Path(lowerRect), with: .color(index == master.gold ? self.palette.accent : self.palette.ink))
+            if self.style == .solid {
+                context.fill(Path(upperRect), with: .color(self.palette.ink))
+                context.fill(Path(lowerRect), with: .color(index == master.gold ? self.palette.accent : self.palette.ink))
+            } else {
+                let lineColor = index == master.gold ? self.palette.accent : self.palette.text2
+                context.stroke(Path(upperRect), with: .color(lineColor), lineWidth: 1)
+                context.stroke(Path(lowerRect), with: .color(lineColor), lineWidth: 1)
+                if tier != .compact {
+                    self.drawOutlineKeycap(upperRect, color: lineColor, upper: true, in: &context)
+                    self.drawOutlineKeycap(lowerRect, color: lineColor, upper: false, in: &context)
+                }
+            }
 
-            if tier != .compact {
+            if self.style == .solid, tier != .compact {
                 self.drawKeycap(upperRect, upper: true, tier: tier, scale: layout.scale, in: &context)
                 self.drawKeycap(lowerRect, upper: false, tier: tier, scale: layout.scale, in: &context)
             }
         }
+    }
+
+    private func drawOutlineKeycap(
+        _ rect: CGRect,
+        color: Color,
+        upper: Bool,
+        in context: inout GraphicsContext
+    ) {
+        let inset = rect.width * 0.22
+        let face = CGRect(
+            x: rect.minX + inset,
+            y: rect.minY + inset * (upper ? 0.6 : 1.4),
+            width: rect.width - 2 * inset,
+            height: rect.height - inset * 2
+        )
+
+        var chamfers = Path()
+        chamfers.addRect(face)
+        chamfers.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        chamfers.addLine(to: CGPoint(x: face.minX, y: face.minY))
+        chamfers.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        chamfers.addLine(to: CGPoint(x: face.maxX, y: face.minY))
+        chamfers.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        chamfers.addLine(to: CGPoint(x: face.minX, y: face.maxY))
+        chamfers.move(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        chamfers.addLine(to: CGPoint(x: face.maxX, y: face.maxY))
+        context.stroke(
+            chamfers,
+            with: .color(color.opacity(0.5)),
+            style: StrokeStyle(lineWidth: 1, lineCap: .butt, lineJoin: .miter)
+        )
     }
 
     private func drawKeycap(

@@ -887,7 +887,8 @@ struct CustomDictionaryView: View {
                 if self.entries.isEmpty {
                     self.dictionaryEmptyState(
                         title: "No replacements yet",
-                        detail: "Use Teach Words above to create your first one."
+                        detail: "Use Teach Words above to create your first one.",
+                        showsOutlineGrin: true
                     )
                 } else {
                     self.entriesListView
@@ -1527,18 +1528,33 @@ struct CustomDictionaryView: View {
         }
     }
 
+    @ViewBuilder
     private func dictionaryEmptyState(
         title: String,
         detail: String,
-        action: (() -> Void)? = nil
+        action: (() -> Void)? = nil,
+        showsOutlineGrin: Bool = false
     ) -> some View {
-        DatasheetEmptyState(
-            placard: "00 ENTRIES",
-            title: title,
-            message: detail,
-            actionTitle: action == nil ? nil : "Add",
-            action: action
-        )
+        if showsOutlineGrin {
+            DatasheetEmptyState(
+                placard: "00 ENTRIES",
+                title: title,
+                message: detail,
+                actionTitle: action == nil ? nil : "Add",
+                action: action
+            ) {
+                DatasheetGrin(style: .outline)
+                    .frame(width: 96, height: 48)
+            }
+        } else {
+            DatasheetEmptyState(
+                placard: "00 ENTRIES",
+                title: title,
+                message: detail,
+                actionTitle: action == nil ? nil : "Add",
+                action: action
+            )
+        }
     }
 
     // MARK: - Actions

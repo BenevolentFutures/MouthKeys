@@ -46,7 +46,10 @@ struct TranscriptionHistoryView: View {
                     message: "Your transcriptions will appear here. Start dictating to begin.",
                     actionTitle: "Open Playground",
                     action: { self.onOpenPlayground?() }
-                )
+                ) {
+                    DatasheetGrin(style: .outline)
+                        .frame(width: 96, height: 48)
+                }
             } else {
                 HSplitView {
                     self.indexPanel
@@ -363,13 +366,12 @@ struct TranscriptionHistoryView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        DatasheetMonoLabel(
-                            text: "ENTRY \(self.entryNumber(for: entry)) · FINAL TEXT · \(self.windowLabel(entry)) · \(entry.fullDateString.uppercased())",
-                            role: DatasheetTheme.Typography.tableLabel,
-                            color: self.palette.text2
-                        )
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        VStack(alignment: .leading, spacing: 3) {
+                            self.entryMetadataLabel("ENTRY \(self.entryNumber(for: entry)) · FINAL TEXT")
+                            self.entryMetadataLabel("CONTEXT · \(self.windowLabel(entry))")
+                            self.entryMetadataLabel("TIMESTAMP · \(entry.fullDateString.uppercased())")
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
 
                         Text(entry.processedText)
                             .font(.system(size: 17, weight: .regular))
@@ -433,6 +435,16 @@ struct TranscriptionHistoryView: View {
             self.detailActions(entry)
         }
         .background(self.palette.surface)
+    }
+
+    private func entryMetadataLabel(_ text: String) -> some View {
+        Text(text)
+            .font(DatasheetTheme.Typography.tableLabel.font)
+            .tracking(DatasheetTheme.Typography.tableLabel.tracking)
+            .textCase(.uppercase)
+            .foregroundStyle(self.palette.text2)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func titleBlock(_ entry: TranscriptionHistoryEntry) -> some View {

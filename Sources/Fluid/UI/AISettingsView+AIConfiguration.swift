@@ -31,8 +31,19 @@ enum DatasheetAIButtonKind {
     case orange
 }
 
+enum DatasheetAIButtonLayout {
+    case padded
+    case fixed
+}
+
 struct DatasheetAIButtonStyle: ButtonStyle {
     let kind: DatasheetAIButtonKind
+    let layout: DatasheetAIButtonLayout
+
+    init(kind: DatasheetAIButtonKind, layout: DatasheetAIButtonLayout = .padded) {
+        self.kind = kind
+        self.layout = layout
+    }
 
     @Environment(\.datasheetPalette) private var palette
     @Environment(\.isEnabled) private var isEnabled
@@ -52,13 +63,24 @@ struct DatasheetAIButtonStyle: ButtonStyle {
             background = self.palette.accent
         }
 
-        return configuration.label
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(background)
-            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
-            .opacity(self.isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.48)
+        return Group {
+            switch self.layout {
+            case .padded:
+                configuration.label
+                    .foregroundStyle(foreground)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(background)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            case .fixed:
+                configuration.label
+                    .foregroundStyle(foreground)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .background(background)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            }
+        }
+        .opacity(self.isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.48)
     }
 }
 
@@ -424,7 +446,7 @@ extension AIEnhancementSettingsView {
     }
 
     /// Shared companion button for provider picker rows — identical size/style everywhere.
-    /// Uses a fixed square frame so icon-only buttons don't get horizontal padding from CompactButtonStyle.
+    /// The fixed layout keeps icon-only actions inside their declared square bounds.
     @ViewBuilder
     func companionIconButton(
         systemName: String,
@@ -436,7 +458,7 @@ extension AIEnhancementSettingsView {
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
         .help(help)
     }
 
@@ -462,7 +484,7 @@ extension AIEnhancementSettingsView {
             }
             .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
         .disabled(disabled)
         .opacity(opacity)
         .help(help)
@@ -895,7 +917,7 @@ extension AIEnhancementSettingsView {
                             .font(.system(size: 13, weight: .semibold))
                             .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     }
-                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
                     .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     .help("Edit provider")
                 }
@@ -1045,7 +1067,7 @@ extension AIEnhancementSettingsView {
                 .foregroundStyle(hasEnabledConfig ? self.palette.accent : self.palette.text)
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
         .help("Configure reasoning parameters")
     }
 

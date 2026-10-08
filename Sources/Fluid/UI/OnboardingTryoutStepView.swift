@@ -151,10 +151,10 @@ struct OnboardingTryoutStepView: View {
                     self.datasheetRegionalOfferRow(offer)
                 } else {
                     Text(self.footerHint ?? "Feels slow or inaccurate? Go back and try another model for \(self.language.displayName).")
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(self.palette.text2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(height: 40, alignment: .leading)
@@ -181,9 +181,9 @@ struct OnboardingTryoutStepView: View {
     }
 
     private var datasheetKeyboardCard: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 1) {
             Text("YOUR DICTATION KEY")
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .tracking(0.4)
                 .foregroundStyle(self.palette.text2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,22 +211,21 @@ struct OnboardingTryoutStepView: View {
                 DatasheetStatusSquare(kind: self.isReady ? .ink : (self.isRecordingShortcut ? .orange : .outline), size: 5)
                 if let shortcutRecordingMessage = self.shortcutRecordingMessage {
                     Text(shortcutRecordingMessage)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(self.palette.text2)
-                        .lineLimit(3)
+                        .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(self.isReady ? "TEST COMPLETE" : (self.isRecordingShortcut ? "PRESS A KEY" : "READY TO TEST"))
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .tracking(0.25)
                         .foregroundStyle(self.palette.text2)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 64, maxHeight: 64, alignment: .leading)
 
             Spacer(minLength: 0)
 
@@ -234,7 +233,7 @@ struct OnboardingTryoutStepView: View {
                 self.onToggleShortcut()
             } label: {
                 Text(self.isRecordingShortcut ? "Cancel" : "Change")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(self.palette.text)
                     .frame(width: 88, height: 28)
                     .contentShape(Rectangle())
@@ -257,11 +256,10 @@ struct OnboardingTryoutStepView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             Text(self.promptText.uppercased())
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .tracking(0.35)
                 .foregroundStyle(self.palette.text2)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
                 .padding(.horizontal, 12)
                 .frame(height: 34, alignment: .leading)
                 .overlay(alignment: .bottom) {
@@ -292,7 +290,7 @@ struct OnboardingTryoutStepView: View {
 
                 if self.shouldShowPlaceholder {
                     Text(self.placeholderText)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(self.palette.text2.opacity(0.75))
                         .padding(.horizontal, 13)
                         .padding(.vertical, 14)
@@ -311,10 +309,10 @@ struct OnboardingTryoutStepView: View {
             DatasheetStatusSquare(kind: .orange, size: 5)
 
             Text(offer.message)
-                .font(.system(size: 11, weight: .regular))
+                .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(self.palette.text2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 4)
 
@@ -339,7 +337,7 @@ struct OnboardingTryoutStepView: View {
     private func datasheetRegionalOfferButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(prominent ? self.palette.invForeground : self.palette.text)
                 .lineLimit(1)
                 .frame(width: 82, height: 28)

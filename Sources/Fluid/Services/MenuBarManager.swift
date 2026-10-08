@@ -17,7 +17,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     // Cached menu items to avoid rebuilding entire menu
     private var statusMenuItem: NSMenuItem?
-    private var headerView: DatasheetMenuHeaderView?
+    private var headerView: DatasheetMenuHeaderRow?
     private var toggleDictationMenuItem: NSMenuItem?
     private var hotkeysPausedMenuItem: NSMenuItem?
     private var headerRefreshTimer: Timer?
@@ -715,7 +715,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
         menu.removeAllItems()
 
-        let header = DatasheetMenuHeaderView(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
+        let header = DatasheetMenuHeaderRow(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
         let headerItem = NSMenuItem()
         headerItem.view = header
         headerItem.isEnabled = false
@@ -768,6 +768,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         let openItem = NSMenuItem(title: "Open MouthKeys", action: #selector(openMainWindow), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
+
+        let repositoryItem = NSMenuItem(
+            title: "MouthKeys on GitHub ↗",
+            action: #selector(openRepository),
+            keyEquivalent: ""
+        )
+        repositoryItem.target = self
+        menu.addItem(repositoryItem)
 
         let preferencesItem = NSMenuItem(title: "Settings…", action: #selector(openPreferences), keyEquivalent: ",")
         preferencesItem.target = self
@@ -1053,6 +1061,13 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.openNavigationDestination(.preferences)
     }
 
+    @objc private func openRepository() {
+        let repositoryURL = MouthKeysLinks.newIssue
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        NSWorkspace.shared.open(repositoryURL)
+    }
+
     @objc private func openCustomDictionary() {
         self.openNavigationDestination(.customDictionary)
     }
@@ -1161,6 +1176,87 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
         window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// A compact menu header with the Datasheet mark, app name, live state, and orange recording square.
+private final class DatasheetMenuHeaderRow: NSView {
+    var stateText = "Ready" {
+        didSet { if self.stateText != oldValue { self.needsDisplay = true } }
+    }
+
+    var isLive = false {
+        didSet { if self.isLive != oldValue { self.needsDisplay = true } }
+    }
+
+    private let markView = NSImageView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        self.autoresizingMask = [.width]
+        self.markView.image = DatasheetMenuBarMark.image(kind: .idle, bracket: false)
+        self.markView.imageScaling = .scaleProportionallyDown
+        self.markView.contentTintColor = .secondaryLabelColor
+        self.addSubview(self.markView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 262, height: 24)
+    }
+
+    override func layout() {
+        super.layout()
+        self.markView.frame = NSRect(x: 10, y: 4, width: 22, height: 16)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let name = self.attributed(
+            "MOUTHKEYS",
+            font: .monospacedSystemFont(ofSize: 10, weight: .medium),
+            color: .secondaryLabelColor
+        )
+        name.draw(at: NSPoint(x: 40, y: (self.bounds.height - name.size().height) / 2))
+
+        let statusSquareSize: CGFloat = self.isLive ? 6 : 0
+        let statusGap: CGFloat = self.isLive ? 8 : 0
+        let right = self.bounds.width - 12 - statusSquareSize - statusGap
+        let stateRect = NSRect(x: 112, y: 2, width: max(0, right - 112), height: self.bounds.height - 4)
+        self.attributed(
+            self.stateText,
+            font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+            color: .secondaryLabelColor,
+            alignment: .right
+        ).draw(in: stateRect)
+
+        if self.isLive {
+            DatasheetTheme.AppKitColors.accent.setFill()
+            NSBezierPath(rect: NSRect(x: self.bounds.width - 18, y: 9, width: 6, height: 6)).fill()
+        }
+    }
+
+    private func attributed(
+        _ string: String,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment
+        paragraph.lineBreakMode = .byTruncatingTail
+        return NSAttributedString(string: string, attributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph,
+        ])
     }
 }
 

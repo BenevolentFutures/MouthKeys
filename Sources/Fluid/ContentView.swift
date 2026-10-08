@@ -1356,15 +1356,16 @@ struct ContentView: View {
 
     private var sidebarStamp: some View {
         TimelineView(.periodic(from: .now, by: 0.125)) { context in
+            let menuJaw = DatasheetMenuBarMark.listeningJaw(
+                from: DatasheetOverlayModel.shared.trace,
+                at: context.date.timeIntervalSinceReferenceDate
+            )
             DatasheetSidebarStamp(
                 version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
                 engine: self.settings.selectedSpeechModel.displayName,
                 input: self.selectedInputName,
                 hotkey: self.settings.primaryDictationShortcutDisplayString,
-                jaw: DatasheetMenuBarMark.listeningJaw(
-                    from: DatasheetOverlayModel.shared.trace,
-                    at: context.date.timeIntervalSinceReferenceDate
-                ),
+                jaw: menuJaw * 1.5,
                 repositoryURL: MouthKeysLinks.newIssue
                     .deletingLastPathComponent()
                     .deletingLastPathComponent()

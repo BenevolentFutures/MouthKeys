@@ -732,7 +732,7 @@ private extension SettingsView {
             HStack(spacing: 0) {
                 ForEach(SettingsZone.allCases) { zone in
                     let isSelected = self.selectedSettingsZone == zone
-                    DatasheetBracketed(rest: isSelected) {
+                    DatasheetBracketed(rest: false) {
                         Button {
                             self.selectedSettingsZone = zone
                             withAnimation(self.accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
@@ -861,22 +861,7 @@ private extension SettingsView {
             note: self.asr.isRunning ? "During a recording, output selection is unavailable and microphone priority is locked." : nil
         ) {
             VStack(spacing: 0) {
-                DatasheetRow(
-                    label: "Input Device",
-                    help: "Choose the microphone MouthKeys should use. This changes MouthKeys priority, not the macOS default input.",
-                    control: { self.inputDevicePicker }
-                )
-
-                DatasheetRow(
-                    label: "Input Level",
-                    help: "Shows levels received during an active capture. Empty while inactive; this is not a microphone readiness check.",
-                    control: {
-                        let value = Int((self.inputAudioLevel * 16).rounded())
-                        DatasheetMeter(value: value, count: 16, segmentWidth: 4, segmentHeight: 14, accentLastFilled: true)
-                            .accessibilityLabel("Input level from active capture")
-                            .accessibilityValue(self.inputAudioLevel == 0 ? "No current level" : "\(value) of 16")
-                    }
-                )
+                self.inputDeviceSettingsRow
 
                 DatasheetRow(
                     label: "Microphone Access",
@@ -920,12 +905,6 @@ private extension SettingsView {
                     showsBottomRule: false,
                     control: { self.outputDevicePicker }
                 )
-                DatasheetRow(
-                    label: "Audio Devices",
-                    help: "Refresh the available microphone and output device lists.",
-                    showsBottomRule: false,
-                    control: { self.sheetAction("Refresh", icon: "arrow.clockwise") { self.refreshSettingsAudioDevices() } }
-                )
             }
         }
     }
@@ -951,6 +930,49 @@ private extension SettingsView {
         self.asr.micStatus == .authorized
             ? "MouthKeys can request microphone capture when you dictate."
             : "Microphone access is required to record dictation."
+    }
+
+    private var inputDeviceSettingsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 24) {
+                self.inputDeviceSettingsLabel
+                    .frame(minWidth: 180, idealWidth: 180, maxWidth: .infinity, alignment: .leading)
+                self.inputDeviceSettingsControls
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                self.inputDeviceSettingsLabel
+                self.inputDeviceSettingsControls
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .padding(.vertical, 12)
+        .frame(minHeight: 60)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
+        }
+    }
+
+    private var inputDeviceSettingsLabel: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Input Device")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(self.datasheetPalette.text)
+            Text("Choose the microphone MouthKeys should use and watch its level during active capture. The meter is empty while inactive; it is not a readiness check. This changes MouthKeys priority, not the macOS default input.")
+                .font(.system(size: 13, weight: .regular))
+                .lineSpacing(2)
+                .foregroundStyle(self.datasheetPalette.text2)
+                .frame(maxWidth: 470, alignment: .leading)
+        }
+    }
+
+    private var inputDeviceSettingsControls: some View {
+        let value = Int((self.inputAudioLevel * 16).rounded())
+        return HStack(spacing: 12) {
+            self.inputDevicePicker
+            DatasheetMeter(value: value, count: 16, segmentWidth: 4, segmentHeight: 14, accentLastFilled: true)
+                .accessibilityLabel("Input level from active capture")
+                .accessibilityValue(self.inputAudioLevel == 0 ? "No current level" : "\(value) of 16")
+        }
     }
 
     var settingsPrimaryDictationShortcutsList: some View {
@@ -1046,7 +1068,7 @@ private extension SettingsView {
     var settingsMicrophonePriorityTable: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Text("INPUT DEVICE PRIORITY")
+                Text("PRIORITY ORDER")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .tracking(0.6)
                     .foregroundStyle(self.datasheetPalette.text)
@@ -1061,6 +1083,30 @@ private extension SettingsView {
             }
 
             VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Color.clear
+                        .frame(width: 18, height: 1)
+                        .accessibilityHidden(true)
+                    Text("#")
+                        .frame(width: 26, alignment: .trailing)
+                    Text("INPUT DEVICE PRIORITY")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(1)
+                    Text("STATE")
+                        .frame(width: 96, alignment: .leading)
+                    self.sheetAction("Refresh", icon: "arrow.clockwise") { self.refreshSettingsAudioDevices() }
+                        .help("Refresh the available microphone and output device lists.")
+                        .accessibilityLabel("Refresh audio devices")
+                }
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.4)
+                .foregroundStyle(self.datasheetPalette.text2)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 34)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
+                }
+
                 if self.settings.microphonePriority.isEmpty {
                     HStack(spacing: 8) {
                         DatasheetStatusSquare(kind: .outline)
@@ -1356,7 +1402,9 @@ private extension SettingsView {
                     if self.isRecordingAnyShortcut {
                         self.settingsHelpPanel(title: "Shortcut capture", lines: [self.shortcutRecordingMessage ?? "Press your new hotkey combination now."])
                             .padding(.bottom, 8)
-                    } else if !self.hotkeyManagerInitialized {
+                    } else if !self.hotkeyManagerInitialized,
+                              self.permissionMonitor.hotkeyTapState != .failedTrusted,
+                              self.permissionMonitor.hint != .relaunch {
                         DatasheetRow(label: "Hotkey initialization", help: "MouthKeys is waiting for the Accessibility event tap to become available.") { ProgressView().controlSize(.small) }
                     }
                     self.accessibilityRecoveryPanel
@@ -1936,11 +1984,11 @@ private extension SettingsView {
     private var sensitivitySettingsControls: some View {
         HStack(spacing: 12) {
             Text("MORE")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(self.datasheetPalette.text2)
             DatasheetSlider(value: self.$visualizerNoiseThreshold, in: 0.01...0.8, step: 0.01, label: "Visualizer sensitivity", width: 150, readout: { String(format: "%.2f", $0) })
             Text("LESS")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(self.datasheetPalette.text2)
             self.sheetAction("Reset") {
                 self.visualizerNoiseThreshold = 0.4
@@ -2040,15 +2088,14 @@ private extension SettingsView {
         DatasheetSection(letter: "I", title: "Backup & Restore", note: "Export or import settings, prompt profiles, history, and stats. API keys are excluded.") {
             VStack(spacing: 0) {
                 DatasheetRow(
-                    label: "Export Backup",
-                    help: "Save a JSON backup of supported MouthKeys data.",
-                    control: { self.sheetPrimaryAction("Export", icon: "square.and.arrow.up") { self.exportBackup() } }
-                )
-                DatasheetRow(
-                    label: "Import Backup",
-                    help: "Replace current settings, prompt profiles, and stats history. API keys are not included and will not be changed.",
-                    showsBottomRule: false,
-                    control: { self.sheetAction("Import", icon: "square.and.arrow.down") { self.importBackup() } }
+                    label: "Settings, prompt profiles, history and stats",
+                    help: "Export a JSON backup of supported MouthKeys data or replace current settings, prompt profiles, and stats history. API keys are excluded and will not be changed.",
+                    control: {
+                        HStack(spacing: 4) {
+                            self.sheetAction("Export", icon: "square.and.arrow.up") { self.exportBackup() }
+                            self.sheetAction("Import", icon: "square.and.arrow.down") { self.importBackup() }
+                        }
+                    }
                 )
             }
         }

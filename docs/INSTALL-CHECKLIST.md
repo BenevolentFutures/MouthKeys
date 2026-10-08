@@ -72,7 +72,7 @@ From 0.1.1 the app is `com.stage11.mouthkeys`. 0.1.0 ran under the app's earlier
 7. Dictate once into c11. The text lands. Then go on with section 1.
 
 ## 1. Delivery into c11 (must pass)
-1. Dictate into a Claude Code prompt in c11: one short, one long, then two quick ones in a row. Every text lands, in order. Your clipboard is unchanged afterward.
+1. Dictate into a Claude Code prompt in c11: one short, one long, then two quick ones in a row. Every text lands, in order. Your clipboard is unchanged afterward. Repeat in Ghostty, where MouthKeys uses Reliable Paste: one short, one long, then two quick dictations. Every text lands in order and your clipboard is unchanged afterward.
    Log: `frontmost_check stage=before_paste waitedMs=0 result=in_front`, and one `STOP_SUMMARY` per dictation.
 2. Stop in c11, then Cmd-Tab to Safari while it transcribes. Either c11 comes back and gets the text, or a card appears and the text is on the clipboard. It is never silent.
 3. Copy an image (a screenshot to the clipboard), then dictate into c11. After about 1 s, Preview > File > New from Clipboard shows the image.
@@ -126,6 +126,20 @@ From 0.1.1 the app is `com.stage11.mouthkeys`. 0.1.0 ran under the app's earlier
 28a. Speech recognition is back (hard to trigger on purpose; check when it happens, or with `grep "Recognition-back notice row" ~/Library/Logs/MouthKeys/Fluid.log`): the pill shows the headline, "A kept dictation is waiting" and Reprocess · Dismiss in its preview area, with no growth and no orange top rule. Hovering Reprocess draws its own bracket; Reprocess transcribes the kept recording; Dismiss and the Cancel chip close it; left alone it goes after 10 s.
 29. Menu bar: the grin (four teeth a jaw) at rest; the grin plus a solid square while listening, the lower jaw opening and closing as you talk and shut in pauses; an outlined square only when a pass is slow; a bracket inside the mark on hover and while the menu is open. The menu has the mono MOUTHKEYS header with the state, Start Dictation with the hotkey (it starts one), the microphone, History… (opens History), Copy Last Transcript, Custom Dictionary, Open MouthKeys, Settings…, Quit.
 30. The Dock and Finder show the new icon: an ink tile and a grin of white keycap teeth with one orange tooth right of centre in the lower jaw; in the Dock the teeth read as keys. List views show plain teeth, the orange tooth still there.
+
+### Lane F window and presentation finish
+
+After the install, check the existing app state without resetting the installed app's defaults or data:
+
+1. In both Light and Dark, inspect the main window at its current size and at the minimum size. The Today readout stays on one line for an empty day, a four-digit count, and a large count; its saved-time value is compact (for example `1H13M`). The full word count and saved time remain available from the control's help/accessibility label. Click it and confirm it still opens Stats.
+2. Hover the sidebar MOUTHKEYS wordmark: its underline appears without moving the surrounding rows. Use keyboard navigation to focus it and activate it; it opens the MouthKeys repository. The adjacent GitHub action also opens the repository.
+3. Open the status menu at rest and while recording. The header keeps its mark, wordmark and current state; the live orange square appears while recording. `MouthKeys on GitHub ↗` follows `Open MouthKeys` and opens the repository. Start Dictation, microphone choice, History, Copy Last Transcript, Custom Dictionary, Settings, hotkey recovery and Quit keep their prior actions.
+4. In History, inspect populated rows and the empty state. Timestamp/context metadata stays in reserved rows at minimum width. The empty state has the quiet outline grin. In Custom Dictionary, only the `No replacements yet` state gets that grin; the other empty states retain their own message and action.
+5. In Stats, check the lower insights and records at default and minimum widths in both themes. They stack or wrap at the intended width, with readable text and no severe scaling.
+6. In Settings, verify the selected tab has no resting bracket and still routes to the same pane; Sensitivity endpoints are readable; Export/Import retain neutral styling and their actions; and the initializing status gives way to the existing Relaunch recovery action for failed-trusted/relaunch states. Reopen Settings and confirm the selected microphone/priority remains consistent with the menu; if choosing an available input, the active route updates while macOS's system input stays unchanged. Do not toggle or reset unrelated preferences.
+7. In Command Mode, verify provider/model controls remain searchable and retain their linked-to-global disabled behavior. Disabled controls remain legible and square; enable them and confirm selection still updates the command provider/model.
+8. In AI Enhancement, verify the fixed 34×34 and 76×34 icon/action buttons retain their declared bounds and still open the same configure/edit/reasoning actions. Flexible text actions keep their padded hit areas.
+9. If a first-run Try MouthKeys flow is visible in the session, compare its zero- and three-word practice states: the detail row does not move the key/status/actions. Check the welcome figure in both themes, and confirm practice text and recovery messages remain readable at the minimum width. This check must use the session's existing onboarding state.
 
 ## 8. Cleanup, once rollback is no longer needed (optional)
 - Remove the old identity's permission rows: `tccutil reset Accessibility com.FluidApp.app` and `tccutil reset Microphone com.FluidApp.app`.

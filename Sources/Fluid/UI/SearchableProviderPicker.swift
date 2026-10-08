@@ -8,26 +8,92 @@
 
 import SwiftUI
 
+enum SearchablePickerAppearance: Equatable {
+    case standard
+    case datasheet
+}
+
+struct SearchablePickerControlAppearance: ViewModifier {
+    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
+    let appearance: SearchablePickerAppearance
+    let width: CGFloat?
+    let height: CGFloat?
+    let usesMaterial: Bool
+    let showsShadow: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if self.appearance == .standard {
+            content.searchablePickerControlChrome(
+                width: self.width,
+                height: self.height,
+                usesMaterial: self.usesMaterial,
+                showsShadow: self.showsShadow
+            )
+        } else {
+            let picker = self.theme.metrics.pickerControl
+            content
+                .frame(width: self.width, alignment: .leading)
+                .frame(maxWidth: self.width == nil ? .infinity : nil, alignment: .leading)
+                .padding(.horizontal, picker.horizontalPadding)
+                .padding(.vertical, picker.verticalPadding)
+                .frame(height: self.height)
+                .contentShape(Rectangle())
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+        }
+    }
+}
+
+struct SearchablePickerDisclosure: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
+    let appearance: SearchablePickerAppearance
+    let standardBackgroundOpacity: Double
+
+    @ViewBuilder
+    var body: some View {
+        if self.appearance == .standard {
+            FluidPickerDisclosureIcon(backgroundOpacity: self.standardBackgroundOpacity)
+        } else {
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(self.palette.text2)
+                .frame(
+                    width: self.theme.metrics.pickerControl.disclosureSize,
+                    height: self.theme.metrics.pickerControl.disclosureSize
+                )
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 struct SearchableProviderPicker: View {
     @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var datasheetPalette
+    @Environment(\.isEnabled) private var isEnabled
     let builtInProviders: [(id: String, name: String)]
     let savedProviders: [SettingsStore.SavedProvider]
     @Binding var selectedProviderID: String
     let controlWidth: CGFloat
     let controlHeight: CGFloat?
+    let appearance: SearchablePickerAppearance
 
     init(
         builtInProviders: [(id: String, name: String)],
         savedProviders: [SettingsStore.SavedProvider],
         selectedProviderID: Binding<String>,
         controlWidth: CGFloat = 180,
-        controlHeight: CGFloat? = nil
+        controlHeight: CGFloat? = nil,
+        appearance: SearchablePickerAppearance = .standard
     ) {
         self.builtInProviders = builtInProviders
         self.savedProviders = savedProviders
         self._selectedProviderID = selectedProviderID
         self.controlWidth = controlWidth
         self.controlHeight = controlHeight
+        self.appearance = appearance
     }
 
     @State private var searchText = ""
@@ -69,13 +135,29 @@ struct SearchableProviderPicker: View {
     var body: some View {
         Button(action: { self.isShowingPopover.toggle() }) {
             HStack(spacing: 8) {
-                Text(self.selectedProviderName)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if self.appearance == .datasheet {
+                    Text(self.selectedProviderName)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(self.isEnabled ? self.datasheetPalette.text : self.datasheetPalette.text2)
+                } else {
+                    Text(self.selectedProviderName)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Spacer(minLength: 6)
-                FluidPickerDisclosureIcon(backgroundOpacity: 0.7)
+                SearchablePickerDisclosure(
+                    appearance: self.appearance,
+                    standardBackgroundOpacity: 0.7
+                )
             }
-            .searchablePickerControlChrome(width: self.controlWidth, height: self.controlHeight)
+            .modifier(SearchablePickerControlAppearance(
+                appearance: self.appearance,
+                width: self.controlWidth,
+                height: self.controlHeight,
+                usesMaterial: false,
+                showsShadow: false
+            ))
         }
         .buttonStyle(.plain)
         .popover(isPresented: self.$isShowingPopover, arrowEdge: .bottom) {
