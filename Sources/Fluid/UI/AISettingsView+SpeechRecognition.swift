@@ -136,6 +136,14 @@ extension VoiceEngineSettingsView {
                         .foregroundStyle(self.palette.text2)
                         .fixedSize(horizontal: false, vertical: true)
 
+                    if model == .cohereTranscribeSixBit, let supportedLanguageCodes = model.supportedLanguageCodes {
+                        Text(supportedLanguageCodes)
+                            .font(.system(size: 12, design: .monospaced))
+                            .lineSpacing(2)
+                            .foregroundStyle(self.palette.text2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     if let warning = model.memoryWarning {
                         Text(warning)
                             .font(.system(size: 12, weight: .medium, design: .monospaced))

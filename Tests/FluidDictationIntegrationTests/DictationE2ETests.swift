@@ -2,6 +2,7 @@
 import Combine
 import Foundation
 import SwiftUI
+import Vision
 import XCTest
 
 @MainActor
@@ -5758,6 +5759,51 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
     private var outputFolder: URL? {
         ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map {
             URL(fileURLWithPath: $0, isDirectory: true)
+        }
+    }
+
+    func testCoherePreviewEnumeratesSupportedLanguagesInBothThemesAtMinimumAndDefaultWidths() throws {
+        let settings = SettingsStore.shared
+        let viewModel = VoiceEngineSettingsViewModel(settings: settings, appServices: AppServices.shared)
+        let savedPreview = viewModel.previewSpeechModel
+        let savedWidth = self.fixtureWidth
+        defer {
+            viewModel.previewSpeechModel = savedPreview
+            self.fixtureWidth = savedWidth
+        }
+        viewModel.previewSpeechModel = .cohereTranscribeSixBit
+        let codes = try XCTUnwrap(SettingsStore.SpeechModel.cohereTranscribeSixBit.supportedLanguageCodes)
+            .components(separatedBy: ", ")
+        XCTAssertEqual(codes.count, 14)
+
+        for width in [CGFloat(549), CGFloat(749)] {
+            self.fixtureWidth = width
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                let theme: AppTheme = appearance == .aqua ? .light : .dark
+                // Install the actual screen body so its palette is resolved inside the View.
+                // Preview selection is in-memory only; lifecycle, downloads and actions stay idle.
+                let view = VoiceEngineSettingsView(
+                    viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true
+                )
+                .padding(14)
+                .frame(width: width, height: 720, alignment: .topLeading)
+                .appTheme(theme)
+                .datasheetPalette()
+                let rep = try self.renderNative(view, appearance: appearance, height: 720)
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = false
+                try VNImageRequestHandler(cgImage: try XCTUnwrap(rep.cgImage)).perform([request])
+                let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+                let tokens = Set(text.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty })
+                for code in codes {
+                    XCTAssertTrue(tokens.contains(code), "\(appearance.rawValue) w\(width): missing supported code \(code); OCR=\(text)")
+                }
+                if let outputFolder = self.outputFolder {
+                    let name = "cohere-preview-\(appearance == .aqua ? "light" : "dark")-w\(Int(width)).png"
+                    try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent(name))
+                }
+            }
         }
     }
 
