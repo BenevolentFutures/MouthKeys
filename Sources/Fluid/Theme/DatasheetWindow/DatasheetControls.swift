@@ -51,14 +51,16 @@ struct DatasheetMeter: View {
     let count: Int
     var segmentWidth: CGFloat = 6
     var segmentHeight: CGFloat = 10
+    var accentLastFilled: Bool = false
 
     @Environment(\.datasheetPalette) private var palette
 
-    init(value: Int, count: Int = 10, segmentWidth: CGFloat = 6, segmentHeight: CGFloat = 10) {
+    init(value: Int, count: Int = 10, segmentWidth: CGFloat = 6, segmentHeight: CGFloat = 10, accentLastFilled: Bool = false) {
         self.value = value
         self.count = count
         self.segmentWidth = segmentWidth
         self.segmentHeight = segmentHeight
+        self.accentLastFilled = accentLastFilled
     }
 
     private var safeCount: Int {
@@ -73,7 +75,7 @@ struct DatasheetMeter: View {
         HStack(spacing: 2) {
             ForEach(0..<self.safeCount, id: \.self) { index in
                 Rectangle()
-                    .fill(index < self.filledCount ? self.palette.ink : self.palette.surface)
+                    .fill(index < self.filledCount ? (self.accentLastFilled && index == self.filledCount - 1 ? self.palette.accent : self.palette.ink) : self.palette.surface)
                     .overlay {
                         if index >= self.filledCount {
                             Rectangle().strokeBorder(self.palette.graticule, lineWidth: 1)
