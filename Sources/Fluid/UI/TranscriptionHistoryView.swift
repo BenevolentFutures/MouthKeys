@@ -117,21 +117,22 @@ struct TranscriptionHistoryView: View {
                 .foregroundStyle(self.palette.text)
                 .accessibilityLabel("Search transcriptions")
 
-            if !self.searchQuery.isEmpty {
-                DatasheetBracketed(rest: false) {
-                    Button {
-                        self.searchQuery = ""
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(self.palette.text2)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
+            DatasheetBracketed(rest: false) {
+                Button {
+                    self.searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help("Clear search")
             }
+            .opacity(self.searchQuery.isEmpty ? 0 : 1)
+            .disabled(self.searchQuery.isEmpty)
+            .accessibilityHidden(self.searchQuery.isEmpty)
         }
         .padding(.horizontal, 10)
         .frame(height: 34)

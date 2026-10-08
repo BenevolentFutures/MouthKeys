@@ -56,7 +56,7 @@ struct StatsView: View {
             streak: self.historyStore.currentStreak
         )) {
             HStack(spacing: 6) {
-                DatasheetStatusSquare(kind: self.historyStore.currentStreak > 0 ? .orange : .outline)
+                DatasheetStatusSquare(kind: self.historyStore.currentStreak > 0 ? .ink : .outline)
                 DatasheetMonoLabel(
                     text: self.historyStore.currentStreak > 0
                         ? "\(self.historyStore.currentStreak) DAY STREAK"
@@ -111,11 +111,19 @@ struct StatsView: View {
             }
 
             self.kpiCell(title: "TRANSCRIPTIONS", value: self.formatNumber(self.historyStore.entries.count)) {
-                DatasheetMonoLabel(
-                    text: "AVG: \(self.historyStore.averageWordsPerTranscription) WORDS EACH",
-                    role: DatasheetTheme.Typography.tableLabel,
-                    color: self.palette.text2
-                )
+                VStack(alignment: .leading, spacing: 3) {
+                    DatasheetMonoLabel(
+                        text: "\(self.historyStore.todaySummary.transcriptions) TODAY",
+                        role: DatasheetTheme.Typography.tableLabel,
+                        color: self.palette.text2
+                    )
+                    .accessibilityLabel("\(self.historyStore.todaySummary.transcriptions) sessions today")
+                    DatasheetMonoLabel(
+                        text: "AVG: \(self.historyStore.averageWordsPerTranscription) WORDS EACH",
+                        role: DatasheetTheme.Typography.tableLabel,
+                        color: self.palette.text2
+                    )
+                }
             }
         }
         .overlay {
@@ -140,7 +148,7 @@ struct StatsView: View {
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
 
             foot()
-                .frame(maxWidth: .infinity, minHeight: 14, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 31, alignment: .topLeading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
