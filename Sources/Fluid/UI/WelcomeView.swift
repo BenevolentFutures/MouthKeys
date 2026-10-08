@@ -1148,8 +1148,8 @@ struct OnboardingFlowView: View {
             .font(.system(size: 9, weight: .medium, design: .monospaced))
             .tracking(0.4)
             .foregroundStyle(self.palette.text2)
-            .frame(width: 240, alignment: .leading)
             .padding(.leading, 18)
+            .frame(width: 240, alignment: .leading)
 
             Rectangle()
                 .fill(self.palette.rule)
@@ -1555,6 +1555,7 @@ struct OnboardingFlowView: View {
             || isPreparing
             || self.isModelPreparationInProgress
         let isBuiltInAppleModel = model == .appleSpeech || model == .appleSpeechAnalyzer
+        let modelTooltip = self.onboardingModelTooltip(for: route)
 
         return DatasheetBracketed(rest: isSelected) {
             VStack(alignment: .leading, spacing: 8) {
@@ -1574,8 +1575,18 @@ struct OnboardingFlowView: View {
 
                     Spacer(minLength: 2)
 
-                    DatasheetStatusSquare(kind: isReady ? .ink : (isPreparing ? .orange : .outline))
-                        .padding(.top, 3)
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(self.palette.text2)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                            .help(modelTooltip)
+                            .accessibilityLabel(modelTooltip)
+
+                        DatasheetStatusSquare(kind: isReady ? .ink : (isPreparing ? .orange : .outline))
+                            .padding(.top, 3)
+                    }
                 }
                 .frame(minHeight: 38, alignment: .top)
 
@@ -1601,43 +1612,44 @@ struct OnboardingFlowView: View {
                     self.datasheetModelMetricRow(fillPercent: model.accuracyPercent, label: "ACCURACY")
                 }
 
-                if isPreparing || isUninstalling {
-                    if self.asr.isDownloadingModel,
-                       self.asr.modelPreparationPhase == .downloading,
-                       let progress = self.asr.downloadProgress
-                    {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(self.asr.modelPreparationStatusText.uppercased())
-                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                    .tracking(0.3)
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text("\(Int((progress * 100).rounded()))%")
-                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                    .frame(width: 34, alignment: .trailing)
+                ZStack(alignment: .topLeading) {
+                    if isPreparing || isUninstalling {
+                        if self.asr.isDownloadingModel,
+                           self.asr.modelPreparationPhase == .downloading,
+                           let progress = self.asr.downloadProgress
+                        {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(self.asr.modelPreparationStatusText.uppercased())
+                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                        .tracking(0.3)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    Text("\(Int((progress * 100).rounded()))%")
+                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                        .frame(width: 34, alignment: .trailing)
+                                }
+                                ProgressView(value: progress)
+                                    .tint(self.palette.accent)
+                                    .frame(height: 8)
                             }
-                            ProgressView(value: progress)
-                                .tint(self.palette.accent)
-                                .frame(height: 8)
+                            .foregroundStyle(self.palette.text2)
+                        } else {
+                            HStack(spacing: 7) {
+                                ProgressView().controlSize(.small).fixedSize()
+                                Text(self.asr.isCancellingModelPreparation
+                                    ? "Cancelling…"
+                                    : (isUninstalling ? "Deleting…" : self.asr.modelPreparationStatusText))
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundStyle(self.palette.text2)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(height: 16)
                         }
-                        .foregroundStyle(self.palette.text2)
-                    } else {
-                        HStack(spacing: 7) {
-                            ProgressView().controlSize(.small).fixedSize()
-                            Text(self.asr.isCancellingModelPreparation
-                                ? "Cancelling…"
-                                : (isUninstalling ? "Deleting…" : self.asr.modelPreparationStatusText))
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(self.palette.text2)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(height: 16)
                     }
-                } else {
-                    Spacer(minLength: 0)
                 }
+                .frame(height: 33, alignment: .topLeading)
 
                 HStack(spacing: 8) {
                     if isPreparing {

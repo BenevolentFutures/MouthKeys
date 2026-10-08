@@ -181,7 +181,7 @@ struct OnboardingTryoutStepView: View {
     }
 
     private var datasheetKeyboardCard: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text("YOUR DICTATION KEY")
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
                 .tracking(0.4)
@@ -209,14 +209,24 @@ struct OnboardingTryoutStepView: View {
 
             HStack(spacing: 6) {
                 DatasheetStatusSquare(kind: self.isReady ? .ink : (self.isRecordingShortcut ? .orange : .outline), size: 5)
-                Text(self.shortcutRecordingMessage ?? (self.isReady ? "TEST COMPLETE" : (self.isRecordingShortcut ? "PRESS A KEY" : "READY TO TEST")))
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                    .tracking(0.25)
-                    .foregroundStyle(self.palette.text2)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                if let shortcutRecordingMessage = self.shortcutRecordingMessage {
+                    Text(shortcutRecordingMessage)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(self.isReady ? "TEST COMPLETE" : (self.isRecordingShortcut ? "PRESS A KEY" : "READY TO TEST"))
+                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                        .tracking(0.25)
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(height: 14)
+            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
 
             Spacer(minLength: 0)
 
