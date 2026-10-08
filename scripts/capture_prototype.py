@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the binding Signal prototype's overlay states as PNGs, for the native comparison.
+"""Capture the binding Datasheet prototype's overlay states as PNGs, for the native comparison.
 
     python3 scripts/capture_prototype.py [--page signal/round6.html]
 

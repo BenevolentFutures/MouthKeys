@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The record square beside the timer: solid while listening, a 1.5 pt outline once input is
 /// closed, and nothing (its 6 pt still reserved) when delivered or on a card.
-enum SignalRecordMark: Equatable {
+enum DatasheetRecordMark: Equatable {
     case recording
     case closed
     case none
@@ -11,7 +11,7 @@ enum SignalRecordMark: Equatable {
 
 /// Spoken Send's placard at the foot row's right end (DESIGN.md §15, round 6): empty at rest, its
 /// width reserved.
-enum SignalPlacard: Equatable {
+enum DatasheetPlacard: Equatable {
     case none
     /// The phrase was heard; Return follows the paste. Orange.
     case send
@@ -30,34 +30,34 @@ enum SignalPlacard: Equatable {
 }
 
 /// What the timer box shows.
-enum SignalTimerReadout: Equatable {
+enum DatasheetTimerReadout: Equatable {
     /// The recording's length, running from this start.
     case running(Date)
     /// A frozen length ("0:41"); `dim` for the microphone card's "0:00".
     case frozen(String, dim: Bool)
     /// Spoken Send's countdown, "1.5" to "0.0" with one decimal: orange, ink once canceled.
-    case countdown(SignalDrain)
+    case countdown(DatasheetDrain)
 }
 
 /// The trace row (DESIGN.md §4, §11, round 6): `[trace] >=12 [square 6] 4 [timer 5 ch]`, the trace
 /// from the left edge and the readout flush right, centred on the trace's midline. The timer's box
 /// is reserved whatever it shows. The target-app icon and Spoken Send's placard live in the foot row.
-struct SignalTraceRow: View {
-    let geometry: SignalOverlayGeometry
-    let trace: SignalTraceModel
+struct DatasheetTraceRow: View {
+    let geometry: DatasheetOverlayGeometry
+    let trace: DatasheetTraceModel
     let isLive: Bool
     let isSweeping: Bool
-    var drain: SignalDrain?
+    var drain: DatasheetDrain?
     var staticSweepProgress: Double?
-    let mark: SignalRecordMark
-    let timer: SignalTimerReadout
+    let mark: DatasheetRecordMark
+    let timer: DatasheetTimerReadout
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        let metrics = SignalTheme.Metrics.self
+        let metrics = DatasheetTheme.Metrics.self
         HStack(alignment: .top, spacing: 0) {
-            SignalTraceView(
+            DatasheetTraceView(
                 model: self.trace,
                 isLive: self.isLive,
                 isSweeping: self.isSweeping,
@@ -73,21 +73,21 @@ struct SignalTraceRow: View {
                     .fixedSize()
                     .frame(width: metrics.timerBoxWidth, alignment: .trailing)
             }
-            .frame(height: SignalTheme.Typography.timer.lineHeight)
-            .padding(.top, metrics.traceMidline - SignalTheme.Typography.timer.lineHeight / 2)
+            .frame(height: DatasheetTheme.Typography.timer.lineHeight)
+            .padding(.top, metrics.traceMidline - DatasheetTheme.Typography.timer.lineHeight / 2)
         }
         .frame(width: self.geometry.innerWidth, height: metrics.traceRowHeight, alignment: .top)
     }
 
     @ViewBuilder
     private var recordSquare: some View {
-        let size = SignalTheme.Metrics.recordSquare
+        let size = DatasheetTheme.Metrics.recordSquare
         switch self.mark {
         case .recording:
             Rectangle().fill(self.palette.accent).frame(width: size, height: size)
         case .closed:
             Rectangle()
-                .strokeBorder(self.palette.accent, lineWidth: SignalTheme.Metrics.recordSquareOutline)
+                .strokeBorder(self.palette.accent, lineWidth: DatasheetTheme.Metrics.recordSquareOutline)
                 .frame(width: size, height: size)
         case .none:
             Color.clear.frame(width: size, height: size)
@@ -99,7 +99,7 @@ struct SignalTraceRow: View {
         switch self.timer {
         case let .running(start):
             TimelineView(.periodic(from: start, by: 1)) { context in
-                self.timerText(SignalOverlayModel.formatDuration(context.date.timeIntervalSince(start)), color: self.palette.text)
+                self.timerText(DatasheetOverlayModel.formatDuration(context.date.timeIntervalSince(start)), color: self.palette.text)
             }
         case let .frozen(text, dim):
             self.timerText(text, color: dim ? self.palette.textDim : self.palette.text)
@@ -115,7 +115,7 @@ struct SignalTraceRow: View {
 
     private func timerText(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(SignalTheme.Typography.timer.font)
+            .font(DatasheetTheme.Typography.timer.font)
             .monospacedDigit()
             .foregroundStyle(color)
             .lineLimit(1)
@@ -127,7 +127,7 @@ struct SignalTraceRow: View {
 /// 2026-10-01: "Hollyland lapel and then the percentage level"). Set on the overlay model by
 /// `LapelMicBatteryMonitor` only while the selected input is the Lark A1 receiver (directly or
 /// through an aggregate); nil for every other microphone, which keeps its own name.
-struct SignalMicBattery: Equatable {
+struct DatasheetMicBattery: Equatable {
     /// The one percent the label shows: the linked mic's, or with both linked the lower of the two
     /// (the receiver does not say which one is being spoken into, Atin 2026-10-01). Nil with no
     /// reading yet, none linked, or a reading older than `freshness`.
@@ -145,12 +145,12 @@ struct SignalMicBattery: Equatable {
 
     /// The label's state from the monitor's cache: nil unless the input is the receiver; a stale
     /// (or missing) reading shows the name alone.
-    static func from(inputIsReceiver: Bool, reading: LarkA1Status?, readAt: Date?, now: Date) -> SignalMicBattery? {
+    static func from(inputIsReceiver: Bool, reading: LarkA1Status?, readAt: Date?, now: Date) -> DatasheetMicBattery? {
         guard inputIsReceiver else { return nil }
         guard let reading, let readAt, now.timeIntervalSince(readAt) <= self.freshness else {
-            return SignalMicBattery(percent: nil)
+            return DatasheetMicBattery(percent: nil)
         }
-        return SignalMicBattery(percent: reading.linkedPercents.min())
+        return DatasheetMicBattery(percent: reading.linkedPercents.min())
     }
 }
 
@@ -160,7 +160,7 @@ struct SignalMicBattery: Equatable {
 /// whose widest reading ("100%") fits the mic's 160 pt: "HOLLYLAND LAPEL", or "HOLLYLAND" behind a
 /// mode word ("EDIT · "). The box is that widest reading, so the pair keeps clear of the word count
 /// (a full 160 would touch "9999 WORDS").
-enum SignalMicLabel {
+enum DatasheetMicLabel {
     static let names = ["Hollyland lapel", "Hollyland"]
 
     struct Layout: Equatable {
@@ -172,7 +172,7 @@ enum SignalMicLabel {
 
     static func layout(
         prefix: String,
-        battery: SignalMicBattery,
+        battery: DatasheetMicBattery,
         maxWidth: CGFloat,
         width: (String) -> CGFloat
     ) -> Layout {
@@ -189,36 +189,36 @@ enum SignalMicLabel {
 /// microphone, centred as a pair, the same in every visible state; the live word count at the left
 /// end and, at the right end, Spoken Send's placard or (while the placard is empty) words per
 /// minute, all absolute so the pair never moves (DESIGN.md §16, Atin 2026-10-01).
-struct SignalFootRow: View {
+struct DatasheetFootRow: View {
     let icon: NSImage?
     let micText: String
     /// NO MICROPHONE reads in full ink.
     var isMicEmphasized = false
     /// The live counters while a dictation is live, stopped, transcribing or counting down; nil
     /// hides them.
-    var counters: SignalCounterInput?
+    var counters: DatasheetCounterInput?
     /// Holds the counters' smoothing across updates (the overlay model's).
-    var counterClock: SignalCounterClock?
-    var placard: SignalPlacard = .none
+    var counterClock: DatasheetCounterClock?
+    var placard: DatasheetPlacard = .none
     /// The lapel mic's battery while it is the input: the label reads "HOLLYLAND LAPEL 33%" in
     /// place of `micText`, after `micPrefix` ("EDIT · ").
-    var micBattery: SignalMicBattery?
+    var micBattery: DatasheetMicBattery?
     var micPrefix = ""
     /// Clicking the mic label opens the microphone card (nil: a plain label, as in renders and
     /// the failure card). `micAnchor` receives the label's screen frame for the card.
     var onMicTap: (() -> Void)?
-    var micAnchor: SignalChipAnchor?
+    var micAnchor: DatasheetChipAnchor?
     /// The card is open: the label stays inverted.
     var isMicLatched = false
     /// Draws the mic label's hover bracket regardless of the pointer (renders and inspection).
     var isMicHoverForced = false
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @State private var isMicHovered = false
 
     var body: some View {
-        let metrics = SignalTheme.Metrics.self
-        let role = SignalTheme.Typography.micLabel
+        let metrics = DatasheetTheme.Metrics.self
+        let role = DatasheetTheme.Typography.micLabel
         ZStack {
             HStack(spacing: metrics.footGap) {
                 Group {
@@ -239,7 +239,7 @@ struct SignalFootRow: View {
 
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                SignalMonoLabel(text: self.placard.text, role: SignalTheme.Typography.placard, color: self.placardColor)
+                DatasheetMonoLabel(text: self.placard.text, role: DatasheetTheme.Typography.placard, color: self.placardColor)
                     .fixedSize()
                     .frame(width: metrics.placardWidth, alignment: .trailing)
                     .help("Spoken Send")
@@ -248,7 +248,7 @@ struct SignalFootRow: View {
             // Above the placard, so WPM's tooltip is its own; SEND / NO SEND takes the right end
             // back whenever the placard has content.
             if let clock = self.counterClock {
-                SignalLiveCounters(input: self.counters, showsWPM: self.placard == .none, clock: clock)
+                DatasheetLiveCounters(input: self.counters, showsWPM: self.placard == .none, clock: clock)
             }
         }
         .frame(height: metrics.micRowHeight)
@@ -259,11 +259,11 @@ struct SignalFootRow: View {
     }
 
     @ViewBuilder
-    private func micLabel(role: SignalTheme.TypeRole) -> some View {
+    private func micLabel(role: DatasheetTheme.TypeRole) -> some View {
         if let battery = self.micBattery {
             self.lapelLabel(battery, role: role)
         } else {
-            SignalMonoLabel(
+            DatasheetMonoLabel(
                 text: self.micText,
                 role: role,
                 color: self.isMicLatched ? self.palette.invForeground
@@ -272,7 +272,7 @@ struct SignalFootRow: View {
                 .truncationMode(.tail)
                 // Its own width (plus 1 pt so SwiftUI's measure never truncates a name that
                 // fits), at most 160, so the icon and the name centre as a pair.
-                .frame(width: min(SignalTheme.Metrics.micMaxWidth, role.width(of: self.micText.uppercased()) + 1))
+                .frame(width: min(DatasheetTheme.Metrics.micMaxWidth, role.width(of: self.micText.uppercased()) + 1))
                 .help(self.onMicTap == nil ? "Microphone" : "Microphone: click to choose")
         }
     }
@@ -281,7 +281,7 @@ struct SignalFootRow: View {
     /// the microphone, a picker appears"). Same frame either way, so nothing in the row moves:
     /// a chip bracket outside it on hover, inverted while the card is open (DESIGN.md §7).
     @ViewBuilder
-    private func micControl(role: SignalTheme.TypeRole) -> some View {
+    private func micControl(role: DatasheetTheme.TypeRole) -> some View {
         if let onMicTap = self.onMicTap {
             Button(action: onMicTap) {
                 self.micLabel(role: role)
@@ -289,8 +289,8 @@ struct SignalFootRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .signalClickTarget()
-            .signalBracket(.chip, visible: self.isMicHovered || self.isMicHoverForced)
+            .datasheetClickTarget()
+            .datasheetBracket(.chip, visible: self.isMicHovered || self.isMicHoverForced)
             .onHover { hovering in
                 if hovering != self.isMicHovered { self.isMicHovered = hovering }
             }
@@ -308,19 +308,19 @@ struct SignalFootRow: View {
     }
 
     /// "HOLLYLAND LAPEL 33%" in the mic label's face, a low percent in `accent`, in a box reserved
-    /// for the widest reading so nothing beside it moves (`SignalMicLabel`).
-    private func lapelLabel(_ battery: SignalMicBattery, role: SignalTheme.TypeRole) -> some View {
-        let layout = SignalMicLabel.layout(
+    /// for the widest reading so nothing beside it moves (`DatasheetMicLabel`).
+    private func lapelLabel(_ battery: DatasheetMicBattery, role: DatasheetTheme.TypeRole) -> some View {
+        let layout = DatasheetMicLabel.layout(
             prefix: self.micPrefix,
             battery: battery,
-            maxWidth: SignalTheme.Metrics.micMaxWidth,
+            maxWidth: DatasheetTheme.Metrics.micMaxWidth,
             width: role.width(of:)
         )
         var text = Text((self.micPrefix + layout.name).uppercased())
         var spoken = "Hollyland lapel"
         if let percent = layout.percent {
             text = text + Text(" ") + Text("\(percent)%")
-                .foregroundStyle(SignalMicBattery.isLow(percent) ? self.palette.accent : self.palette.text2)
+                .foregroundStyle(DatasheetMicBattery.isLow(percent) ? self.palette.accent : self.palette.text2)
             spoken += ", battery \(percent) percent"
         }
         return text
@@ -346,18 +346,18 @@ struct SignalFootRow: View {
 
 /// The live preview: SF Pro 12.5 medium on a 16 pt line, head-truncated so the newest words stay
 /// visible; dimmed and frozen while transcribing.
-struct SignalPreview: View {
+struct DatasheetPreview: View {
     let text: String
     let lines: Int
     let height: CGFloat
     let width: CGFloat
     let isDimmed: Bool
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        let role = SignalTheme.Typography.preview
+        let role = DatasheetTheme.Typography.preview
         Text(self.text)
-            .signalType(role)
+            .datasheetType(role)
             .foregroundStyle(self.isDimmed ? self.palette.textDim : self.palette.text)
             .multilineTextAlignment(.leading)
             .lineLimit(self.lines)
@@ -372,10 +372,10 @@ struct SignalPreview: View {
 
 /// The outcome: the orange stamp, the headline, and the word count, in place of the preview.
 /// Compact (a one-line preview area): a small stamp and one line.
-struct SignalDeliveredStatement: View {
-    let delivery: SignalDelivery
+struct DatasheetDeliveredStatement: View {
+    let delivery: DatasheetDelivery
     var isCompact = false
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
         Group {
@@ -383,21 +383,21 @@ struct SignalDeliveredStatement: View {
                 HStack(spacing: 8) {
                     self.stamp(size: 16, glyph: 9)
                     Text(self.delivery.headline)
-                        .font(SignalTheme.Typography.failedHeadline.font)
+                        .font(DatasheetTheme.Typography.failedHeadline.font)
                         .foregroundStyle(self.palette.text)
                         .lineLimit(1)
-                    SignalMonoLabel(text: self.delivery.meta, color: self.palette.text2)
+                    DatasheetMonoLabel(text: self.delivery.meta, color: self.palette.text2)
                 }
             } else {
                 HStack(spacing: 14) {
-                    self.stamp(size: SignalTheme.Metrics.deliveredStamp, glyph: 15)
+                    self.stamp(size: DatasheetTheme.Metrics.deliveredStamp, glyph: 15)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(self.delivery.headline)
-                            .font(SignalTheme.Typography.deliveredHeadline.font)
+                            .font(DatasheetTheme.Typography.deliveredHeadline.font)
                             .foregroundStyle(self.palette.text)
                             .lineLimit(1)
-                            .frame(height: SignalTheme.Typography.deliveredHeadline.lineHeight)
-                        SignalMonoLabel(text: self.delivery.meta, color: self.palette.text2)
+                            .frame(height: DatasheetTheme.Typography.deliveredHeadline.lineHeight)
+                        DatasheetMonoLabel(text: self.delivery.meta, color: self.palette.text2)
                             .frame(height: 14)
                     }
                 }
@@ -420,14 +420,14 @@ struct SignalDeliveredStatement: View {
 /// 23 pt above, between and below on the 130 pt rail) instead of pinned to the pill's corners. The
 /// middle slot (the retired Spoken Send chip's) is reserved at the rail's centre and takes no
 /// part in the spacing, as in the prototype.
-struct SignalRail<Top: View, Middle: View, Bottom: View>: View {
+struct DatasheetRail<Top: View, Middle: View, Bottom: View>: View {
     let height: CGFloat
     @ViewBuilder let top: Top
     @ViewBuilder let middle: Middle
     @ViewBuilder let bottom: Bottom
 
     var body: some View {
-        let chip = SignalTheme.Metrics.chip
+        let chip = DatasheetTheme.Metrics.chip
         let gap = Self.gap(height: self.height)
         VStack(spacing: 0) {
             self.top
@@ -447,7 +447,7 @@ struct SignalRail<Top: View, Middle: View, Bottom: View>: View {
     /// The even gap above the top chip and below the bottom one: the rail's free height split three
     /// ways, on whole points (the gap between takes the remainder).
     static func gap(height: CGFloat) -> CGFloat {
-        max(0, ((height - 2 * SignalTheme.Metrics.chip) / 3).rounded(.down))
+        max(0, ((height - 2 * DatasheetTheme.Metrics.chip) / 3).rounded(.down))
     }
 }
 
@@ -455,7 +455,7 @@ struct SignalRail<Top: View, Middle: View, Bottom: View>: View {
 /// fits the reserved lines, with "…" in front, so the newest words are always visible. (SwiftUI's
 /// `.head` truncation trims only the last line of a wrapped paragraph.)
 @MainActor
-enum SignalTextFitting {
+enum DatasheetTextFitting {
     private static var cache: (key: String, value: String)?
 
     /// `wasCut`: the text is already the tail of something longer (the preview's character limit),

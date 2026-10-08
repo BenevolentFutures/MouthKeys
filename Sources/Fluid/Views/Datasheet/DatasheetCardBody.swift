@@ -4,7 +4,7 @@ import SwiftUI
 /// One recovery card (DESIGN.md §9.5, §15): the pill grown upward with the orange 2 pt top rule,
 /// a headline, one reason line (at most two), the transcript (failed cards only, 3 lines), then
 /// one solid orange primary action, Dismiss, and mono meta on the right.
-struct SignalCardContent: Equatable {
+struct DatasheetCardContent: Equatable {
     enum PrimaryAction: Equatable {
         case copy
         case reprocess
@@ -43,7 +43,7 @@ struct SignalCardContent: Equatable {
 
     /// The reason wraps to two lines when it does not fit one at the pill's text width.
     func reasonLines(width: CGFloat) -> Int {
-        let font = SignalTheme.Typography.reason.nsFont
+        let font = DatasheetTheme.Typography.reason.nsFont
         let size = (self.reason as NSString).boundingRect(
             with: NSSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -56,36 +56,36 @@ struct SignalCardContent: Equatable {
     /// The grown top area (round 6): 74 pt for a one-line card, 128 for a failed paste, 144 with a
     /// two-line reason, so the pill is 156 / 210 / 226 tall and everything below the card stays put.
     func height(width: CGFloat) -> CGFloat {
-        let reason = CGFloat(self.reasonLines(width: width)) * SignalTheme.Typography.reason.lineHeight
-        let transcript: CGFloat = self.transcript == nil ? 0 : 6 + 3 * SignalTheme.Typography.transcript.lineHeight
-        return SignalTheme.Typography.failedHeadline.lineHeight + 4 + reason + transcript
-            + SignalTheme.Metrics.cardActionsGap + SignalTheme.Metrics.buttonHeight
+        let reason = CGFloat(self.reasonLines(width: width)) * DatasheetTheme.Typography.reason.lineHeight
+        let transcript: CGFloat = self.transcript == nil ? 0 : 6 + 3 * DatasheetTheme.Typography.transcript.lineHeight
+        return DatasheetTheme.Typography.failedHeadline.lineHeight + 4 + reason + transcript
+            + DatasheetTheme.Metrics.cardActionsGap + DatasheetTheme.Metrics.buttonHeight
     }
 }
 
 /// The card's top area inside the grown pill.
-struct SignalCardBody: View {
-    let content: SignalCardContent
+struct DatasheetCardBody: View {
+    let content: DatasheetCardContent
     let width: CGFloat
     let onPrimary: () -> Void
     let onDismiss: () -> Void
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @State private var isConfirming = false
 
     var body: some View {
-        let reason = SignalTheme.Typography.reason
-        let transcript = SignalTheme.Typography.transcript
+        let reason = DatasheetTheme.Typography.reason
+        let transcript = DatasheetTheme.Typography.transcript
         VStack(alignment: .leading, spacing: 0) {
             Text(self.content.headline)
-                .font(SignalTheme.Typography.failedHeadline.font)
+                .font(DatasheetTheme.Typography.failedHeadline.font)
                 .foregroundStyle(self.palette.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(height: SignalTheme.Typography.failedHeadline.lineHeight, alignment: .leading)
+                .frame(height: DatasheetTheme.Typography.failedHeadline.lineHeight, alignment: .leading)
 
             Text(self.content.reason)
-                .signalType(reason)
+                .datasheetType(reason)
                 .foregroundStyle(self.palette.text2)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -99,7 +99,7 @@ struct SignalCardBody: View {
 
             if let text = self.content.transcript {
                 Text(text)
-                    .signalType(transcript)
+                    .datasheetType(transcript)
                     .foregroundStyle(self.palette.text)
                     .lineLimit(3)
                     .truncationMode(.tail)
@@ -122,20 +122,20 @@ struct SignalCardBody: View {
                             }
                         }
                     }
-                    .buttonStyle(SignalPrimaryButtonStyle())
-                    .signalHoverBracket()
+                    .buttonStyle(DatasheetPrimaryButtonStyle())
+                    .datasheetHoverBracket()
                     .help(self.primaryHelp)
                 }
                 Button("Dismiss", action: self.onDismiss)
-                    .buttonStyle(SignalTextButtonStyle())
-                    .signalHoverBracket()
+                    .buttonStyle(DatasheetTextButtonStyle())
+                    .datasheetHoverBracket()
                 Spacer(minLength: 0)
                 if !self.content.meta.isEmpty {
-                    SignalMonoLabel(text: self.content.meta, color: self.palette.text2)
+                    DatasheetMonoLabel(text: self.content.meta, color: self.palette.text2)
                 }
             }
-            .frame(height: SignalTheme.Metrics.buttonHeight)
-            .padding(.top, SignalTheme.Metrics.cardActionsGap)
+            .frame(height: DatasheetTheme.Metrics.buttonHeight)
+            .padding(.top, DatasheetTheme.Metrics.cardActionsGap)
         }
         .frame(width: self.width, height: self.content.height(width: self.width), alignment: .topLeading)
         .accessibilityElement(children: .contain)
@@ -164,7 +164,7 @@ struct SignalCardBody: View {
         guard !self.isConfirming else { return }
         if self.content.primary == .copy {
             self.isConfirming = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + SignalTheme.Motion.copyFeedbackButton) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + DatasheetTheme.Motion.copyFeedbackButton) {
                 self.isConfirming = false
             }
         }
@@ -174,13 +174,13 @@ struct SignalCardBody: View {
 
 /// The AI-enhancement failure, in the preview area (provisional: DESIGN.md does not cover it): the
 /// message, then Try Again (orange, when it can retry) and Dismiss. 48 pt, like the preview.
-struct SignalNoticeRow: View {
+struct DatasheetNoticeRow: View {
     let message: String
     let canRetry: Bool
     var isCompact = false
     let onRetry: () -> Void
     let onDismiss: () -> Void
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
         if self.isCompact {
@@ -188,26 +188,26 @@ struct SignalNoticeRow: View {
                 self.messageText
                 Spacer(minLength: 4)
                 if self.canRetry {
-                    Button("Try Again", action: self.onRetry).buttonStyle(SignalTextButtonStyle()).signalHoverBracket()
+                    Button("Try Again", action: self.onRetry).buttonStyle(DatasheetTextButtonStyle()).datasheetHoverBracket()
                 }
-                Button("Dismiss", action: self.onDismiss).buttonStyle(SignalTextButtonStyle()).signalHoverBracket()
+                Button("Dismiss", action: self.onDismiss).buttonStyle(DatasheetTextButtonStyle()).datasheetHoverBracket()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 self.messageText
-                    .frame(height: SignalTheme.Typography.failedHeadline.lineHeight)
+                    .frame(height: DatasheetTheme.Typography.failedHeadline.lineHeight)
                 HStack(spacing: 16) {
                     if self.canRetry {
                         Button("Try Again", action: self.onRetry)
-                            .buttonStyle(SignalPrimaryButtonStyle())
-                            .signalHoverBracket()
+                            .buttonStyle(DatasheetPrimaryButtonStyle())
+                            .datasheetHoverBracket()
                     }
                     Button("Dismiss", action: self.onDismiss)
-                        .buttonStyle(SignalTextButtonStyle())
-                        .signalHoverBracket()
+                        .buttonStyle(DatasheetTextButtonStyle())
+                        .datasheetHoverBracket()
                 }
-                .frame(height: SignalTheme.Metrics.buttonHeight)
+                .frame(height: DatasheetTheme.Metrics.buttonHeight)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -215,7 +215,7 @@ struct SignalNoticeRow: View {
 
     private var messageText: some View {
         Text(self.message)
-            .font(SignalTheme.Typography.failedHeadline.font)
+            .font(DatasheetTheme.Typography.failedHeadline.font)
             .foregroundStyle(self.palette.text)
             .lineLimit(1)
     }

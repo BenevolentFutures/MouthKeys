@@ -1,16 +1,16 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Bottom Overlay SwiftUI View (Signal)
+// MARK: - Bottom Overlay SwiftUI View (Datasheet)
 
-/// The recording overlay in the Signal language (DESIGN.md §4, §9): the pill between two rails of
+/// The recording overlay in the Datasheet language (DESIGN.md §4, §9): the pill between two rails of
 /// chips, History / Copy on the left and Cancel / Reprocess on the right; Spoken Send lives in the
 /// trace row (§15). The window keeps a transparent margin around the content (6 pt, 8 at the
 /// bottom) so the selection brackets outside the boxes are never clipped; that margin paints
 /// nothing, so clicks there reach the app beneath.
 struct BottomOverlayView: View {
     @ObservedObject private var contentState = NotchContentState.shared
-    @ObservedObject private var model = SignalOverlayModel.shared
+    @ObservedObject private var model = DatasheetOverlayModel.shared
     @ObservedObject private var appServices = AppServices.shared
     @ObservedObject private var activeAppMonitor = ActiveAppMonitor.shared
     @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
@@ -28,25 +28,25 @@ struct BottomOverlayView: View {
     @State private var copyConfirmationID = 0
     /// Where the History chip is on screen, for the card's anchor. A reference, not view state:
     /// the anchor reader reports it during view updates, which must not invalidate the view.
-    @State private var historyChipAnchor = SignalChipAnchor()
+    @State private var historyChipAnchor = DatasheetChipAnchor()
     /// Where the mic label is on screen, for the microphone card (the card's controller owns it).
-    private var micLabelAnchor: SignalChipAnchor {
+    private var micLabelAnchor: DatasheetChipAnchor {
         BottomOverlayMicrophonePickerController.shared.labelAnchor
     }
     /// Where the overlay's visible content (the pill between its rails) is on screen: the history
     /// card centres on it.
-    @State private var overlayAnchor = SignalOverlayAnchor()
+    @State private var overlayAnchor = DatasheetOverlayAnchor()
     @State private var lastResolvedAppIcon: NSImage?
     @State private var dragStartMouseLocation: NSPoint?
     @State private var dragStartWindowOrigin: NSPoint?
 
     /// The overlay panel's floating shadow, which the pill reports its box to. Only the overlay's
     /// own panel passes it; a render or another host reports nowhere.
-    private let floatShadow: SignalFloatShadow.State?
-    /// The overlay panel's click targets, for its AppKit double-click (SignalClickTargets).
-    private let clickTargets: SignalClickTargets?
+    private let floatShadow: DatasheetFloatShadow.State?
+    /// The overlay panel's click targets, for its AppKit double-click (DatasheetClickTargets).
+    private let clickTargets: DatasheetClickTargets?
 
-    init(floatShadow: SignalFloatShadow.State? = nil, clickTargets: SignalClickTargets? = nil) {
+    init(floatShadow: DatasheetFloatShadow.State? = nil, clickTargets: DatasheetClickTargets? = nil) {
         self.floatShadow = floatShadow
         self.clickTargets = clickTargets
     }
@@ -56,11 +56,11 @@ struct BottomOverlayView: View {
         case listening
         case stopped
         case transcribing
-        case delivered(SignalDelivery)
+        case delivered(DatasheetDelivery)
         /// The AI-enhancement failure row (provisional).
         case notice
         /// A notice row (DESIGN.md §15): "Speech recognition is back".
-        case noticeRow(SignalNotice)
+        case noticeRow(DatasheetNotice)
         case idle
     }
 
@@ -68,7 +68,7 @@ struct BottomOverlayView: View {
         Self.display(contentState: self.contentState, model: self.model)
     }
 
-    static func display(contentState: NotchContentState, model: SignalOverlayModel) -> Display {
+    static func display(contentState: NotchContentState, model: DatasheetOverlayModel) -> Display {
         if contentState.isProcessing { return .transcribing }
         if contentState.isAIProcessingFailureVisible { return .notice }
         switch model.phase {
@@ -81,8 +81,8 @@ struct BottomOverlayView: View {
         }
     }
 
-    private var geometry: SignalOverlayGeometry {
-        SignalOverlayGeometry.forSize(self.settings.overlaySize)
+    private var geometry: DatasheetOverlayGeometry {
+        DatasheetOverlayGeometry.forSize(self.settings.overlaySize)
     }
 
     /// On screen, not fading out: the overlay takes clicks only then.
@@ -152,7 +152,7 @@ struct BottomOverlayView: View {
     }
 
     private var historyChip: some View {
-        SignalChip(
+        DatasheetChip(
             systemName: "clock.arrow.circlepath",
             help: self.hasHistory ? "Recent Dictations" : "No saved dictation history available",
             isEnabled: self.hasHistory,
@@ -166,7 +166,7 @@ struct BottomOverlayView: View {
                     selectorFrameInScreen: self.historyChipAnchor.frameInScreen,
                     overlayFrameInScreen: self.overlayAnchor.frameInScreen(window: self.historyChipAnchor.window),
                     parentWindow: self.historyChipAnchor.window,
-                    maxWidth: SignalTheme.Metrics.historyWidth
+                    maxWidth: DatasheetTheme.Metrics.historyWidth
                 )
                 BottomOverlayMicrophonePickerController.shared.hide(reason: "history_opened")
                 BottomOverlayHistoryMenuController.shared.toggleFromTap()
@@ -182,7 +182,7 @@ struct BottomOverlayView: View {
     }
 
     private var copyChip: some View {
-        SignalChip(
+        DatasheetChip(
             systemName: "doc.on.doc",
             help: self.hasHistory ? "Copy Last Transcription" : "No saved dictation history available",
             isEnabled: self.isEnabled(.historyAction),
@@ -200,7 +200,7 @@ struct BottomOverlayView: View {
     }
 
     private var cancelChip: some View {
-        SignalChip(
+        DatasheetChip(
             systemName: "xmark",
             help: "Cancel Dictation (\(self.settings.cancelRecordingHotkeyShortcut.displayString))",
             isInert: self.isInert(.cancel),
@@ -223,7 +223,7 @@ struct BottomOverlayView: View {
     }
 
     private var reprocessChip: some View {
-        SignalChip(
+        DatasheetChip(
             systemName: "arrow.clockwise",
             help: self.hasHistory ? "Reprocess Last Dictation" : "No saved dictation history available",
             isEnabled: self.isEnabled(.historyAction),
@@ -248,7 +248,7 @@ struct BottomOverlayView: View {
         self.copyConfirmationID &+= 1
         let id = self.copyConfirmationID
         self.isCopyConfirming = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + SignalTheme.Motion.copyFeedbackChip) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + DatasheetTheme.Motion.copyFeedbackChip) {
             guard self.copyConfirmationID == id else { return }
             self.isCopyConfirming = false
         }
@@ -258,8 +258,8 @@ struct BottomOverlayView: View {
 
     var body: some View {
         let geometry = self.geometry
-        HStack(alignment: .bottom, spacing: SignalTheme.Metrics.railGap) {
-            SignalRail(height: geometry.railHeight) {
+        HStack(alignment: .bottom, spacing: DatasheetTheme.Metrics.railGap) {
+            DatasheetRail(height: geometry.railHeight) {
                 self.historyChip
             } middle: {
                 Color.clear
@@ -267,7 +267,7 @@ struct BottomOverlayView: View {
                 self.copyChip
             }
             self.pill(geometry)
-            SignalRail(height: geometry.railHeight) {
+            DatasheetRail(height: geometry.railHeight) {
                 self.cancelChip
             } middle: {
                 // Reserved. Spoken Send lives in the trace row (DESIGN.md §15), not a fifth chip.
@@ -276,20 +276,20 @@ struct BottomOverlayView: View {
                 self.reprocessChip
             }
         }
-        .signalOverlayAnchor(self.overlayAnchor)
+        .datasheetOverlayAnchor(self.overlayAnchor)
         .onHover { hovering in
             // A notice row's timer waits while the pointer is over the pill or its rails.
             BottomOverlayWindowController.shared.noticeHoverChanged(hovering)
         }
-        .padding(SignalTheme.Metrics.windowInsets)
+        .padding(DatasheetTheme.Metrics.windowInsets)
         // Whole-surface drag with position memory. Double-click (back to the default anchor) is
         // detected in AppKit by the overlay's hosting view, away from the buttons reported here:
         // a SwiftUI double-tap on this parent made every chip wait ~350 ms before acting.
         .gesture(self.windowDragGesture)
-        .onPreferenceChange(SignalClickTargetsKey.self) { [clickTargets] rects in
+        .onPreferenceChange(DatasheetClickTargetsKey.self) { [clickTargets] rects in
             clickTargets?.rects = rects
         }
-        .signalPalette()
+        .datasheetPalette()
         // A hiding or hidden overlay must never act on a click meant for the app beneath it.
         .allowsHitTesting(self.isInteractive)
         .modifier(BottomOverlayVisibility(
@@ -334,7 +334,7 @@ struct BottomOverlayView: View {
         isClickable && isHovered
     }
 
-    private func pill(_ geometry: SignalOverlayGeometry) -> some View {
+    private func pill(_ geometry: DatasheetOverlayGeometry) -> some View {
         let display = self.display
         // Brackets mark only what you can click (DESIGN.md §7, Atin 2026-09-29). The pill is
         // clickable as a whole only while SEND shows and a click cancels the Return.
@@ -343,11 +343,11 @@ struct BottomOverlayView: View {
             isHovered: (self.isHoveringPill && !self.historyCard.isHovered && self.isInteractive)
                 || self.model.inspectionHover == "pill"
         )
-        return SignalPill(
+        return DatasheetPill(
             geometry: geometry,
             topHeight: geometry.topAreaHeight,
             traceRow: self.traceRow(geometry, display: display),
-            foot: SignalFootRow(
+            foot: DatasheetFootRow(
                 icon: self.contentState.targetAppIcon ?? self.activeAppMonitor.activeAppIcon ?? self.lastResolvedAppIcon,
                 micText: self.micText,
                 counters: self.counterInput(display),
@@ -381,16 +381,16 @@ struct BottomOverlayView: View {
         .onHover { hovering in
             if hovering != self.isHoveringPill { self.isHoveringPill = hovering }
         }
-        .signalFloatShadowSource(self.floatShadow)
+        .datasheetFloatShadowSource(self.floatShadow)
     }
 
     @ViewBuilder
-    private func topArea(_ geometry: SignalOverlayGeometry, display: Display) -> some View {
+    private func topArea(_ geometry: DatasheetOverlayGeometry, display: Display) -> some View {
         switch display {
         case let .delivered(delivery):
-            SignalDeliveredStatement(delivery: delivery, isCompact: geometry.isCompactTop)
+            DatasheetDeliveredStatement(delivery: delivery, isCompact: geometry.isCompactTop)
         case .notice:
-            SignalNoticeRow(
+            DatasheetNoticeRow(
                 message: self.contentState.aiProcessingFailureMessage,
                 canRetry: self.contentState.canRetryAIProcessingFailure,
                 isCompact: geometry.isCompactTop,
@@ -408,7 +408,7 @@ struct BottomOverlayView: View {
                 }
             )
         case let .noticeRow(notice):
-            SignalInlineNotice(
+            DatasheetInlineNotice(
                 notice: notice,
                 isHoverForced: self.model.inspectionHover,
                 onHoverChanged: { id, hovering in self.chipHover(id)(hovering) },
@@ -420,11 +420,11 @@ struct BottomOverlayView: View {
                 }
             )
         case .listening, .stopped, .transcribing, .idle:
-            SignalPreview(
-                text: SignalTextFitting.newestWords(
+            DatasheetPreview(
+                text: DatasheetTextFitting.newestWords(
                     of: self.previewText(display),
                     wasCut: self.contentState.transcriptionText.count > self.contentState.cachedPreviewText.count,
-                    font: SignalTheme.Typography.preview.nsFont,
+                    font: DatasheetTheme.Typography.preview.nsFont,
                     width: geometry.innerWidth,
                     lines: geometry.previewLines
                 ),
@@ -438,7 +438,7 @@ struct BottomOverlayView: View {
 
     /// Spoken Send's countdown is showing: the quiet countdown runs (or its cancel is held) while
     /// the phrase sends in this app.
-    private var countdownDrain: SignalDrain? {
+    private var countdownDrain: DatasheetDrain? {
         guard self.display == .listening, let drain = self.model.sendDrain else { return nil }
         return drain
     }
@@ -447,7 +447,7 @@ struct BottomOverlayView: View {
         self.placard == .send && self.spokenSend.hasPendingReturn
     }
 
-    private var placard: SignalPlacard {
+    private var placard: DatasheetPlacard {
         if let placard = self.model.inspectionPlacard { return placard }
         return Self.placard(
             display: self.display,
@@ -462,17 +462,17 @@ struct BottomOverlayView: View {
     /// "the pill visibly shows SEND" means exactly what is on screen.
     static func placard(
         display: Display,
-        model: SignalOverlayModel,
+        model: DatasheetOverlayModel,
         spokenSend: SpokenSendController,
         spokenSendEnabled: Bool,
         mode: OverlayMode
-    ) -> SignalPlacard {
+    ) -> DatasheetPlacard {
         switch display {
         case .listening:
             // A canceled countdown keeps NO SEND while its bar is held (it only exists with Spoken Send).
             if model.sendDrain?.isCanceled == true { return .noSend }
             guard spokenSendEnabled, mode == .dictation else { return .none }
-            return SignalOverlayModel.placard(indicator: spokenSend.indicator)
+            return DatasheetOverlayModel.placard(indicator: spokenSend.indicator)
         case .stopped, .transcribing, .delivered:
             return model.stopPlacard
         case .notice, .noticeRow, .idle:
@@ -480,15 +480,15 @@ struct BottomOverlayView: View {
         }
     }
 
-    private func traceRow(_ geometry: SignalOverlayGeometry, display: Display) -> SignalTraceRow {
+    private func traceRow(_ geometry: DatasheetOverlayGeometry, display: Display) -> DatasheetTraceRow {
         let drain = self.countdownDrain
-        let mark: SignalRecordMark
+        let mark: DatasheetRecordMark
         switch display {
         case .listening: mark = drain == nil ? .recording : .closed
         case .stopped, .transcribing: mark = .closed
         case .delivered, .notice, .noticeRow, .idle: mark = .none
         }
-        let timer: SignalTimerReadout
+        let timer: DatasheetTimerReadout
         if let drain {
             timer = .countdown(drain)
         } else if display == .listening, self.model.frozenDuration == nil, let start = self.model.recordingStartedAt {
@@ -496,7 +496,7 @@ struct BottomOverlayView: View {
         } else {
             timer = .frozen(self.model.timerText(at: Date()), dim: false)
         }
-        return SignalTraceRow(
+        return DatasheetTraceRow(
             geometry: geometry,
             trace: self.model.trace,
             isLive: display == .listening && self.model.trace.isLive,
@@ -512,7 +512,7 @@ struct BottomOverlayView: View {
     /// left end and words per minute at its right end, while the dictation is live, stopped,
     /// transcribing or counting down; hidden where the number already shows (Pasted, Sent, a
     /// card), on a notice, and while the pill is not on screen.
-    private func counterInput(_ display: Display) -> SignalCounterInput? {
+    private func counterInput(_ display: Display) -> DatasheetCounterInput? {
         guard self.contentState.isBottomOverlayPresented else { return nil }
         let model = self.model
         return Self.counterInput(
@@ -537,17 +537,17 @@ struct BottomOverlayView: View {
         frozenWords: Int?,
         live: Int,
         hasLiveText: @autoclosure () -> Bool
-    ) -> SignalCounterInput? {
+    ) -> DatasheetCounterInput? {
         guard countsLiveWords, let start = recordingStartedAt else { return nil }
         switch display {
         case .listening:
             guard frozenDuration == nil, hasLiveText() else { return nil }
-            return SignalCounterInput(recording: start, words: live, clock: .running(start))
+            return DatasheetCounterInput(recording: start, words: live, clock: .running(start))
         case .stopped, .transcribing:
             // Only after a real stop: frozen there, the count finishes catching up and WPM settles
             // from the recording's length.
             guard let duration = frozenDuration, hasLiveText() else { return nil }
-            return SignalCounterInput(recording: start, words: frozenWords ?? live, clock: .frozen(duration))
+            return DatasheetCounterInput(recording: start, words: frozenWords ?? live, clock: .frozen(duration))
         case .delivered, .notice, .noticeRow, .idle:
             return nil
         }
@@ -560,7 +560,7 @@ struct BottomOverlayView: View {
     private var livePreview: String {
         let text = self.contentState.cachedPreviewText
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SignalOverlayModel.statusWords.contains(trimmed) ? "" : trimmed
+        return DatasheetOverlayModel.statusWords.contains(trimmed) ? "" : trimmed
     }
 
     private func previewText(_ display: Display) -> String {
@@ -660,7 +660,7 @@ struct BottomOverlayView: View {
 /// The overlay's visible content (the pill between its rails) in its hosting view, top-left
 /// origin, converted to the screen when the history card opens. Read through SwiftUI geometry,
 /// not an NSView: a platform view behind the rails would draw as a placeholder in the renders.
-final class SignalOverlayAnchor {
+final class DatasheetOverlayAnchor {
     var frameInContent: CGRect = .zero
 
     func frameInScreen(window: NSWindow?) -> CGRect {
@@ -674,7 +674,7 @@ final class SignalOverlayAnchor {
 }
 
 extension View {
-    func signalOverlayAnchor(_ anchor: SignalOverlayAnchor) -> some View {
+    func datasheetOverlayAnchor(_ anchor: DatasheetOverlayAnchor) -> some View {
         self.onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .global)
         } action: { frame in
@@ -684,7 +684,7 @@ extension View {
 }
 
 /// A chip's on-screen frame and window, reported by `PromptSelectorAnchorReader`.
-final class SignalChipAnchor {
+final class DatasheetChipAnchor {
     var frameInScreen: CGRect = .zero
     weak var window: NSWindow?
 }
@@ -703,7 +703,7 @@ struct BottomOverlayVisibility: ViewModifier {
         content
             .opacity(self.isFading ? 0 : 1)
             .animation(
-                self.isFading && !self.reduceMotion ? .linear(duration: SignalTheme.Motion.dismiss) : nil,
+                self.isFading && !self.reduceMotion ? .linear(duration: DatasheetTheme.Motion.dismiss) : nil,
                 value: self.isFading
             )
             .opacity(self.isPresented ? 1 : 0)
@@ -711,16 +711,16 @@ struct BottomOverlayVisibility: ViewModifier {
 }
 
 /// The pill's floating shadow (DESIGN.md §6), drawn in its own click-through panel under the
-/// overlay's (SignalFloatShadow), fading and hiding exactly as the overlay does.
+/// overlay's (DatasheetFloatShadow), fading and hiding exactly as the overlay does.
 struct BottomOverlayShadowView: View {
-    @ObservedObject var state: SignalFloatShadow.State
+    @ObservedObject var state: DatasheetFloatShadow.State
     @ObservedObject private var contentState = NotchContentState.shared
-    @ObservedObject private var model = SignalOverlayModel.shared
+    @ObservedObject private var model = DatasheetOverlayModel.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SignalFloatShadowView(state: self.state)
-            .signalPalette()
+        DatasheetFloatShadowView(state: self.state)
+            .datasheetPalette()
             .modifier(BottomOverlayVisibility(
                 isFading: self.model.isFading,
                 isPresented: self.contentState.isBottomOverlayPresented,

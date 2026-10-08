@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// The floating shadow under a Signal surface (DESIGN.md §6, "floating shadow", Atin 2026-09-29):
+/// The floating shadow under a Datasheet surface (DESIGN.md §6, "floating shadow", Atin 2026-09-29):
 /// a soft, neutral shadow that lifts the pill, a recovery card or the history card off the screen.
 ///
 /// It is drawn in a panel of its own, a child panel ordered just below the surface's panel, so it
@@ -22,7 +22,7 @@ import SwiftUI
 /// `present()` a main-queue turn after it is shown and `withdraw()` once hidden, so showing the
 /// pill moves and orders one window, never two; the shadow may arrive a frame late.
 @MainActor
-final class SignalFloatShadow {
+final class DatasheetFloatShadow {
     @MainActor
     final class State: ObservableObject {
         /// The surface's rect in the surface panel's content, top-left origin. Nil draws nothing.
@@ -37,7 +37,7 @@ final class SignalFloatShadow {
         }
     }
 
-    static let margin = SignalTheme.Metrics.floatShadowMargin
+    static let margin = DatasheetTheme.Metrics.floatShadowMargin
 
     let state: State
     private let panel: Panel
@@ -161,11 +161,11 @@ final class SignalFloatShadow {
 /// The shadow alone: the surface's rect cast with the floating shadow, then the rect itself cleared,
 /// so nothing is painted under the surface (a fading surface never shows a dark box through).
 /// Laid out in the shadow panel, whose content is the surface panel's plus `margin` on every side.
-struct SignalFloatShadowView: View {
-    @ObservedObject var state: SignalFloatShadow.State
-    var margin: CGFloat = SignalFloatShadow.margin
+struct DatasheetFloatShadowView: View {
+    @ObservedObject var state: DatasheetFloatShadow.State
+    var margin: CGFloat = DatasheetFloatShadow.margin
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: false) { context, _ in
@@ -189,7 +189,7 @@ struct SignalFloatShadowView: View {
 
 extension View {
     /// Reports this surface's rect (in its panel's content, top-left origin) to its floating shadow.
-    func signalFloatShadowSource(_ state: SignalFloatShadow.State?) -> some View {
+    func datasheetFloatShadowSource(_ state: DatasheetFloatShadow.State?) -> some View {
         self.onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .global)
         } action: { frame in

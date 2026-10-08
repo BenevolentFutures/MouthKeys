@@ -5,7 +5,7 @@ import SwiftUI
 /// square with a 1 px edge and the drop rule. A mono index column ("01" over the time), day rows,
 /// 1 px rules, transcripts clamped to 4 lines, mono meta with the orange NOT PASTED marker, and a
 /// title-block footer. Rows invert on hover; a click inserts.
-struct SignalHistoryCard: View {
+struct DatasheetHistoryCard: View {
     let entries: [TranscriptionHistoryEntry]
     let totalCount: Int
     /// Transcripts whose paste failed this session (NOT PASTED).
@@ -18,12 +18,12 @@ struct SignalHistoryCard: View {
     let onPick: (TranscriptionHistoryEntry) -> Void
     var onHoverChanged: (Bool) -> Void = { _ in }
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @State private var hoveredRowID: UUID?
     @State private var isHovered = false
 
-    private var metrics: SignalTheme.Metrics.Type {
-        SignalTheme.Metrics.self
+    private var metrics: DatasheetTheme.Metrics.Type {
+        DatasheetTheme.Metrics.self
     }
 
     var body: some View {
@@ -34,7 +34,7 @@ struct SignalHistoryCard: View {
         }
         .frame(width: self.metrics.historyWidth - 2)
         .padding(1)
-        .signalSurface()
+        .datasheetSurface()
         // No bracket on the card as a whole: it is not clickable; its rows invert on hover
         // (DESIGN.md §7, Atin 2026-09-29).
         .onHover { hovering in
@@ -77,7 +77,7 @@ struct SignalHistoryCard: View {
     }
 
     private func label(_ text: String, color: Color, weight: Font.Weight = .medium) -> some View {
-        let role = SignalTheme.Typography.tableLabel
+        let role = DatasheetTheme.Typography.tableLabel
         return Text(text)
             .font(.system(size: role.size, weight: weight, design: .monospaced))
             .tracking(role.tracking)
@@ -99,7 +99,7 @@ struct SignalHistoryCard: View {
     /// Header, footer and the edge leave this much of the 480 for the list.
     /// The 480 pt card less its 1 px border, header and footer.
     private var maxListHeight: CGFloat {
-        self.metrics.historyMaxHeight - 2 * SignalTheme.Metrics.edgeWidth - self.metrics.historyHeader - self.metrics.historyFooter
+        self.metrics.historyMaxHeight - 2 * DatasheetTheme.Metrics.edgeWidth - self.metrics.historyHeader - self.metrics.historyFooter
     }
 
     @ViewBuilder
@@ -127,7 +127,7 @@ struct SignalHistoryCard: View {
         VStack(spacing: 0) {
             if self.entries.isEmpty {
                 Text("No dictations yet")
-                    .font(SignalTheme.Typography.historyTranscript.font)
+                    .font(DatasheetTheme.Typography.historyTranscript.font)
                     .foregroundStyle(self.palette.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, self.metrics.historyPaddingHorizontal)
@@ -175,19 +175,19 @@ struct SignalHistoryCard: View {
         let primary = isHovered ? self.palette.invForeground : self.palette.text
         let secondary = isHovered ? self.palette.invForeground2 : self.palette.text2
         let text = Self.displayText(entry)
-        let transcript = SignalTheme.Typography.historyTranscript
+        let transcript = DatasheetTheme.Typography.historyTranscript
         return Button {
             self.onPick(entry)
         } label: {
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(String(format: "%02d", index))
-                        .font(SignalTheme.Typography.historyIndex.font)
-                        .frame(height: SignalTheme.Typography.historyIndex.lineHeight)
+                        .font(DatasheetTheme.Typography.historyIndex.font)
+                        .frame(height: DatasheetTheme.Typography.historyIndex.lineHeight)
                     Text(Self.timeFormatter.string(from: entry.timestamp))
-                        .font(SignalTheme.Typography.historyTime.font)
-                        .tracking(SignalTheme.Typography.historyTime.tracking)
-                        .frame(height: SignalTheme.Typography.historyTime.lineHeight)
+                        .font(DatasheetTheme.Typography.historyTime.font)
+                        .tracking(DatasheetTheme.Typography.historyTime.tracking)
+                        .frame(height: DatasheetTheme.Typography.historyTime.lineHeight)
                 }
                 .foregroundStyle(secondary)
                 .lineLimit(1)
@@ -195,7 +195,7 @@ struct SignalHistoryCard: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(text)
-                        .signalType(transcript)
+                        .datasheetType(transcript)
                         .foregroundStyle(primary)
                         .lineLimit(4)
                         .multilineTextAlignment(.leading)
@@ -203,7 +203,7 @@ struct SignalHistoryCard: View {
                         .padding(.top, transcript.lineSpacing / 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 0) {
-                        SignalMonoLabel(text: Self.meta(entry), color: secondary)
+                        DatasheetMonoLabel(text: Self.meta(entry), color: secondary)
                         if self.notPasted.contains(text) {
                             HStack(spacing: 6) {
                                 Rectangle().fill(self.palette.accent).frame(width: 6, height: 6)
@@ -248,9 +248,9 @@ struct SignalHistoryCard: View {
     static func meta(_ entry: TranscriptionHistoryEntry) -> String {
         var parts: [String] = []
         if let milliseconds = entry.audio?.durationMilliseconds {
-            parts.append(SignalOverlayModel.formatDuration(Double(milliseconds) / 1000))
+            parts.append(DatasheetOverlayModel.formatDuration(Double(milliseconds) / 1000))
         }
-        let words = SignalOverlayModel.wordCount(self.displayText(entry))
+        let words = DatasheetOverlayModel.wordCount(self.displayText(entry))
         parts.append("\(words) \(words == 1 ? "word" : "words")")
         let app = entry.appName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !app.isEmpty { parts.append(app) }

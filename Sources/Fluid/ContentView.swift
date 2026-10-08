@@ -2179,7 +2179,7 @@ struct ContentView: View {
         self.clearActiveRecordingMode()
 
         var deferredTranscribingStatus: (@MainActor () -> Void)?
-        // The Signal overlay stays up through the stop for the outcome (Pasted / Sent, held 1.2 s,
+        // The Datasheet overlay stays up through the stop for the outcome (Pasted / Sent, held 1.2 s,
         // or a recovery card), so a plain dictation no longer hides it here.
         let holdsOverlayForOutcome = shouldHideOverlayOnStop && self.overlayHoldsForOutcome
         if shouldHideOverlayOnStop, !holdsOverlayForOutcome {
@@ -2276,7 +2276,7 @@ struct ContentView: View {
             return
         }
 
-        // A held Signal overlay is already frozen (markRecordingStopped); the release transition's
+        // A held Datasheet overlay is already frozen (markRecordingStopped); the release transition's
         // flag would only re-render it on the stop path.
         if NotchOverlayManager.shared.isBottomOverlayVisible, !holdsOverlayForOutcome {
             BottomOverlayWindowController.shared.beginReleaseTransition()
@@ -2662,7 +2662,7 @@ struct ContentView: View {
     }
 
     /// Whether the recording overlay holds a stopped dictation on screen for its outcome: the
-    /// bottom (Signal) overlay, while it is up.
+    /// bottom (Datasheet) overlay, while it is up.
     private var overlayHoldsForOutcome: Bool {
         SettingsStore.shared.overlayPosition == .bottom && NotchOverlayManager.shared.isBottomOverlayVisible
     }
@@ -2679,7 +2679,7 @@ struct ContentView: View {
         BottomOverlayWindowController.shared.awaitDelivery(
             traceID: traceID,
             appName: appName,
-            words: SignalOverlayModel.wordCount(text),
+            words: DatasheetOverlayModel.wordCount(text),
             failureReported: failureReported
         )
     }

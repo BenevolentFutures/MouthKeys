@@ -2,11 +2,11 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// What the Signal overlay shows (DESIGN.md §9), beside `NotchContentState`'s shared flags.
+/// What the Datasheet overlay shows (DESIGN.md §9), beside `NotchContentState`'s shared flags.
 /// Driven by `BottomOverlayWindowController`; read by `BottomOverlayView`.
 @MainActor
-final class SignalOverlayModel: ObservableObject {
-    static let shared = SignalOverlayModel()
+final class DatasheetOverlayModel: ObservableObject {
+    static let shared = DatasheetOverlayModel()
 
     enum Phase: Equatable {
         /// Hidden, or never shown.
@@ -19,10 +19,10 @@ final class SignalOverlayModel: ObservableObject {
         /// The final pass is slow: the preview dims, the sweep crosses, Copy and Reprocess dim.
         case transcribing
         /// The text was handed to the target app; held briefly, then dismissed.
-        case delivered(SignalDelivery)
+        case delivered(DatasheetDelivery)
         /// A notice row in the preview slot (DESIGN.md §15): news that needs no rescue. No growth,
         /// no top rule; the rest of the pill as at rest.
-        case notice(SignalNotice)
+        case notice(DatasheetNotice)
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -37,17 +37,17 @@ final class SignalOverlayModel: ObservableObject {
     /// The microphone in use, shown bottom-centre in every visible state.
     @Published var microphoneName = ""
     /// The Hollyland lapel mic's battery while it is the input, else nil (`LapelMicBatteryMonitor`).
-    @Published var micBattery: SignalMicBattery?
+    @Published var micBattery: DatasheetMicBattery?
     /// Fading out (120 ms linear); controls are inert.
     @Published private(set) var isFading = false
     /// Spoken Send's quiet countdown while it runs, or where a cancel stopped it (held 700 ms).
-    @Published private(set) var sendDrain: SignalDrain?
+    @Published private(set) var sendDrain: DatasheetDrain?
     /// Spoken Send's placard as the recording stopped; the post-stop states keep showing it.
-    @Published private(set) var stopPlacard: SignalPlacard = .none
+    @Published private(set) var stopPlacard: DatasheetPlacard = .none
 
-    private(set) var trace = SignalTraceModel()
+    private(set) var trace = DatasheetTraceModel()
     /// The foot row's live counters' smoothing (DESIGN.md §16), kept across view updates.
-    let counterClock = SignalCounterClock()
+    let counterClock = DatasheetCounterClock()
     /// The pill holds a recording of this session, so its live counters mean something; false for
     /// a reprocess, which has no live text (DESIGN.md §16).
     private(set) var countsLiveWords = false
@@ -56,7 +56,7 @@ final class SignalOverlayModel: ObservableObject {
     /// `?hoverChip=`: "pill", or a chip id ("history", "copy", "cancel", "reprocess").
     @Published var inspectionHover: String?
     /// Holds Spoken Send's placard for renders and inspection (the prototype's `?armed=1`).
-    @Published var inspectionPlacard: SignalPlacard?
+    @Published var inspectionPlacard: DatasheetPlacard?
     /// Holds the transcribing sweep at a fraction of its period (renders and inspection).
     @Published var inspectionSweepProgress: Double?
 
@@ -78,7 +78,7 @@ final class SignalOverlayModel: ObservableObject {
     }
 
     /// A notice row on a pill with no recording: flat trace, the kept recording's frozen length.
-    func showNotice(_ notice: SignalNotice, frozenDuration: TimeInterval?) {
+    func showNotice(_ notice: DatasheetNotice, frozenDuration: TimeInterval?) {
         self.trace.flatten()
         self.recordingStartedAt = nil
         self.frozenDuration = frozenDuration ?? 0
@@ -99,7 +99,7 @@ final class SignalOverlayModel: ObservableObject {
     /// The trace matching the pill's width (the bar count depends on the overlay size).
     func ensureTraceBars(_ bars: Int) {
         guard self.trace.barCount != bars else { return }
-        let replacement = SignalTraceModel(barCount: bars, noiseThreshold: self.trace.noiseThreshold)
+        let replacement = DatasheetTraceModel(barCount: bars, noiseThreshold: self.trace.noiseThreshold)
         self.trace = replacement
         self.objectWillChange.send()
     }
@@ -119,7 +119,7 @@ final class SignalOverlayModel: ObservableObject {
     }
 
     /// Input closed: freeze the timer and the preview, flatten the trace (60 ms).
-    func stopRecording(at date: Date = Date(), preview: String, placard: SignalPlacard = .none) {
+    func stopRecording(at date: Date = Date(), preview: String, placard: DatasheetPlacard = .none) {
         guard self.phase == .listening else { return }
         self.sendDrain = nil
         self.stopPlacard = placard
@@ -149,7 +149,7 @@ final class SignalOverlayModel: ObservableObject {
         }
     }
 
-    func showDelivered(_ delivery: SignalDelivery) {
+    func showDelivered(_ delivery: DatasheetDelivery) {
         // "Sent" clears the placard; a canceled send or a terminal without Return keeps it.
         if delivery.sentReturn || self.stopPlacard == .send {
             self.stopPlacard = .none
@@ -160,7 +160,7 @@ final class SignalOverlayModel: ObservableObject {
     // MARK: Spoken Send (DESIGN.md §15)
 
     /// The placard for Spoken Send's current state.
-    static func placard(indicator: SpokenSendController.Indicator) -> SignalPlacard {
+    static func placard(indicator: SpokenSendController.Indicator) -> DatasheetPlacard {
         switch indicator {
         case .hidden: .none
         case .armed, .countingDown: .send
@@ -170,7 +170,7 @@ final class SignalOverlayModel: ObservableObject {
 
     func startSendCountdown(duration: TimeInterval, at date: Date = Date()) {
         guard self.phase == .listening else { return }
-        self.sendDrain = SignalDrain(startedAt: date, duration: duration)
+        self.sendDrain = DatasheetDrain(startedAt: date, duration: duration)
     }
 
     /// A cancel stops the drain bar in ink where it was.
@@ -180,7 +180,7 @@ final class SignalOverlayModel: ObservableObject {
         self.sendDrain = drain
     }
 
-    func setStopPlacard(_ placard: SignalPlacard) {
+    func setStopPlacard(_ placard: DatasheetPlacard) {
         if self.stopPlacard != placard { self.stopPlacard = placard }
     }
 
@@ -222,7 +222,7 @@ final class SignalOverlayModel: ObservableObject {
         return "\(total / 60):" + String(format: "%02d", total % 60)
     }
 
-    /// Status words the stop and reprocess paths write into the live text. Signal never shows
+    /// Status words the stop and reprocess paths write into the live text. Datasheet never shows
     /// them (DESIGN.md §12): the square, the frozen timer and the sweep carry the state.
     static let statusWords: Set<String> = [
         "Transcribing", "Refining", "Thinking", "Working", "Reprocessing",
@@ -236,7 +236,7 @@ final class SignalOverlayModel: ObservableObject {
 
 /// What the outcome state says (DESIGN.md §9.4, §15). The paste is posted, never read back, so
 /// the headline names the action taken on each path and claims nothing more.
-struct SignalDelivery: Equatable {
+struct DatasheetDelivery: Equatable {
     enum Method: Equatable {
         /// Cmd+V was posted to the app (c11 and Ghostty always).
         case paste
@@ -272,22 +272,22 @@ struct SignalDelivery: Equatable {
 /// The pill's geometry for each overlay size. Medium is DESIGN.md §4 exactly (340 x 130); the
 /// other sizes keep the same rows and change only how many preview lines are reserved and the
 /// width (provisional: DESIGN.md designs the medium pill only).
-struct SignalOverlayGeometry: Equatable {
+struct DatasheetOverlayGeometry: Equatable {
     let pillWidth: CGFloat
     let previewLines: Int
 
-    static func forSize(_ size: SettingsStore.OverlaySize) -> SignalOverlayGeometry {
+    static func forSize(_ size: SettingsStore.OverlaySize) -> DatasheetOverlayGeometry {
         switch size {
         // No preview; the one-line row still carries the outcome and the notice.
-        case .pill: SignalOverlayGeometry(pillWidth: SignalTheme.Metrics.pillWidth, previewLines: 0)
-        case .small: SignalOverlayGeometry(pillWidth: SignalTheme.Metrics.pillWidth, previewLines: 1)
-        case .medium: SignalOverlayGeometry(pillWidth: SignalTheme.Metrics.pillWidth, previewLines: 3)
-        case .large: SignalOverlayGeometry(pillWidth: SignalTheme.Metrics.historyWidth, previewLines: 5)
+        case .pill: DatasheetOverlayGeometry(pillWidth: DatasheetTheme.Metrics.pillWidth, previewLines: 0)
+        case .small: DatasheetOverlayGeometry(pillWidth: DatasheetTheme.Metrics.pillWidth, previewLines: 1)
+        case .medium: DatasheetOverlayGeometry(pillWidth: DatasheetTheme.Metrics.pillWidth, previewLines: 3)
+        case .large: DatasheetOverlayGeometry(pillWidth: DatasheetTheme.Metrics.historyWidth, previewLines: 5)
         }
     }
 
-    private var metrics: SignalTheme.Metrics.Type {
-        SignalTheme.Metrics.self
+    private var metrics: DatasheetTheme.Metrics.Type {
+        DatasheetTheme.Metrics.self
     }
 
     /// The preview area: 3 lines of 16 in medium (48).
@@ -323,7 +323,7 @@ struct SignalOverlayGeometry: Equatable {
     /// Bars that fit the row `[trace] >=12 [readout]` (round 6: the icon moved to the foot row and
     /// the SEND placard to its right end, so the trace takes their room).
     var traceBars: Int {
-        SignalTraceModel.barCount(forWidth: self.innerWidth - self.metrics.traceReadoutGap - self.readoutWidth)
+        DatasheetTraceModel.barCount(forWidth: self.innerWidth - self.metrics.traceReadoutGap - self.readoutWidth)
     }
 
     /// Rails are the pill's height and hold three 30 pt slots.
@@ -333,7 +333,7 @@ struct SignalOverlayGeometry: Equatable {
 }
 
 extension DictationDeliveryOutcome.Method {
-    var signalMethod: SignalDelivery.Method {
+    var datasheetMethod: DatasheetDelivery.Method {
         switch self {
         case .paste: .paste
         case .keystrokes: .keystrokes
@@ -344,7 +344,7 @@ extension DictationDeliveryOutcome.Method {
 
 /// A notice row (DESIGN.md §15): a headline, a reason, and inline text actions, in the pill's
 /// reserved preview slot. "Speech recognition is back" is the one notice today.
-enum SignalNotice: Equatable {
+enum DatasheetNotice: Equatable {
     /// The model recovered while a timed-out recording is kept: Reprocess it, or dismiss.
     case recognitionBack
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// press or latch inverts it to a solid square with a 1 pt surface keyline, shown for at least
 /// 60 ms; a copy confirmation fills it orange with a check. Disabled chips dim and never
 /// disappear, so nothing beside them moves.
-struct SignalChip: View {
+struct DatasheetChip: View {
     let systemName: String
     let help: String
     /// Disabled: dimmed glyph, no hover, no press.
@@ -21,7 +21,7 @@ struct SignalChip: View {
     var onHoverChanged: (Bool) -> Void = { _ in }
     let action: () -> Void
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @State private var isHovered = false
 
     private var isLive: Bool {
@@ -31,17 +31,17 @@ struct SignalChip: View {
     var body: some View {
         Button(action: self.action) {
             Image(systemName: self.systemName)
-                .font(.system(size: SignalTheme.Metrics.chipGlyphSize, weight: .semibold))
+                .font(.system(size: DatasheetTheme.Metrics.chipGlyphSize, weight: .semibold))
         }
-        .buttonStyle(SignalChipButtonStyle(
+        .buttonStyle(DatasheetChipButtonStyle(
             isEnabled: self.isEnabled,
             isLatched: self.isLatched,
             isConfirming: self.isConfirming,
             palette: self.palette
         ))
         .disabled(!self.isLive)
-        .signalClickTarget(isActive: self.isLive)
-        .signalBracket(.chip, visible: (self.isHovered || self.isHoverForced) && self.isLive)
+        .datasheetClickTarget(isActive: self.isLive)
+        .datasheetBracket(.chip, visible: (self.isHovered || self.isHoverForced) && self.isLive)
         .onHover { hovering in
             let hovering = hovering && self.isLive
             guard hovering != self.isHovered else { return }
@@ -60,14 +60,14 @@ struct SignalChip: View {
     }
 }
 
-private struct SignalChipButtonStyle: ButtonStyle {
+private struct DatasheetChipButtonStyle: ButtonStyle {
     let isEnabled: Bool
     let isLatched: Bool
     let isConfirming: Bool
-    let palette: SignalTheme.Palette
+    let palette: DatasheetTheme.Palette
 
     func makeBody(configuration: Configuration) -> some View {
-        SignalChipFace(
+        DatasheetChipFace(
             label: configuration.label,
             isPressed: configuration.isPressed,
             isEnabled: self.isEnabled,
@@ -80,13 +80,13 @@ private struct SignalChipButtonStyle: ButtonStyle {
 
 /// The chip's face. Keeps a press visible for at least `Motion.chipPress`, so a fast click
 /// still reads.
-private struct SignalChipFace<Label: View>: View {
+private struct DatasheetChipFace<Label: View>: View {
     let label: Label
     let isPressed: Bool
     let isEnabled: Bool
     let isLatched: Bool
     let isConfirming: Bool
-    let palette: SignalTheme.Palette
+    let palette: DatasheetTheme.Palette
 
     @State private var showsPress = false
     @State private var pressStartedAt: Date?
@@ -110,13 +110,13 @@ private struct SignalChipFace<Label: View>: View {
         ZStack {
             if self.isConfirming {
                 Image(systemName: "checkmark")
-                    .font(.system(size: SignalTheme.Metrics.chipGlyphSize, weight: .semibold))
+                    .font(.system(size: DatasheetTheme.Metrics.chipGlyphSize, weight: .semibold))
             } else {
                 self.label
             }
         }
         .foregroundStyle(self.glyphColor)
-        .frame(width: SignalTheme.Metrics.chip, height: SignalTheme.Metrics.chip)
+        .frame(width: DatasheetTheme.Metrics.chip, height: DatasheetTheme.Metrics.chip)
         .background(self.fill)
         // The keyline keeps an inverted chip's shape over any backdrop (a black key over a black
         // terminal would otherwise vanish). Outside the chip, like the prototype's box-shadow.
@@ -128,15 +128,15 @@ private struct SignalChipFace<Label: View>: View {
                 .allowsHitTesting(false)
         }
         .contentShape(Rectangle())
-        .animation(.linear(duration: SignalTheme.Motion.chipPress), value: self.isInverted)
-        .animation(.linear(duration: SignalTheme.Motion.chipPress), value: self.isConfirming)
+        .animation(.linear(duration: DatasheetTheme.Motion.chipPress), value: self.isInverted)
+        .animation(.linear(duration: DatasheetTheme.Motion.chipPress), value: self.isConfirming)
         .onChange(of: self.isPressed) { _, pressed in
             if pressed {
                 self.pressStartedAt = Date()
                 self.showsPress = true
             } else {
-                let shown = self.pressStartedAt.map { Date().timeIntervalSince($0) } ?? SignalTheme.Motion.chipPress
-                let remaining = max(0, SignalTheme.Motion.chipPress - shown)
+                let shown = self.pressStartedAt.map { Date().timeIntervalSince($0) } ?? DatasheetTheme.Motion.chipPress
+                let remaining = max(0, DatasheetTheme.Motion.chipPress - shown)
                 DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
                     self.showsPress = false
                 }

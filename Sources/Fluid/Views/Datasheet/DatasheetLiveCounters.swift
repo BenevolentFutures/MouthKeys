@@ -12,7 +12,7 @@ import SwiftUI
 /// - WPM eases toward `trueWords x 60 / max(6, elapsed)` with a 0.7 s time constant, so it drifts
 ///   rather than jumps, and keeps drifting through silence.
 /// - `snaps` (Reduce Motion, or a settled pill) shows both targets at once.
-struct SignalCounterSmoother: Equatable {
+struct DatasheetCounterSmoother: Equatable {
     /// The words box holds 4 digits, WPM 3; both clamp at their box.
     static let wordPlaces = 4
     static let wpmPlaces = 3
@@ -103,7 +103,7 @@ struct SignalCounterSmoother: Equatable {
 }
 
 /// What the counters count for one recording; nil hides them.
-struct SignalCounterInput: Equatable {
+struct DatasheetCounterInput: Equatable {
     enum Clock: Equatable {
         /// Recording: elapsed runs from this start.
         case running(Date)
@@ -133,22 +133,22 @@ struct SignalCounterInput: Equatable {
 /// Holds the smoother across view updates (a reference, not view state: the frame clock advances
 /// it while the view draws, which must not invalidate anything).
 @MainActor
-final class SignalCounterClock {
+final class DatasheetCounterClock {
     private var recording: Date?
-    private(set) var smoother = SignalCounterSmoother()
+    private(set) var smoother = DatasheetCounterSmoother()
 
-    func reading(_ input: SignalCounterInput, at date: Date, snaps: Bool) -> (words: Int, wpm: Int) {
+    func reading(_ input: DatasheetCounterInput, at date: Date, snaps: Bool) -> (words: Int, wpm: Int) {
         let elapsed = input.elapsed(at: date)
         if input.recording != self.recording {
             self.recording = input.recording
-            self.smoother = SignalCounterSmoother(words: input.words, elapsed: elapsed)
+            self.smoother = DatasheetCounterSmoother(words: input.words, elapsed: elapsed)
         }
         self.smoother.advance(to: date.timeIntervalSinceReferenceDate, words: input.words, elapsed: elapsed, snaps: snaps)
         return (self.smoother.displayedWords, self.smoother.displayedWPM)
     }
 
     /// How long after the stop the clock must still run for `input` (frozen) to finish moving.
-    func settleDuration(_ input: SignalCounterInput) -> TimeInterval {
+    func settleDuration(_ input: DatasheetCounterInput) -> TimeInterval {
         guard input.recording == self.recording else { return 0 }
         return self.smoother.settleDuration(words: input.words, elapsed: input.elapsed(at: Date()))
     }
@@ -159,11 +159,11 @@ final class SignalCounterClock {
 /// own frame clock, at most 60 Hz, runs only while the counters show and, after the stop, only
 /// until they have finished moving (usually well under a second, at most 3 s); nothing outside
 /// this view is invalidated by it, and the face redraws only when a displayed number changes.
-struct SignalLiveCounters: View {
+struct DatasheetLiveCounters: View {
     /// Nil: hidden, and the clock paused.
-    let input: SignalCounterInput?
+    let input: DatasheetCounterInput?
     let showsWPM: Bool
-    let clock: SignalCounterClock
+    let clock: DatasheetCounterClock
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// After the stop the counts finish catching up and WPM settles from the frozen length; then
@@ -175,7 +175,7 @@ struct SignalLiveCounters: View {
         let settled = !isRunning && self.isSettled
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: self.input == nil || settled)) { context in
             let reading = self.input.map { self.clock.reading($0, at: context.date, snaps: self.reduceMotion || settled) }
-            SignalCounterFace(words: reading?.words, wpm: self.showsWPM ? reading?.wpm : nil)
+            DatasheetCounterFace(words: reading?.words, wpm: self.showsWPM ? reading?.wpm : nil)
                 .equatable()
         }
         .task(id: isRunning) {
@@ -195,11 +195,11 @@ struct SignalLiveCounters: View {
 /// The two numbers in their fixed boxes: mono 10 medium, uppercase, tracked, `text-2`; the number
 /// right-aligned in its box with blank leading places, the label 6 pt after it (the prototype's
 /// 0.6 em). Digits change in place, with no transition.
-struct SignalCounterFace: View, Equatable {
+struct DatasheetCounterFace: View, Equatable {
     let words: Int?
     let wpm: Int?
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
 
     static let labelGap: CGFloat = 6
 
@@ -207,7 +207,7 @@ struct SignalCounterFace: View, Equatable {
         HStack(spacing: 0) {
             if let words = self.words {
                 self.counter(
-                    SignalCounterSmoother.padded(words, places: SignalCounterSmoother.wordPlaces),
+                    DatasheetCounterSmoother.padded(words, places: DatasheetCounterSmoother.wordPlaces),
                     unit: words == 1 ? "word" : "words",
                     label: "Words",
                     value: "\(words)"
@@ -217,7 +217,7 @@ struct SignalCounterFace: View, Equatable {
             Spacer(minLength: 0)
             if let wpm = self.wpm {
                 self.counter(
-                    SignalCounterSmoother.padded(wpm, places: SignalCounterSmoother.wpmPlaces),
+                    DatasheetCounterSmoother.padded(wpm, places: DatasheetCounterSmoother.wpmPlaces),
                     unit: "wpm",
                     label: "Words per minute",
                     value: "\(wpm)"
@@ -228,11 +228,11 @@ struct SignalCounterFace: View, Equatable {
     }
 
     private func counter(_ digits: String, unit: String, label: String, value: String) -> some View {
-        let role = SignalTheme.Typography.micLabel
+        let role = DatasheetTheme.Typography.micLabel
         return HStack(spacing: Self.labelGap) {
-            SignalMonoLabel(text: digits, role: role, color: self.palette.text2)
+            DatasheetMonoLabel(text: digits, role: role, color: self.palette.text2)
                 .fixedSize()
-            SignalMonoLabel(text: unit, role: role, color: self.palette.text2)
+            DatasheetMonoLabel(text: unit, role: role, color: self.palette.text2)
                 .fixedSize()
         }
         .accessibilityElement(children: .ignore)
@@ -241,7 +241,7 @@ struct SignalCounterFace: View, Equatable {
         .accessibilityAddTraits(.updatesFrequently)
     }
 
-    nonisolated static func == (lhs: SignalCounterFace, rhs: SignalCounterFace) -> Bool {
+    nonisolated static func == (lhs: DatasheetCounterFace, rhs: DatasheetCounterFace) -> Bool {
         lhs.words == rhs.words && lhs.wpm == rhs.wpm
     }
 }

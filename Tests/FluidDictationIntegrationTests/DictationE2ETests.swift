@@ -2947,12 +2947,12 @@ final class KeptDictationStorageTests: XCTestCase {
     }
 }
 
-/// Offscreen renders of the Signal overlay's states, for comparison with the binding prototype
+/// Offscreen renders of the Datasheet overlay's states, for comparison with the binding prototype
 /// (design/visual-language/native-renders). Nothing reaches the screen: the views are hosted in
 /// no window and drawn into bitmaps. Set TEST_RUNNER_MOUTHKEYS_RENDER_DIR=<folder> to write
 /// the PNGs; without it the test only checks that every state renders at the designed size.
 @MainActor
-final class SignalOverlayRenderTests: XCTestCase {
+final class DatasheetOverlayRenderTests: XCTestCase {
     private var outputFolder: URL? {
         ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
@@ -2963,11 +2963,11 @@ final class SignalOverlayRenderTests: XCTestCase {
         super.setUp()
         // The Debug test host's own history (never the installed app's), put back in tearDown.
         self.savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
-        TranscriptionHistoryStore.shared.restore(from: SignalRenderStage.sampleHistory)
+        TranscriptionHistoryStore.shared.restore(from: DatasheetRenderStage.sampleHistory)
     }
 
     override func tearDown() {
-        SignalRenderStage.reset()
+        DatasheetRenderStage.reset()
         TranscriptionHistoryStore.shared.restore(from: self.savedHistory)
         super.tearDown()
     }
@@ -2977,11 +2977,11 @@ final class SignalOverlayRenderTests: XCTestCase {
     /// overlay's are.
     func testRecoveryCardsGrowThePillUpward() throws {
         let transcript = "Okay, take a look at the retry admission path in the queue worker. When the same job ID lands twice inside the lease window we are admitting both and the second one clobbers the first one's checkpoint so I think the fix is to key the admission set."
-        let cards: [(String, SignalCardContent, CGFloat)] = [
-            ("07-failed", SignalCardContent(headline: "Couldn\u{2019}t paste into c11", reason: "No text field focused", transcript: transcript, primary: .copy, meta: "118 words"), 210),
-            ("17-failed-clipboardkept", SignalCardContent(headline: "Couldn\u{2019}t paste into c11", reason: DeliveryFailureOverlayController.reasonText(failure: .pasteNotLanded, clipboard: .newerClipboardCopy, inHistory: true), transcript: transcript, primary: .copy, meta: "118 words"), 226),
-            ("18-timedout", SignalCardContent(headline: "Transcription timed out", reason: "Your audio is kept", primary: .reprocess), 156),
-            ("20-micoff", SignalCardContent(headline: "Microphone access is off", reason: "Allow MouthKeys in Privacy & Security", primary: .openSystemSettings, isMicrophoneOff: true), 156),
+        let cards: [(String, DatasheetCardContent, CGFloat)] = [
+            ("07-failed", DatasheetCardContent(headline: "Couldn\u{2019}t paste into c11", reason: "No text field focused", transcript: transcript, primary: .copy, meta: "118 words"), 210),
+            ("17-failed-clipboardkept", DatasheetCardContent(headline: "Couldn\u{2019}t paste into c11", reason: DeliveryFailureOverlayController.reasonText(failure: .pasteNotLanded, clipboard: .newerClipboardCopy, inHistory: true), transcript: transcript, primary: .copy, meta: "118 words"), 226),
+            ("18-timedout", DatasheetCardContent(headline: "Transcription timed out", reason: "Your audio is kept", primary: .reprocess), 156),
+            ("20-micoff", DatasheetCardContent(headline: "Microphone access is off", reason: "Allow MouthKeys in Privacy & Security", primary: .openSystemSettings, isMicrophoneOff: true), 156),
         ]
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
@@ -2997,10 +2997,10 @@ final class SignalOverlayRenderTests: XCTestCase {
                 )
                 // Padding 10 · card · gap 6 · trace row 38 · gap 4 · foot 16 · padding 8.
                 XCTAssertEqual(content.height(width: 316) + 10 + 6 + 38 + 4 + 16 + 8, pillHeight, "\(name)")
-                let rep = try SignalRenderStage.render(card, appearance: appearance)
-                XCTAssertEqual(rep.size.height, pillHeight + 14 + 2 * SignalRenderStage.backdropMargin, "\(theme) \(name)")
+                let rep = try DatasheetRenderStage.render(card, appearance: appearance)
+                XCTAssertEqual(rep.size.height, pillHeight + 14 + 2 * DatasheetRenderStage.backdropMargin, "\(theme) \(name)")
                 if let folder = self.outputFolder {
-                    try SignalRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
+                    try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
                 }
             }
         }
@@ -3009,21 +3009,21 @@ final class SignalOverlayRenderTests: XCTestCase {
     /// The menu bar mark (DESIGN.md §10): 22 x 16 template images, one per state, the same width
     /// in every state; and the menu's mono header row.
     func testMenuBarMarkStatesAndHeader() throws {
-        let trace = SignalTraceModel(barCount: 39)
+        let trace = DatasheetTraceModel(barCount: 39)
         trace.begin(at: 0)
         for step in 0..<60 {
             trace.ingest(level: step % 3 == 0 ? 0.95 : 0.6, at: Double(step) / 12)
         }
-        let listeningJaw = SignalMenuBarMark.listeningJaw(from: trace, at: 59.0 / 12)
+        let listeningJaw = DatasheetMenuBarMark.listeningJaw(from: trace, at: 59.0 / 12)
         XCTAssertTrue([1, 2].contains(listeningJaw), "the jaw is open while the voice is on")
 
         let marks: [(String, NSImage)] = [
-            ("idle", SignalMenuBarMark.image(kind: .idle, bracket: false)),
-            ("idle-hover", SignalMenuBarMark.image(kind: .idle, bracket: true)),
-            ("listening", SignalMenuBarMark.image(kind: .listening, jaw: listeningJaw, bracket: false)),
-            ("listening-wide", SignalMenuBarMark.image(kind: .listening, jaw: 2, bracket: false)),
-            ("listening-open", SignalMenuBarMark.image(kind: .listening, jaw: listeningJaw, bracket: true)),
-            ("transcribing", SignalMenuBarMark.image(kind: .transcribing, bracket: false)),
+            ("idle", DatasheetMenuBarMark.image(kind: .idle, bracket: false)),
+            ("idle-hover", DatasheetMenuBarMark.image(kind: .idle, bracket: true)),
+            ("listening", DatasheetMenuBarMark.image(kind: .listening, jaw: listeningJaw, bracket: false)),
+            ("listening-wide", DatasheetMenuBarMark.image(kind: .listening, jaw: 2, bracket: false)),
+            ("listening-open", DatasheetMenuBarMark.image(kind: .listening, jaw: listeningJaw, bracket: true)),
+            ("transcribing", DatasheetMenuBarMark.image(kind: .transcribing, bracket: false)),
         ]
         for (_, image) in marks {
             XCTAssertEqual(image.size, NSSize(width: 22, height: 16))
@@ -3051,9 +3051,9 @@ final class SignalOverlayRenderTests: XCTestCase {
                 tinted.draw(in: NSRect(x: 6 + CGFloat(index) * 34, y: 6, width: 22, height: 16))
             }
             NSGraphicsContext.restoreGraphicsState()
-            try SignalRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-21-menubar-marks.png"))
+            try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-21-menubar-marks.png"))
 
-            let header = SignalMenuHeaderView(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
+            let header = DatasheetMenuHeaderView(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
             header.stateText = "Listening 0:37"
             header.isLive = true
             let headerRep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 262 * 2, pixelsHigh: 24 * 2, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
@@ -3071,7 +3071,7 @@ final class SignalOverlayRenderTests: XCTestCase {
                 header.draw(header.bounds)
             }
             NSGraphicsContext.restoreGraphicsState()
-            try SignalRenderStage.write(headerRep, to: folder.appendingPathComponent("\(theme)-22-menu-header.png"))
+            try DatasheetRenderStage.write(headerRep, to: folder.appendingPathComponent("\(theme)-22-menu-header.png"))
         }
     }
 
@@ -3079,33 +3079,33 @@ final class SignalOverlayRenderTests: XCTestCase {
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
             for (name, hoverRow) in [("09-history", nil), ("10-history-hover-row", 2)] as [(String, Int?)] {
-                SignalRenderStage.reset()
-                SignalRenderStage.listening()
+                DatasheetRenderStage.reset()
+                DatasheetRenderStage.listening()
                 // The History chip stays inverted while its card is open.
                 BottomOverlayHistoryMenuController.shared.holdLatchedForInspection(true)
                 defer { BottomOverlayHistoryMenuController.shared.holdLatchedForInspection(false) }
-                let card = SignalHistoryCard(
-                    entries: SignalRenderStage.sampleHistory,
+                let card = DatasheetHistoryCard(
+                    entries: DatasheetRenderStage.sampleHistory,
                     totalCount: 247,
-                    notPasted: [SignalRenderStage.sampleHistory[2].processedText],
-                    now: SignalRenderStage.sampleNow,
+                    notPasted: [DatasheetRenderStage.sampleHistory[2].processedText],
+                    now: DatasheetRenderStage.sampleNow,
                     inspectionHoverRow: hoverRow,
                     isStatic: true,
                     onPick: { _ in }
                 )
                 // The card's box sits 6 pt above the overlay, centred on it (Atin, 2026-10-01). The
                 // card view's bottom margin (8) and the overlay's top margin (6) overlap by 8.
-                let insets = SignalTheme.Metrics.windowInsets
+                let insets = DatasheetTheme.Metrics.windowInsets
                 let composite = VStack(alignment: .center, spacing: -insets.bottom) {
-                    card.padding(insets).signalPalette()
+                    card.padding(insets).datasheetPalette()
                     BottomOverlayView()
                 }
-                let rep = try SignalRenderStage.render(composite, appearance: appearance)
-                XCTAssertEqual(rep.size.width, 480 + 12 + 2 * SignalRenderStage.backdropMargin, "\(theme) \(name)")
+                let rep = try DatasheetRenderStage.render(composite, appearance: appearance)
+                XCTAssertEqual(rep.size.width, 480 + 12 + 2 * DatasheetRenderStage.backdropMargin, "\(theme) \(name)")
                 // The card at its 480 maximum over the overlay (161), overlapping by the 6 pt margin.
-                XCTAssertLessThanOrEqual(rep.size.height, 480 + 14 + 163 - 8 + 2 * SignalRenderStage.backdropMargin, "\(theme) \(name)")
+                XCTAssertLessThanOrEqual(rep.size.height, 480 + 14 + 163 - 8 + 2 * DatasheetRenderStage.backdropMargin, "\(theme) \(name)")
                 if let folder = self.outputFolder {
-                    try SignalRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
+                    try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
                 }
             }
         }
@@ -3114,15 +3114,15 @@ final class SignalOverlayRenderTests: XCTestCase {
     func testOverlayStatesRenderAtTheDesignedSize() throws {
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
-            for (name, setUp) in SignalRenderStage.overlayStates {
-                SignalRenderStage.reset()
+            for (name, setUp) in DatasheetRenderStage.overlayStates {
+                DatasheetRenderStage.reset()
                 setUp()
-                let rep = try SignalRenderStage.render(BottomOverlayView(), appearance: appearance)
+                let rep = try DatasheetRenderStage.render(BottomOverlayView(), appearance: appearance)
                 // Rails (30 + 6) either side of the 340 pill, plus the 6 pt bracket margin.
-                XCTAssertEqual(rep.size.width, 6 + 30 + 6 + 340 + 6 + 30 + 6 + 2 * SignalRenderStage.backdropMargin, "\(theme) \(name)")
-                XCTAssertEqual(rep.size.height, 130 + 14 + 2 * SignalRenderStage.backdropMargin, "\(theme) \(name)")
+                XCTAssertEqual(rep.size.width, 6 + 30 + 6 + 340 + 6 + 30 + 6 + 2 * DatasheetRenderStage.backdropMargin, "\(theme) \(name)")
+                XCTAssertEqual(rep.size.height, 130 + 14 + 2 * DatasheetRenderStage.backdropMargin, "\(theme) \(name)")
                 if let folder = self.outputFolder {
-                    try SignalRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
+                    try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-\(name).png"))
                 }
             }
         }
@@ -3131,7 +3131,7 @@ final class SignalOverlayRenderTests: XCTestCase {
 
 /// Drives the shared overlay state into each design state, and draws hosted views to bitmaps.
 @MainActor
-enum SignalRenderStage {
+enum DatasheetRenderStage {
     static let backdropMargin: CGFloat = 18
     static let sampleNow = Date()
 
@@ -3167,40 +3167,40 @@ enum SignalRenderStage {
     static let transcript = "worker sees the same job id land twice so key the admission set on job id plus lease epoch and do not touch the scheduler when you are done give me a one line summary and the diff stat and if the suite takes longer than a minute tell me which tests are"
 
     static let overlayStates: [(String, () -> Void)] = [
-        ("01-listening", { SignalRenderStage.listening() }),
-        ("02-listening-hover", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionHover = "pill" }),
-        ("03-listening-hover-cancel", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionHover = "cancel" }),
-        ("04-listening-armed", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionPlacard = .send }),
+        ("01-listening", { DatasheetRenderStage.listening() }),
+        ("02-listening-hover", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionHover = "pill" }),
+        ("03-listening-hover-cancel", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionHover = "cancel" }),
+        ("04-listening-armed", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionPlacard = .send }),
         // While SEND shows, a click on the pill cancels the Return: the pill is clickable, so it
         // takes a bracket (DESIGN.md §7). Hovered at rest (02) it takes none.
-        ("04b-listening-armed-hover", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionPlacard = .send; SignalOverlayModel.shared.inspectionHover = "pill" }),
-        ("05-transcribing", { SignalRenderStage.listening(); SignalRenderStage.stop(); NotchContentState.shared.setProcessing(true); SignalOverlayModel.shared.beginTranscribing(); SignalOverlayModel.shared.inspectionSweepProgress = 0.45 }),
-        ("06-pasted", { SignalRenderStage.listening(); SignalRenderStage.stop(); SignalOverlayModel.shared.showDelivered(SignalDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false)) }),
-        ("13-countdown", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionPlacard = .send; SignalOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.55)) }),
+        ("04b-listening-armed-hover", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionPlacard = .send; DatasheetOverlayModel.shared.inspectionHover = "pill" }),
+        ("05-transcribing", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); NotchContentState.shared.setProcessing(true); DatasheetOverlayModel.shared.beginTranscribing(); DatasheetOverlayModel.shared.inspectionSweepProgress = 0.45 }),
+        ("06-pasted", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false)) }),
+        ("13-countdown", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionPlacard = .send; DatasheetOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.55)) }),
         ("14-countdown-canceled", {
-            SignalRenderStage.listening()
-            SignalOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.6))
-            SignalOverlayModel.shared.freezeSendCountdown()
+            DatasheetRenderStage.listening()
+            DatasheetOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.6))
+            DatasheetOverlayModel.shared.freezeSendCountdown()
         }),
-        ("15-sent", { SignalRenderStage.listening(); SignalRenderStage.stop(placard: .send); SignalOverlayModel.shared.showDelivered(SignalDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)) }),
-        ("19-asrback", { SignalRenderStage.listening(); SignalRenderStage.stop(); SignalOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41) }),
+        ("15-sent", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(placard: .send); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)) }),
+        ("19-asrback", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41) }),
         ("19-asrback-hover-reprocess", {
-            SignalRenderStage.listening()
-            SignalRenderStage.stop()
-            SignalOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41)
-            SignalOverlayModel.shared.inspectionHover = "notice-reprocess"
+            DatasheetRenderStage.listening()
+            DatasheetRenderStage.stop()
+            DatasheetOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41)
+            DatasheetOverlayModel.shared.inspectionHover = "notice-reprocess"
         }),
-        ("16-noreturn", { SignalRenderStage.listening(); SignalOverlayModel.shared.inspectionPlacard = .noReturn }),
+        ("16-noreturn", { DatasheetRenderStage.listening(); DatasheetOverlayModel.shared.inspectionPlacard = .noReturn }),
     ]
 
     static func listening() {
         let state = NotchContentState.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         state.setBottomOverlayPresented(true)
         state.mode = .dictation
         state.targetAppIcon = NSWorkspace.shared.icon(forFile: "/Applications/c11.app")
         state.updateTranscription(self.transcript)
-        model.ensureTraceBars(SignalOverlayGeometry.forSize(.medium).traceBars)
+        model.ensureTraceBars(DatasheetOverlayGeometry.forSize(.medium).traceBars)
         model.microphoneName = "MacBook Pro Microphone"
         let now = Date()
         model.beginRecording(at: now.addingTimeInterval(-38.4), noiseThreshold: 0.4)
@@ -3218,8 +3218,8 @@ enum SignalRenderStage {
         model.trace.advance(to: now.timeIntervalSinceReferenceDate - 0.1)
     }
 
-    static func stop(placard: SignalPlacard = .none) {
-        SignalOverlayModel.shared.stopRecording(at: Date().addingTimeInterval(-1), preview: self.transcript, placard: placard)
+    static func stop(placard: DatasheetPlacard = .none) {
+        DatasheetOverlayModel.shared.stopRecording(at: Date().addingTimeInterval(-1), preview: self.transcript, placard: placard)
     }
 
     static func reset() {
@@ -3228,7 +3228,7 @@ enum SignalRenderStage {
         state.setBottomOverlayPresented(false)
         state.updateTranscription("")
         state.targetAppIcon = nil
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         model.inspectionHover = nil
         model.inspectionPlacard = nil
         model.inspectionSweepProgress = nil
@@ -3279,10 +3279,10 @@ enum SignalRenderStage {
     }
 }
 
-/// The Signal overlay's behavior: the trace sampler, the geometry, the truthful wording, which
+/// The Datasheet overlay's behavior: the trace sampler, the geometry, the truthful wording, which
 /// chips act when, and the delivered hold (quiet: no window reaches the screen).
 @MainActor
-final class SignalOverlayBehaviorTests: XCTestCase {
+final class DatasheetOverlayBehaviorTests: XCTestCase {
     private var savedOverlayPosition = SettingsStore.OverlayPosition.bottom
 
     override func setUp() {
@@ -3295,11 +3295,11 @@ final class SignalOverlayBehaviorTests: XCTestCase {
 
     override func tearDown() {
         SettingsStore.shared.overlayPosition = self.savedOverlayPosition
-        BottomOverlayWindowController.deliveredHold = SignalTheme.Motion.deliveredHold
+        BottomOverlayWindowController.deliveredHold = DatasheetTheme.Motion.deliveredHold
         TypingService.dictationOutcomeHandler = { outcome in
             BottomOverlayWindowController.shared.dictationDeliveryFinished(outcome)
         }
-        SignalRenderStage.reset()
+        DatasheetRenderStage.reset()
         super.tearDown()
     }
 
@@ -3308,7 +3308,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     /// never ignoresMouseEvents, parked after the idle delay).
     func testRecognitionBackIsANoticeRowWithTheSameReprocess() async throws {
         let controller = BottomOverlayWindowController.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         let cards = DeliveryFailureOverlayController.shared
         let savedReprocess = NotchContentState.shared.onReprocessLastRequested
         let savedParkDelay = BottomOverlayWindowController.idleParkingDelay
@@ -3398,7 +3398,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         DeliveryFailureOverlayController.shared.showTranscriptionTimeout(.recovered)
         XCTAssertEqual(DeliveryFailureOverlayController.shared.presentedTimeout, .recovered)
         XCTAssertTrue(NotchContentState.shared.isBottomOverlayPresented, "the held pill stays")
-        XCTAssertEqual(SignalOverlayModel.shared.phase, .stopped)
+        XCTAssertEqual(DatasheetOverlayModel.shared.phase, .stopped)
         DeliveryFailureOverlayController.shared.hide()
         _ = await controller.hideAndWait()
     }
@@ -3429,7 +3429,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         await Task.yield()
         controller.show(audioPublisher: Just(CGFloat.zero).eraseToAnyPublisher(), mode: .dictation)
         XCTAssertFalse(controller.presentNotice(.recognitionBack, frozenDuration: 41))
-        XCTAssertEqual(SignalOverlayModel.shared.phase, .listening)
+        XCTAssertEqual(DatasheetOverlayModel.shared.phase, .listening)
         DeliveryFailureOverlayController.shared.showTranscriptionTimeout(.recovered)
         XCTAssertEqual(DeliveryFailureOverlayController.shared.presentedTimeout, .recovered, "the card, as before")
         DeliveryFailureOverlayController.shared.hide()
@@ -3445,7 +3445,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     }
 
     /// Feeds `level` at 94 Hz from `start` for `seconds`, with a frame at each tick like the clock.
-    private func feed(_ trace: SignalTraceModel, _ level: CGFloat, from start: TimeInterval, seconds: Double) -> TimeInterval {
+    private func feed(_ trace: DatasheetTraceModel, _ level: CGFloat, from start: TimeInterval, seconds: Double) -> TimeInterval {
         var t = start
         while t < start + seconds {
             trace.ingest(level: level, at: t)
@@ -3455,7 +3455,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     }
 
     func testSilenceHoldsTheTraceStillAndSpeechAdvancesIt() {
-        let trace = SignalTraceModel(barCount: 39, noiseThreshold: 0.4)
+        let trace = DatasheetTraceModel(barCount: 39, noiseThreshold: 0.4)
         trace.begin(at: 100)
         // A second of room tone (the ASR gates it to 0): nothing advances, nothing slides.
         var t = self.feed(trace, 0, from: 100, seconds: 1)
@@ -3468,7 +3468,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         t = self.feed(trace, 0.6, from: t, seconds: 1)
         XCTAssertEqual(trace.pushes, 12, accuracy: 1)
         XCTAssertGreaterThan(trace.current.suffix(10).filter { $0 > 2 }.count, 5)
-        XCTAssertGreaterThan(SignalMenuBarMark.listeningJaw(from: trace, at: t), 0, "the menu bar mark talks with speech")
+        XCTAssertGreaterThan(DatasheetMenuBarMark.listeningJaw(from: trace, at: t), 0, "the menu bar mark talks with speech")
         trace.advance(to: t + 0.04)
         XCTAssertGreaterThan(trace.scrollFraction, 0, "mid-sample the bars sit part way through the pitch")
 
@@ -3477,7 +3477,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         t = self.feed(trace, 0, from: t, seconds: 2)
         XCTAssertEqual(trace.pushes - spoken, 3, accuracy: 1, "the hangover, no more")
         let held = (trace.pushes, trace.scrollFraction, trace.current)
-        XCTAssertEqual(SignalMenuBarMark.listeningJaw(from: trace, at: t), 0, "the menu bar mark closes its mouth in silence")
+        XCTAssertEqual(DatasheetMenuBarMark.listeningJaw(from: trace, at: t), 0, "the menu bar mark closes its mouth in silence")
         t = self.feed(trace, 0, from: t, seconds: 1)
         XCTAssertEqual(trace.pushes, held.0, "silence holds the trace still")
         XCTAssertEqual(trace.scrollFraction, held.1)
@@ -3517,7 +3517,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     }
 
     func testTheMediumPillIsTheDesignedGeometry() {
-        let medium = SignalOverlayGeometry.forSize(.medium)
+        let medium = DatasheetOverlayGeometry.forSize(.medium)
         XCTAssertEqual(medium.pillWidth, 340)
         // Round 6 (Atin, 2026-10-01): 10 · preview 48 · 6 · trace row 38 · 4 · foot 16 · 8.
         XCTAssertEqual(medium.pillHeight, 130)
@@ -3525,33 +3525,33 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(medium.innerWidth, 316)
         // The trace takes the icon's and the placard's room: trace + >=12 + readout = 316.
         XCTAssertEqual(medium.traceBars, 63, "round 6: 63 bars, 5.25 s")
-        XCTAssertEqual(SignalTraceModel.width(forBars: 63), 250)
+        XCTAssertEqual(DatasheetTraceModel.width(forBars: 63), 250)
         XCTAssertGreaterThanOrEqual(316 - 250 - medium.readoutWidth, 12)
         XCTAssertLessThan(316 - 250 - medium.readoutWidth, 16, "no room left for another bar")
         // Rails: two chips spaced evenly on the 130 pt rail, 23 pt above and below, 24 between.
-        XCTAssertEqual(SignalRail<EmptyView, EmptyView, EmptyView>.gap(height: 130), 23)
+        XCTAssertEqual(DatasheetRail<EmptyView, EmptyView, EmptyView>.gap(height: 130), 23)
         // Every other size keeps the rows and only reserves fewer or more preview lines.
-        XCTAssertEqual(SignalOverlayGeometry.forSize(.small).pillHeight, 130 - 32)
-        XCTAssertTrue(SignalOverlayGeometry.forSize(.small).isCompactTop)
+        XCTAssertEqual(DatasheetOverlayGeometry.forSize(.small).pillHeight, 130 - 32)
+        XCTAssertTrue(DatasheetOverlayGeometry.forSize(.small).isCompactTop)
         XCTAssertFalse(medium.isCompactTop)
-        XCTAssertGreaterThanOrEqual(SignalOverlayGeometry.forSize(.pill).railHeight, 90)
+        XCTAssertGreaterThanOrEqual(DatasheetOverlayGeometry.forSize(.pill).railHeight, 90)
     }
 
     func testTheOutcomeNamesOnlyWhatWasDone() {
-        XCTAssertEqual(SignalDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false).headline, "Pasted into c11")
-        XCTAssertEqual(SignalDelivery(appName: "TextEdit", words: 3, method: .keystrokes, sentReturn: false).headline, "Typed into TextEdit")
-        XCTAssertEqual(SignalDelivery(appName: "Notes", words: 3, method: .accessibility, sentReturn: false).headline, "Inserted into Notes")
-        let sent = SignalDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)
+        XCTAssertEqual(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false).headline, "Pasted into c11")
+        XCTAssertEqual(DatasheetDelivery(appName: "TextEdit", words: 3, method: .keystrokes, sentReturn: false).headline, "Typed into TextEdit")
+        XCTAssertEqual(DatasheetDelivery(appName: "Notes", words: 3, method: .accessibility, sentReturn: false).headline, "Inserted into Notes")
+        let sent = DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)
         XCTAssertEqual(sent.headline, "Sent to c11")
         XCTAssertEqual(sent.meta, "118 words · Return")
-        XCTAssertEqual(SignalDelivery(appName: nil, words: 1, method: .paste, sentReturn: false).headline, "Pasted")
+        XCTAssertEqual(DatasheetDelivery(appName: nil, words: 1, method: .paste, sentReturn: false).headline, "Pasted")
         XCTAssertEqual(TypingService.deliveryMethod(for: .clipboardToPID), .paste)
         XCTAssertEqual(TypingService.deliveryMethod(for: .characterByCharacter), .keystrokes)
         XCTAssertEqual(TypingService.deliveryMethod(for: .accessibility), .accessibility)
     }
 
     func testChipsNeverActDuringTheDeliveredHold() {
-        let delivered = BottomOverlayView.Display.delivered(SignalDelivery(appName: "c11", words: 2, method: .paste, sentReturn: false))
+        let delivered = BottomOverlayView.Display.delivered(DatasheetDelivery(appName: "c11", words: 2, method: .paste, sentReturn: false))
         for role in [BottomOverlayView.ChipRole.history, .cancel, .historyAction] {
             XCTAssertTrue(BottomOverlayView.isChipInert(role, display: delivered))
             XCTAssertFalse(BottomOverlayView.isChipInert(role, display: .listening))
@@ -3573,38 +3573,38 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     }
 
     func testSpokenSendPlacardAndSweepSteps() {
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .hidden), SignalPlacard.none)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .armed), .send)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .countingDown), .send)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: .canceled), .noSend)
-        let drain = SignalDrain(startedAt: Date(timeIntervalSinceReferenceDate: 0), duration: 1.5)
+        XCTAssertEqual(DatasheetOverlayModel.placard(indicator: .hidden), DatasheetPlacard.none)
+        XCTAssertEqual(DatasheetOverlayModel.placard(indicator: .armed), .send)
+        XCTAssertEqual(DatasheetOverlayModel.placard(indicator: .countingDown), .send)
+        XCTAssertEqual(DatasheetOverlayModel.placard(indicator: .canceled), .noSend)
+        let drain = DatasheetDrain(startedAt: Date(timeIntervalSinceReferenceDate: 0), duration: 1.5)
         XCTAssertEqual(drain.remaining(at: Date(timeIntervalSinceReferenceDate: 0.6)), 0.9, accuracy: 0.0001)
         var canceled = drain
         canceled.frozenRemaining = 0.9
         XCTAssertEqual(canceled.remaining(at: Date(timeIntervalSinceReferenceDate: 5)), 0.9)
         XCTAssertFalse(canceled.isRunning)
 
-        let steps = SignalSweepView.steps(traceWidth: 154, reducesMotion: false)
+        let steps = DatasheetSweepView.steps(traceWidth: 154, reducesMotion: false)
         XCTAssertTrue(steps.allSatisfy { ($0.x - 1).truncatingRemainder(dividingBy: 4) == 0 }, "stepped on the 4 pt pitch")
         XCTAssertEqual(steps.first?.time, 0)
-        XCTAssertEqual(SignalSweepView.steps(traceWidth: 154, reducesMotion: true).count, 4, "reduced motion holds four positions")
+        XCTAssertEqual(DatasheetSweepView.steps(traceWidth: 154, reducesMotion: true).count, 4, "reduced motion holds four positions")
     }
 
     func testThePreviewKeepsTheNewestWords() {
-        let font = SignalTheme.Typography.preview.nsFont
+        let font = DatasheetTheme.Typography.preview.nsFont
         let text = (1...80).map { "word\($0)" }.joined(separator: " ")
-        let fitted = SignalTextFitting.newestWords(of: text, wasCut: false, font: font, width: 304, lines: 3)
+        let fitted = DatasheetTextFitting.newestWords(of: text, wasCut: false, font: font, width: 304, lines: 3)
         XCTAssertTrue(fitted.hasPrefix("…"))
         XCTAssertTrue(fitted.hasSuffix("word80"))
-        XCTAssertLessThanOrEqual(SignalTextFitting.lineCount(fitted, font: font, width: 304), 3)
-        XCTAssertEqual(SignalTextFitting.newestWords(of: "short", wasCut: false, font: font, width: 304, lines: 3), "short")
+        XCTAssertLessThanOrEqual(DatasheetTextFitting.lineCount(fitted, font: font, width: 304), 3)
+        XCTAssertEqual(DatasheetTextFitting.newestWords(of: "short", wasCut: false, font: font, width: 304, lines: 3), "short")
     }
 
     /// The hold never starts before the outcome, shows it once the paste is posted, then fades and
     /// parks; the margin still paints nothing once hidden, and ignoresMouseEvents is never set.
     func testTheDeliveredHoldShowsTheOutcomeThenDismisses() async throws {
         let controller = BottomOverlayWindowController.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         controller.prepare()
         await Task.yield()
         controller.show(audioPublisher: Just(CGFloat.zero).eraseToAnyPublisher(), mode: .dictation)
@@ -3619,7 +3619,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(model.phase, .stopped)
 
         controller.dictationDeliveryFinished(DictationDeliveryOutcome(traceID: 4242, result: .dispatched, method: .paste, sentReturn: false))
-        XCTAssertEqual(model.phase, .delivered(SignalDelivery(appName: "c11", words: 7, method: .paste, sentReturn: false)))
+        XCTAssertEqual(model.phase, .delivered(DatasheetDelivery(appName: "c11", words: 7, method: .paste, sentReturn: false)))
         XCTAssertTrue(NotchContentState.shared.isBottomOverlayPresented)
         XCTAssertEqual(controller.windowStateForTests?.alpha, 1)
 
@@ -3638,13 +3638,13 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     /// 480 pt, so the panel sits 6 pt above the History chip however many entries there are.
     func testTheHistoryCardSizesToItsRows() {
         func height(_ count: Int) -> CGFloat {
-            let card = SignalHistoryCard(
-                entries: Array(SignalRenderStage.sampleHistory.prefix(count)),
+            let card = DatasheetHistoryCard(
+                entries: Array(DatasheetRenderStage.sampleHistory.prefix(count)),
                 totalCount: count,
                 notPasted: [],
                 onPick: { _ in }
             )
-            return NSHostingView(rootView: card.signalPalette()).fittingSize.height
+            return NSHostingView(rootView: card.datasheetPalette()).fittingSize.height
         }
         let two = height(2)
         XCTAssertGreaterThan(two, 36 + 28 + 28 + 2 * 60, "header, footer, a day row and two rows")
@@ -3655,7 +3655,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     /// The history card centres on the overlay (DESIGN.md §4, Atin 2026-10-01), 6 pt above its
     /// visible top, not on the History chip's leading edge; the screen's visible frame clamps it.
     func testTheHistoryCardCentresOnTheOverlay() {
-        let insets = SignalTheme.Metrics.windowInsets
+        let insets = DatasheetTheme.Metrics.windowInsets
         let panel = CGSize(width: 480 + insets.leading + insets.trailing, height: 300 + insets.top + insets.bottom)
         let overlay = CGRect(x: 700, y: 80, width: 412, height: 149)
         let screen = CGRect(x: 0, y: 0, width: 1800, height: 1100)
@@ -3680,10 +3680,10 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         // The overlay's content rect (top-left origin in its hosting view) maps to the screen.
         let window = NSPanel(contentRect: NSRect(x: 600, y: 72, width: 424, height: 163), styleMask: [.borderless], backing: .buffered, defer: true)
         window.contentView = NSHostingView(rootView: Color.clear)
-        let anchor = SignalOverlayAnchor()
+        let anchor = DatasheetOverlayAnchor()
         anchor.frameInContent = CGRect(x: 6, y: 6, width: 412, height: 149)
         XCTAssertEqual(anchor.frameInScreen(window: window), CGRect(x: 606, y: 80, width: 412, height: 149))
-        XCTAssertEqual(SignalOverlayAnchor().frameInScreen(window: window), .zero, "not laid out yet")
+        XCTAssertEqual(DatasheetOverlayAnchor().frameInScreen(window: window), .zero, "not laid out yet")
     }
 
     /// The live word count (round 6, Atin 2026-10-01): the whole live text, not the stored tail;
@@ -3708,26 +3708,26 @@ final class SignalOverlayBehaviorTests: XCTestCase {
             frozen: TimeInterval? = nil,
             frozenWords: Int? = nil,
             liveText: Bool = true
-        ) -> SignalCounterInput? {
+        ) -> DatasheetCounterInput? {
             BottomOverlayView.counterInput(
                 display: display, countsLiveWords: counts, recordingStartedAt: start,
                 frozenDuration: frozen, frozenWords: frozenWords, live: live, hasLiveText: liveText
             )
         }
-        XCTAssertEqual(input(.listening, live: 0), SignalCounterInput(recording: start, words: 0, clock: .running(start)), "0 from the start")
+        XCTAssertEqual(input(.listening, live: 0), DatasheetCounterInput(recording: start, words: 0, clock: .running(start)), "0 from the start")
         XCTAssertEqual(input(.listening, live: 12)?.words, 12)
         XCTAssertNil(input(.listening, live: 0, liveText: false), "no live text arrives (preview off, a model that does not stream)")
-        XCTAssertNil(input(.delivered(SignalDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false)), live: 118, frozen: 10, frozenWords: 118))
+        XCTAssertNil(input(.delivered(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: false)), live: 118, frozen: 10, frozenWords: 118))
         XCTAssertNil(input(.noticeRow(.recognitionBack), live: 0, frozen: 41))
         XCTAssertNil(input(.notice, live: 3))
 
-        XCTAssertEqual(input(.stopped, live: 0, frozen: 10, frozenWords: 7), SignalCounterInput(recording: start, words: 7, clock: .frozen(10)), "frozen at the stop")
+        XCTAssertEqual(input(.stopped, live: 0, frozen: 10, frozenWords: 7), DatasheetCounterInput(recording: start, words: 7, clock: .frozen(10)), "frozen at the stop")
         XCTAssertEqual(input(.transcribing, live: 0, frozen: 10, frozenWords: 7)?.words, 7)
         XCTAssertNil(input(.transcribing, live: 0, counts: false, frozen: 10), "a reprocess has no recording behind it")
         XCTAssertNil(input(.transcribing, live: 0), "a reprocess that re-shows the pill: processing, never stopped")
 
         // The model: a recording counts; a reprocess from idle, a notice and a reset do not.
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         defer { model.reset() }
         model.beginRecording(at: Date(), noiseThreshold: 0.4)
         XCTAssertTrue(model.countsLiveWords)
@@ -3739,11 +3739,11 @@ final class SignalOverlayBehaviorTests: XCTestCase {
 
     /// The word count steps up one word at a time toward the truth (DESIGN.md §16, Atin 2026-10-01).
     func testTheWordCountStepsThroughABurstAndNeverPassesTheTruth() {
-        XCTAssertEqual(SignalCounterSmoother.stepInterval(remaining: 1), 0.110, accuracy: 1e-9, "a single word waits 110 ms")
-        XCTAssertEqual(SignalCounterSmoother.stepInterval(remaining: 5), 0.090, accuracy: 1e-9, "450 / 5")
-        XCTAssertEqual(SignalCounterSmoother.stepInterval(remaining: 40), 0.030, accuracy: 1e-9, "never faster than 30 ms")
+        XCTAssertEqual(DatasheetCounterSmoother.stepInterval(remaining: 1), 0.110, accuracy: 1e-9, "a single word waits 110 ms")
+        XCTAssertEqual(DatasheetCounterSmoother.stepInterval(remaining: 5), 0.090, accuracy: 1e-9, "450 / 5")
+        XCTAssertEqual(DatasheetCounterSmoother.stepInterval(remaining: 40), 0.030, accuracy: 1e-9, "never faster than 30 ms")
 
-        var counter = SignalCounterSmoother()
+        var counter = DatasheetCounterSmoother()
         XCTAssertEqual(counter.displayedWords, 0)
         XCTAssertEqual(counter.displayedWPM, 0)
         // A burst of 8 words lands at t = 2 s; a 60 Hz frame clock plays it out.
@@ -3761,12 +3761,12 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         // The first word lands at once, then each waits its interval (on the 60 Hz frame grid):
         // the burst plays out in well under a second, not in one jump.
         let playedOut = (firstFull ?? 99) - 2
-        let intervals = (1...7).map { SignalCounterSmoother.stepInterval(remaining: $0) }.reduce(0, +)
+        let intervals = (1...7).map { DatasheetCounterSmoother.stepInterval(remaining: $0) }.reduce(0, +)
         XCTAssertGreaterThanOrEqual(playedOut, intervals - 1e-9)
         XCTAssertLessThanOrEqual(playedOut, intervals + 7.0 / 60)
 
         // A large burst steps at the 30 ms floor, so 40 words take about 1.5 s, never a jump.
-        var big = SignalCounterSmoother()
+        var big = DatasheetCounterSmoother()
         big.advance(to: 0, words: 40, elapsed: 8, snaps: false)
         XCTAssertEqual(big.displayedWords, 1)
         big.advance(to: 0.45, words: 40, elapsed: 8, snaps: false)
@@ -3777,10 +3777,10 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(counter.displayedWords, 5)
 
         // Once the truth freezes (the stop), the clock runs only until the counters stop moving.
-        var settling = SignalCounterSmoother()
+        var settling = DatasheetCounterSmoother()
         settling.advance(to: 0, words: 4, elapsed: 10, snaps: false)
         let settle = settling.settleDuration(words: 4, elapsed: 10)
-        XCTAssertGreaterThanOrEqual(settle, 3 * SignalCounterSmoother.longestStep, "3 words left at up to 110 ms")
+        XCTAssertGreaterThanOrEqual(settle, 3 * DatasheetCounterSmoother.longestStep, "3 words left at up to 110 ms")
         XCTAssertLessThanOrEqual(settle, 3)
         var after = settling
         var clock = 0.0
@@ -3790,8 +3790,8 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         }
         XCTAssertEqual(after.displayedWords, 4)
         XCTAssertEqual(after.displayedWPM, 24, "4 x 60 / 10")
-        XCTAssertEqual(SignalCounterSmoother(words: 4, elapsed: 10).settleDuration(words: 4, elapsed: 10), 0, "nothing left to move")
-        XCTAssertEqual(SignalCounterSmoother().settleDuration(words: 5000, elapsed: 10), 3, "at most 3 s")
+        XCTAssertEqual(DatasheetCounterSmoother(words: 4, elapsed: 10).settleDuration(words: 4, elapsed: 10), 0, "nothing left to move")
+        XCTAssertEqual(DatasheetCounterSmoother().settleDuration(words: 5000, elapsed: 10), 3, "at most 3 s")
 
         // Snap (Reduce Motion) shows the truth at once.
         counter.advance(to: t + 0.016, words: 30, elapsed: t, snaps: true)
@@ -3800,13 +3800,13 @@ final class SignalOverlayBehaviorTests: XCTestCase {
 
     /// WPM: words x 60 / max(6, elapsed), eased with a 0.7 s time constant (DESIGN.md §16).
     func testWordsPerMinuteFloorsAtSixSecondsAndEases() {
-        XCTAssertEqual(SignalCounterSmoother.wpmTarget(words: 10, elapsed: 2), 100, "the first 6 s count as 6")
-        XCTAssertEqual(SignalCounterSmoother.wpmTarget(words: 10, elapsed: 6), 100)
-        XCTAssertEqual(SignalCounterSmoother.wpmTarget(words: 60, elapsed: 30), 120)
-        XCTAssertEqual(SignalCounterSmoother(words: 0, elapsed: 0).displayedWPM, 0, "a start shows 0")
-        XCTAssertEqual(SignalCounterSmoother(words: 60, elapsed: 30).displayedWPM, 120, "joining a recording starts at the truth")
+        XCTAssertEqual(DatasheetCounterSmoother.wpmTarget(words: 10, elapsed: 2), 100, "the first 6 s count as 6")
+        XCTAssertEqual(DatasheetCounterSmoother.wpmTarget(words: 10, elapsed: 6), 100)
+        XCTAssertEqual(DatasheetCounterSmoother.wpmTarget(words: 60, elapsed: 30), 120)
+        XCTAssertEqual(DatasheetCounterSmoother(words: 0, elapsed: 0).displayedWPM, 0, "a start shows 0")
+        XCTAssertEqual(DatasheetCounterSmoother(words: 60, elapsed: 30).displayedWPM, 120, "joining a recording starts at the truth")
 
-        var counter = SignalCounterSmoother()
+        var counter = DatasheetCounterSmoother()
         counter.advance(to: 10, words: 60, elapsed: 30, snaps: false)
         // One time constant (0.7 s, in 0.1 s frames) covers 1 - 1/e of the way to 120.
         var t = 10.0
@@ -3821,40 +3821,40 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         counter.advance(to: t + 5, words: 60, elapsed: 30, snaps: false)
         XCTAssertEqual(counter.shownWPM, before + (120 - before) * (1 - exp(-0.1 / 0.7)), accuracy: 1e-9)
         // Through silence the target falls as elapsed grows, and the shown WPM drifts down.
-        var silent = SignalCounterSmoother(words: 60, elapsed: 30)
+        var silent = DatasheetCounterSmoother(words: 60, elapsed: 30)
         var s = 0.0
         for _ in 0..<120 {
             s += 1.0 / 60
             silent.advance(to: s, words: 60, elapsed: 30 + s, snaps: false)
         }
         XCTAssertLessThan(silent.displayedWPM, 120)
-        XCTAssertGreaterThan(silent.displayedWPM, Int(SignalCounterSmoother.wpmTarget(words: 60, elapsed: 32)) - 1)
+        XCTAssertGreaterThan(silent.displayedWPM, Int(DatasheetCounterSmoother.wpmTarget(words: 60, elapsed: 32)) - 1)
     }
 
     /// Fixed boxes (DESIGN.md §16, Atin 2026-10-01): words 4 digits, WPM 3, right-aligned, unused
     /// leading places blank, clamped at 9999 and 999, so the labels never move.
     func testCountersSitInFixedBoxesWithBlankLeadingPlacesAndClamp() {
-        XCTAssertEqual(SignalCounterSmoother.padded(0, places: 4), "   0")
-        XCTAssertEqual(SignalCounterSmoother.padded(7, places: 4), "   7")
-        XCTAssertEqual(SignalCounterSmoother.padded(53, places: 4), "  53")
-        XCTAssertEqual(SignalCounterSmoother.padded(169, places: 3), "169")
-        XCTAssertEqual(SignalCounterSmoother.padded(12_345, places: 4), "9999")
-        XCTAssertEqual(SignalCounterSmoother.padded(1_200, places: 3), "999")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(0, places: 4), "   0")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(7, places: 4), "   7")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(53, places: 4), "  53")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(169, places: 3), "169")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(12_345, places: 4), "9999")
+        XCTAssertEqual(DatasheetCounterSmoother.padded(1_200, places: 3), "999")
 
-        var counter = SignalCounterSmoother(words: 12_000, elapsed: 60)
+        var counter = DatasheetCounterSmoother(words: 12_000, elapsed: 60)
         XCTAssertEqual(counter.displayedWords, 9999)
         XCTAssertEqual(counter.displayedWPM, 999)
         counter.advance(to: 1, words: 12_000, elapsed: 60, snaps: true)
         XCTAssertEqual(counter.displayedWords, 9999)
 
         // A blank place is as wide as a digit in the counters' face: the label never moves.
-        let role = SignalTheme.Typography.micLabel
-        let widths = [0, 7, 53, 418, 9999].map { role.width(of: SignalCounterSmoother.padded($0, places: 4)) }
+        let role = DatasheetTheme.Typography.micLabel
+        let widths = [0, 7, 53, 418, 9999].map { role.width(of: DatasheetCounterSmoother.padded($0, places: 4)) }
         XCTAssertEqual(Set(widths).count, 1, "\(widths)")
-        let wpmWidths = [0, 9, 88, 169].map { role.width(of: SignalCounterSmoother.padded($0, places: 3)) }
+        let wpmWidths = [0, 9, 88, 169].map { role.width(of: DatasheetCounterSmoother.padded($0, places: 3)) }
         XCTAssertEqual(Set(wpmWidths).count, 1, "\(wpmWidths)")
-        let wpmSlot = wpmWidths[0] + SignalCounterFace.labelGap + role.width(of: "WPM")
-        XCTAssertLessThanOrEqual(wpmSlot, SignalTheme.Metrics.placardWidth + 1, "WPM fits the placard's 7-character slot")
+        let wpmSlot = wpmWidths[0] + DatasheetCounterFace.labelGap + role.width(of: "WPM")
+        XCTAssertLessThanOrEqual(wpmSlot, DatasheetTheme.Metrics.placardWidth + 1, "WPM fits the placard's 7-character slot")
     }
 
     /// HISTORY_OPEN times the click on the History chip to its action, and the action to the card.
@@ -3880,31 +3880,31 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         // Listening with a history, so all four chips are live: a dimmed or inert chip acts on
         // nothing and is not a target.
         let savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
-        TranscriptionHistoryStore.shared.restore(from: SignalRenderStage.sampleHistory)
-        SignalRenderStage.listening()
+        TranscriptionHistoryStore.shared.restore(from: DatasheetRenderStage.sampleHistory)
+        DatasheetRenderStage.listening()
         defer { TranscriptionHistoryStore.shared.restore(from: savedHistory) }
-        let targets = SignalClickTargets()
+        let targets = DatasheetClickTargets()
         let host = NSHostingView(rootView: BottomOverlayView(clickTargets: targets))
         host.frame = CGRect(origin: .zero, size: host.fittingSize)
         host.layoutSubtreeIfNeeded()
-        let chip = SignalTheme.Metrics.chip
+        let chip = DatasheetTheme.Metrics.chip
         XCTAssertEqual(targets.rects.filter { $0.width == chip && $0.height == chip }.count, 4, "the four chips report themselves")
 
-        let insets = SignalTheme.Metrics.windowInsets
-        let geometry = SignalOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
-        let pillCentre = CGPoint(x: insets.leading + chip + SignalTheme.Metrics.railGap + geometry.pillWidth / 2, y: insets.top + geometry.railHeight - geometry.pillHeight / 2)
+        let insets = DatasheetTheme.Metrics.windowInsets
+        let geometry = DatasheetOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
+        let pillCentre = CGPoint(x: insets.leading + chip + DatasheetTheme.Metrics.railGap + geometry.pillWidth / 2, y: insets.top + geometry.railHeight - geometry.pillHeight / 2)
         let leftRail = targets.rects.filter { $0.width == chip && $0.minX == insets.leading }
         XCTAssertEqual(leftRail.count, 2, "History and Copy")
         let historyFrame = try XCTUnwrap(leftRail.min { $0.minY < $1.minY })
-        XCTAssertEqual(historyFrame.minY, insets.top + geometry.railHeight - geometry.pillHeight + SignalRail<EmptyView, EmptyView, EmptyView>.gap(height: geometry.railHeight), "spaced evenly down the rail (round 6)")
+        XCTAssertEqual(historyFrame.minY, insets.top + geometry.railHeight - geometry.pillHeight + DatasheetRail<EmptyView, EmptyView, EmptyView>.gap(height: geometry.railHeight), "spaced evenly down the rail (round 6)")
         let historyChip = CGPoint(x: historyFrame.midX, y: historyFrame.midY)
-        XCTAssertTrue(SignalClickTargets.isPositionResetClick(clickCount: 2, at: pillCentre, targets: targets.rects))
-        XCTAssertFalse(SignalClickTargets.isPositionResetClick(clickCount: 1, at: pillCentre, targets: targets.rects), "a single click never resets")
-        XCTAssertFalse(SignalClickTargets.isPositionResetClick(clickCount: 2, at: historyChip, targets: targets.rects), "a double-click on a chip is the chip's")
-        XCTAssertFalse(SignalClickTargets.isPositionResetClick(clickCount: 3, at: pillCentre, targets: targets.rects))
+        XCTAssertTrue(DatasheetClickTargets.isPositionResetClick(clickCount: 2, at: pillCentre, targets: targets.rects))
+        XCTAssertFalse(DatasheetClickTargets.isPositionResetClick(clickCount: 1, at: pillCentre, targets: targets.rects), "a single click never resets")
+        XCTAssertFalse(DatasheetClickTargets.isPositionResetClick(clickCount: 2, at: historyChip, targets: targets.rects), "a double-click on a chip is the chip's")
+        XCTAssertFalse(DatasheetClickTargets.isPositionResetClick(clickCount: 3, at: pillCentre, targets: targets.rects))
 
         // Idle (the delivered hold, a hidden overlay): every chip is inert, so none is a target.
-        SignalRenderStage.reset()
+        DatasheetRenderStage.reset()
         host.layoutSubtreeIfNeeded()
         XCTAssertTrue(targets.rects.isEmpty, "inert chips act on nothing")
     }
@@ -3935,7 +3935,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         controller.markRecordingStopped()
         controller.awaitDelivery(traceID: 31, appName: "TextEdit", words: 4, failureReported: false)
         controller.dictationDeliveryFinished(DictationDeliveryOutcome(traceID: 31, result: .dispatched, method: .paste, sentReturn: false))
-        XCTAssertTrue(SignalOverlayModel.shared.isDelivered)
+        XCTAssertTrue(DatasheetOverlayModel.shared.isDelivered)
         XCTAssertEqual(controller.heldDictationAppName(forDictation: 31), "TextEdit")
         XCTAssertTrue(controller.yieldToCard(forDictation: 31))
         try await Task.sleep(nanoseconds: 100_000_000)
@@ -3978,7 +3978,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
     /// Return will follow, NO SEND in ink for a cancel, dim when no Return goes there.
     func testThePlacardFollowsTheSendDecision() async {
         let controller = BottomOverlayWindowController.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         controller.prepare()
         await Task.yield()
         controller.show(audioPublisher: Just(CGFloat.zero).eraseToAnyPublisher(), mode: .dictation)
@@ -3991,7 +3991,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         controller.spokenSendDecided(.noReturn)
         XCTAssertEqual(model.stopPlacard, .noReturn, "a terminal without Return stays dim")
         controller.spokenSendDecided(.noPhrase)
-        XCTAssertEqual(model.stopPlacard, SignalPlacard.none)
+        XCTAssertEqual(model.stopPlacard, DatasheetPlacard.none)
         _ = await controller.hideAndWait()
     }
 
@@ -4010,7 +4010,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         controller.show(audioPublisher: publisher, mode: .dictation)
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertTrue(NotchContentState.shared.isBottomOverlayPresented, "the old hold's end must not hide the new pill")
-        XCTAssertEqual(SignalOverlayModel.shared.phase, .listening)
+        XCTAssertEqual(DatasheetOverlayModel.shared.phase, .listening)
         // During the fade.
         controller.markRecordingStopped()
         let fade = Task { @MainActor in await controller.hideAndWait() }
@@ -4020,7 +4020,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(outcome, .superseded)
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertTrue(NotchContentState.shared.isBottomOverlayPresented)
-        XCTAssertFalse(SignalOverlayModel.shared.isFading)
+        XCTAssertFalse(DatasheetOverlayModel.shared.isFading)
         XCTAssertEqual(controller.windowStateForTests?.alpha, 1)
         _ = await controller.hideAndWait()
     }
@@ -4038,7 +4038,7 @@ final class SignalOverlayBehaviorTests: XCTestCase {
         controller.markRecordingStopped()
         controller.awaitDelivery(traceID: 77, appName: "c11", words: 3, failureReported: false)
         controller.dictationDeliveryFinished(DictationDeliveryOutcome(traceID: 77, result: .recoverableFailure(.pasteNotLanded), method: nil, sentReturn: false))
-        XCTAssertEqual(SignalOverlayModel.shared.phase, .stopped, "waits for the card, never shows an outcome")
+        XCTAssertEqual(DatasheetOverlayModel.shared.phase, .stopped, "waits for the card, never shows an outcome")
         XCTAssertEqual(controller.heldDictationAppName(forDictation: 77), "c11")
         XCTAssertTrue(controller.yieldToCard(forDictation: 77))
         try await Task.sleep(nanoseconds: 100_000_000)
@@ -4120,7 +4120,7 @@ final class OverlayParkTimingBenchmarkTests: XCTestCase {
 /// 2 pt floor, one 4 pt bar in four seconds of speech, while the frame clock and the feed ran
 /// (captured from the installed build, 2026-09-29). The trace now calibrates to the recording.
 @MainActor
-final class SignalTraceLifecycleTests: XCTestCase {
+final class DatasheetTraceLifecycleTests: XCTestCase {
     /// A quiet microphone's speech, one level per 512-frame buffer (10.7 ms): 150 ms of room tone
     /// the ASR gates to 0, then 300 ms of syllables between 0.28 and 0.42, repeating.
     static func quietSpeech(step: Int) -> CGFloat {
@@ -4138,33 +4138,33 @@ final class SignalTraceLifecycleTests: XCTestCase {
             let level = Self.quietSpeech(step: step)
             DispatchQueue.main.async { subject.send(level) }
             step += 1
-            if step % 14 == 0 { snapshots.append(SignalOverlayModel.shared.trace.current) }
+            if step % 14 == 0 { snapshots.append(DatasheetOverlayModel.shared.trace.current) }
             try await Task.sleep(nanoseconds: 10_700_000)
         }
         try await Task.sleep(nanoseconds: 30_000_000)
-        snapshots.append(SignalOverlayModel.shared.trace.current)
+        snapshots.append(DatasheetOverlayModel.shared.trace.current)
     }
 
-    private func dictate(_ controller: BottomOverlayWindowController, subject: PassthroughSubject<CGFloat, Never>, trace id: Int) async throws -> (snapshots: [[CGFloat]], stats: SignalTraceModel.Stats, menuJaw: CGFloat) {
+    private func dictate(_ controller: BottomOverlayWindowController, subject: PassthroughSubject<CGFloat, Never>, trace id: Int) async throws -> (snapshots: [[CGFloat]], stats: DatasheetTraceModel.Stats, menuJaw: CGFloat) {
         controller.show(audioPublisher: subject.eraseToAnyPublisher(), mode: .dictation)
         var snapshots: [[CGFloat]] = []
         try await self.speak(into: subject, seconds: 0.6, snapshots: &snapshots)
-        let stats = SignalOverlayModel.shared.trace.stats
-        let menuJaw = SignalMenuBarMark.listeningJaw(from: SignalOverlayModel.shared.trace)
+        let stats = DatasheetOverlayModel.shared.trace.stats
+        let menuJaw = DatasheetMenuBarMark.listeningJaw(from: DatasheetOverlayModel.shared.trace)
         controller.markRecordingStopped()
         controller.awaitDelivery(traceID: id, appName: "c11", words: 3, failureReported: false)
         controller.dictationDeliveryFinished(DictationDeliveryOutcome(traceID: id, result: .dispatched, method: .paste, sentReturn: false))
         return (snapshots, stats, menuJaw)
     }
 
-    private func assertMoved(_ run: (snapshots: [[CGFloat]], stats: SignalTraceModel.Stats, menuJaw: CGFloat), _ label: String) {
+    private func assertMoved(_ run: (snapshots: [[CGFloat]], stats: DatasheetTraceModel.Stats, menuJaw: CGFloat), _ label: String) {
         let raisedBars = run.snapshots.map { $0.filter { $0 > 2 }.count }
         XCTAssertGreaterThanOrEqual(raisedBars.max() ?? 0, 2, "\(label): the quiet speech draws above the floor")
         XCTAssertGreaterThan(Set(run.snapshots).count, 2, "\(label): the bars change from moment to moment")
         XCTAssertGreaterThanOrEqual(run.snapshots.flatMap { $0 }.max() ?? 0, 12, "\(label): syllables stretch tall")
         // A third of this speech is room tone: under the old fixed gate this is 0.
         XCTAssertGreaterThan(Double(run.stats.raised) / Double(max(run.stats.windows, 1)), 0.25, "\(label): \(run.stats)")
-        XCTAssertTrue((0...SignalMenuBarMark.maxJaw).contains(run.menuJaw), "\(label): \(run.menuJaw)")
+        XCTAssertTrue((0...DatasheetMenuBarMark.maxJaw).contains(run.menuJaw), "\(label): \(run.menuJaw)")
     }
 
     func testTheTraceMovesOnTheSecondDictationAfterAHoldAndFade() async throws {
@@ -4180,7 +4180,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
         let first = try await self.dictate(controller, subject: subject, trace: 91)
         self.assertMoved(first, "first dictation")
         // The hold, then the fade.
-        try await Task.sleep(nanoseconds: UInt64((BottomOverlayWindowController.deliveredHold + SignalTheme.Motion.dismiss + 0.1) * 1_000_000_000))
+        try await Task.sleep(nanoseconds: UInt64((BottomOverlayWindowController.deliveredHold + DatasheetTheme.Motion.dismiss + 0.1) * 1_000_000_000))
         XCTAssertFalse(NotchContentState.shared.isBottomOverlayPresented)
 
         let second = try await self.dictate(controller, subject: subject, trace: 92)
@@ -4189,7 +4189,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
     }
 
     /// Feeds `seconds` of levels, one per 10.7 ms, and returns every bar pushed meanwhile.
-    private func pushedHeights(_ trace: SignalTraceModel, seconds: Double, from start: TimeInterval, level: (Int) -> CGFloat) -> [CGFloat] {
+    private func pushedHeights(_ trace: DatasheetTraceModel, seconds: Double, from start: TimeInterval, level: (Int) -> CGFloat) -> [CGFloat] {
         var pushed: [CGFloat] = []
         var lastPush = trace.lastPush
         for step in 0..<Int(seconds / 0.0107) {
@@ -4204,7 +4204,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
 
     func testTheTraceCalibratesToTheRecordingNotAFixedGate() {
         // A quiet microphone: its speech stretches tall, its gaps stay on the floor.
-        let quiet = SignalTraceModel(barCount: 39, noiseThreshold: 0.4)
+        let quiet = DatasheetTraceModel(barCount: 39, noiseThreshold: 0.4)
         quiet.begin(at: 0)
         let quietBars = self.pushedHeights(quiet, seconds: 4, from: 0, level: Self.quietSpeech)
         XCTAssertGreaterThan(quietBars.filter { $0 > 2 }.count, quietBars.count / 2, "\(quietBars)")
@@ -4212,7 +4212,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
         XCTAssertEqual(quiet.quietFloor ?? -1, 0, accuracy: 0.05, "the gaps set the floor")
 
         // A loud microphone in a noisy room: speech tall, the room (0.3) under the gate.
-        let loud = SignalTraceModel(barCount: 39, noiseThreshold: 0.4)
+        let loud = DatasheetTraceModel(barCount: 39, noiseThreshold: 0.4)
         loud.begin(at: 0)
         let loudBars = self.pushedHeights(loud, seconds: 4, from: 0) { step in
             (step / 14) % 3 == 2 ? 0.3 : 0.62 + 0.3 * Self.quietSpeech(step: step) / 0.42
@@ -4222,7 +4222,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
 
         // A steady background settles under the gate within seconds; then it is silence: the
         // trace holds still.
-        let steady = SignalTraceModel(barCount: 39, noiseThreshold: 0.4)
+        let steady = DatasheetTraceModel(barCount: 39, noiseThreshold: 0.4)
         steady.begin(at: 0)
         _ = self.pushedHeights(steady, seconds: 1, from: 0) { _ in 0.1 }
         _ = self.pushedHeights(steady, seconds: 12, from: 1) { _ in 0.5 }
@@ -4230,7 +4230,7 @@ final class SignalTraceLifecycleTests: XCTestCase {
         XCTAssertTrue(settled.isEmpty, "a settled background adds no bars: \(settled)")
 
         // Sensitivity "Less" asks for more above the floor than the default.
-        let less = SignalTraceModel(barCount: 39, noiseThreshold: 0.8)
+        let less = DatasheetTraceModel(barCount: 39, noiseThreshold: 0.8)
         less.begin(at: 0)
         let lessBars = self.pushedHeights(less, seconds: 4, from: 0, level: Self.quietSpeech)
         XCTAssertLessThan(lessBars.reduce(0, +), quietBars.reduce(0, +))
@@ -4239,15 +4239,15 @@ final class SignalTraceLifecycleTests: XCTestCase {
 }
 
 /// The floating shadow (DESIGN.md §6, Atin 2026-09-29): a click-through child panel under each
-/// Signal surface that draws only the soft shadow, and nothing at all when the surface is hidden.
+/// Datasheet surface that draws only the soft shadow, and nothing at all when the surface is hidden.
 @MainActor
-final class SignalFloatShadowTests: XCTestCase {
+final class DatasheetFloatShadowTests: XCTestCase {
     private var outputFolder: URL? {
         ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     override func tearDown() {
-        SignalRenderStage.reset()
+        DatasheetRenderStage.reset()
         super.tearDown()
     }
 
@@ -4290,10 +4290,10 @@ final class SignalFloatShadowTests: XCTestCase {
         XCTAssertFalse(shadow.hasShadow)
         XCTAssertNil(shadow.parent, "a parked, hidden pill has no shadow in the window list")
 
-        let margin = SignalFloatShadow.margin
-        let geometry = SignalOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
-        let insets = SignalTheme.Metrics.windowInsets
-        let pillBox = CGRect(x: insets.leading + SignalTheme.Metrics.chip + SignalTheme.Metrics.railGap, y: insets.top, width: geometry.pillWidth, height: geometry.pillHeight)
+        let margin = DatasheetFloatShadow.margin
+        let geometry = DatasheetOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
+        let insets = DatasheetTheme.Metrics.windowInsets
+        let pillBox = CGRect(x: insets.leading + DatasheetTheme.Metrics.chip + DatasheetTheme.Metrics.railGap, y: insets.top, width: geometry.pillWidth, height: geometry.pillHeight)
         for pass in ["first show", "show after the idle park"] {
             controller.show(audioPublisher: Just(CGFloat.zero).eraseToAnyPublisher(), mode: .dictation)
             // The start path moves and orders the pill alone; the shadow follows on a later turn.
@@ -4323,20 +4323,20 @@ final class SignalFloatShadowTests: XCTestCase {
     /// Dark floats more (Atin, 2026-10-01): black 0.55, radius 18, y 9; light stays 0.16, 12, 5.
     /// The shadow panel's margin holds the deepest blur.
     func testTheFloatingShadowIsPerAppearanceAndNeverClipped() {
-        let dark = SignalTheme.Palette.dark
-        let light = SignalTheme.Palette.light
+        let dark = DatasheetTheme.Palette.dark
+        let light = DatasheetTheme.Palette.light
         XCTAssertEqual(dark.floatShadowRadius, 18)
         XCTAssertEqual(dark.floatShadowY, 9)
         XCTAssertEqual(light.floatShadowRadius, 12)
         XCTAssertEqual(light.floatShadowY, 5)
-        XCTAssertEqual(SignalFloatShadow.margin, 48)
+        XCTAssertEqual(DatasheetFloatShadow.margin, 48)
         for palette in [dark, light] {
-            XCTAssertGreaterThanOrEqual(SignalFloatShadow.margin, 2 * palette.floatShadowRadius + palette.floatShadowY)
+            XCTAssertGreaterThanOrEqual(DatasheetFloatShadow.margin, 2 * palette.floatShadowRadius + palette.floatShadowY)
         }
     }
 
     func testTheShadowPanelIsNeverClampedOntoAScreen() {
-        let panel = SignalFloatShadow.Panel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+        let panel = DatasheetFloatShadow.Panel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
         let parked = NSRect(x: 100_000, y: 100_000, width: 488, height: 227)
         XCTAssertEqual(panel.constrainFrameRect(parked, to: NSScreen.screens.first), parked)
     }
@@ -4354,7 +4354,7 @@ final class SignalFloatShadowTests: XCTestCase {
         XCTAssertTrue(shadow.ignoresMouseEvents)
         let surface = try XCTUnwrap(cards.floatShadow.state.surface, "the card reports its grown pill")
         XCTAssertEqual(surface.height, 156, "the one-line card: the pill grown upward to 156")
-        XCTAssertEqual(surface.minX, SignalTheme.Metrics.windowInsets.leading + SignalTheme.Metrics.chip + SignalTheme.Metrics.railGap)
+        XCTAssertEqual(surface.minX, DatasheetTheme.Metrics.windowInsets.leading + DatasheetTheme.Metrics.chip + DatasheetTheme.Metrics.railGap)
     }
 
     /// A fade is the parent's alpha stepped down (AppKit's animator sets it step by step, each step a
@@ -4365,11 +4365,11 @@ final class SignalFloatShadowTests: XCTestCase {
     func testTheShadowFollowsItsSurfaceAlphaThroughAFade() async throws {
         let parent = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         parent.alphaValue = 0.6
-        let floatShadow = SignalFloatShadow { state in SignalFloatShadowView(state: state) }
+        let floatShadow = DatasheetFloatShadow { state in DatasheetFloatShadowView(state: state) }
         floatShadow.attach(to: parent)
         defer { floatShadow.detach() }
         let shadow = floatShadow.panelForTests
-        let margin = SignalFloatShadow.margin
+        let margin = DatasheetFloatShadow.margin
         XCTAssertEqual(shadow.frame, NSRect(x: 0, y: 0, width: 200, height: 100).insetBy(dx: -margin, dy: -margin))
         parent.setFrame(NSRect(x: 10, y: 20, width: 300, height: 120), display: false)
         XCTAssertEqual(shadow.frame, NSRect(x: 10, y: 20, width: 300, height: 120).insetBy(dx: -margin, dy: -margin), "follows a resize")
@@ -4415,13 +4415,13 @@ final class SignalFloatShadowTests: XCTestCase {
     }
 
     func testTheShadowPaintsOnlyOutsideTheSurfaceAndNothingWhileHidden() throws {
-        let margin = SignalFloatShadow.margin
+        let margin = DatasheetFloatShadow.margin
         let surface = CGRect(x: 42, y: 6, width: 340, height: 130)
         let size = CGSize(width: 424 + 2 * margin, height: 144 + 2 * margin)
-        let state = SignalFloatShadow.State()
+        let state = DatasheetFloatShadow.State()
         state.surface = surface
 
-        SignalRenderStage.listening()
+        DatasheetRenderStage.listening()
         let shown = try Self.pixels(BottomOverlayShadowView(state: state), size: size)
         // Under the box: nothing (a fading surface never shows a dark box through).
         XCTAssertEqual(shown.alphaAt(Int(margin + surface.midX), Int(margin + surface.midY)), 0)
@@ -4446,16 +4446,16 @@ final class SignalFloatShadowTests: XCTestCase {
     /// The listening pill and a failed card over their shadow panels, as the window server stacks
     /// them, beside the same surfaces without it (design/visual-language/native-renders/shadow).
     func testFloatingShadowRenders() throws {
-        let margin = SignalFloatShadow.margin
+        let margin = DatasheetFloatShadow.margin
         let transcript = "Okay, take a look at the retry admission path in the queue worker. When the same job ID lands twice inside the lease window we are admitting both and the second one clobbers the first one's checkpoint so I think the fix is to key the admission set."
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
-            SignalRenderStage.reset()
-            SignalRenderStage.listening()
-            let pillShadow = SignalFloatShadow.State()
+            DatasheetRenderStage.reset()
+            DatasheetRenderStage.listening()
+            let pillShadow = DatasheetFloatShadow.State()
             pillShadow.surface = CGRect(x: 42, y: 6, width: 340, height: 130)
             let card = DeliveryFailureCardView(
-                content: SignalCardContent(headline: "Couldn\u{2019}t paste into c11", reason: "No text field focused", transcript: transcript, primary: .copy, meta: "118 words"),
+                content: DatasheetCardContent(headline: "Couldn\u{2019}t paste into c11", reason: "No text field focused", transcript: transcript, primary: .copy, meta: "118 words"),
                 icon: NSWorkspace.shared.icon(forFile: "/Applications/c11.app"),
                 timerText: "0:41",
                 microphoneName: "MacBook Pro Microphone",
@@ -4463,9 +4463,9 @@ final class SignalFloatShadowTests: XCTestCase {
                 onDismiss: {},
                 onHoverChanged: { _ in }
             )
-            let cardShadow = SignalFloatShadow.State()
+            let cardShadow = DatasheetFloatShadow.State()
             cardShadow.surface = CGRect(x: 42, y: 6, width: 340, height: 210)
-            let surfaces: [(String, AnyView, SignalFloatShadow.State)] = [
+            let surfaces: [(String, AnyView, DatasheetFloatShadow.State)] = [
                 ("01-listening", AnyView(BottomOverlayView()), pillShadow),
                 ("07-failed", AnyView(card), cardShadow),
             ]
@@ -4475,14 +4475,14 @@ final class SignalFloatShadowTests: XCTestCase {
                         .padding(margin)
                         .background(alignment: .topLeading) {
                             if withShadow {
-                                SignalFloatShadowView(state: state).signalPalette()
+                                DatasheetFloatShadowView(state: state).datasheetPalette()
                             }
                         }
-                    let rep = try SignalRenderStage.render(composite, appearance: appearance)
+                    let rep = try DatasheetRenderStage.render(composite, appearance: appearance)
                     XCTAssertGreaterThan(rep.size.width, 424 + 2 * margin)
                     if let folder = self.outputFolder {
                         let file = "\(theme)-\(name)-\(withShadow ? "shadow" : "flat").png"
-                        try SignalRenderStage.write(rep, to: folder.appendingPathComponent("shadow").appendingPathComponent(file))
+                        try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("shadow").appendingPathComponent(file))
                     }
                 }
             }
@@ -4594,8 +4594,8 @@ final class LapelMicBatteryTests: XCTestCase {
     }
 
     override func tearDown() {
-        SignalOverlayModel.shared.micBattery = nil
-        SignalRenderStage.reset()
+        DatasheetOverlayModel.shared.micBattery = nil
+        DatasheetRenderStage.reset()
         super.tearDown()
     }
 
@@ -4696,34 +4696,34 @@ final class LapelMicBatteryTests: XCTestCase {
     func testTheCacheIsFreshForTwoMinutes() throws {
         let status = try LarkA1Protocol.parseHeartbeatReply(Self.capturedReply).get()
         let now = Date()
-        func battery(_ reading: LarkA1Status?, age: TimeInterval = 0) -> SignalMicBattery? {
-            SignalMicBattery.from(inputIsReceiver: true, reading: reading, readAt: reading.map { _ in now.addingTimeInterval(-age) }, now: now)
+        func battery(_ reading: LarkA1Status?, age: TimeInterval = 0) -> DatasheetMicBattery? {
+            DatasheetMicBattery.from(inputIsReceiver: true, reading: reading, readAt: reading.map { _ in now.addingTimeInterval(-age) }, now: now)
         }
-        XCTAssertNil(SignalMicBattery.from(inputIsReceiver: false, reading: status, readAt: now, now: now))
-        XCTAssertEqual(battery(nil), SignalMicBattery(percent: nil))
-        XCTAssertEqual(battery(status, age: 119), SignalMicBattery(percent: 33))
-        XCTAssertEqual(battery(status, age: 121), SignalMicBattery(percent: nil))
+        XCTAssertNil(DatasheetMicBattery.from(inputIsReceiver: false, reading: status, readAt: now, now: now))
+        XCTAssertEqual(battery(nil), DatasheetMicBattery(percent: nil))
+        XCTAssertEqual(battery(status, age: 119), DatasheetMicBattery(percent: 33))
+        XCTAssertEqual(battery(status, age: 121), DatasheetMicBattery(percent: nil))
         let both = try LarkA1Protocol.parseHeartbeatReply(Self.reply(payload: [0x01, 0x01, 0x50, 0x21])).get()
-        XCTAssertEqual(battery(both), SignalMicBattery(percent: 33), "both linked: the lower, whichever mic it is")
+        XCTAssertEqual(battery(both), DatasheetMicBattery(percent: 33), "both linked: the lower, whichever mic it is")
         let bothOtherWay = try LarkA1Protocol.parseHeartbeatReply(Self.reply(payload: [0x01, 0x01, 0x09, 0x50])).get()
-        XCTAssertEqual(battery(bothOtherWay), SignalMicBattery(percent: 9))
+        XCTAssertEqual(battery(bothOtherWay), DatasheetMicBattery(percent: 9))
         let oneUnread = try LarkA1Protocol.parseHeartbeatReply(Self.reply(payload: [0x01, 0x01, 0xFF, 0x50])).get()
-        XCTAssertEqual(battery(oneUnread), SignalMicBattery(percent: 80), "a linked mic with no percent leaves the other's")
+        XCTAssertEqual(battery(oneUnread), DatasheetMicBattery(percent: 80), "a linked mic with no percent leaves the other's")
         let none = try LarkA1Protocol.parseHeartbeatReply(Self.reply(payload: [0x00, 0x00, 0x40, 0x50])).get()
-        XCTAssertEqual(battery(none), SignalMicBattery(percent: nil))
-        XCTAssertTrue(SignalMicBattery.isLow(15), "15% and below in accent (our assumption)")
-        XCTAssertTrue(SignalMicBattery.isLow(0))
-        XCTAssertFalse(SignalMicBattery.isLow(16))
+        XCTAssertEqual(battery(none), DatasheetMicBattery(percent: nil))
+        XCTAssertTrue(DatasheetMicBattery.isLow(15), "15% and below in accent (our assumption)")
+        XCTAssertTrue(DatasheetMicBattery.isLow(0))
+        XCTAssertFalse(DatasheetMicBattery.isLow(16))
     }
 
     /// Nothing beside the label moves as a percent appears, changes width or goes: one box for
     /// every lapel state, inside the mic's 160, and the icon and label still clear the word count
     /// and WPM at the foot row's ends (round 6).
     func testTheLabelReservesOneWidthAndFitsTheFootRow() {
-        let role = SignalTheme.Typography.micLabel
-        let max = SignalTheme.Metrics.micMaxWidth
-        func layout(_ percent: Int?, after prefix: String = "") -> SignalMicLabel.Layout {
-            SignalMicLabel.layout(prefix: prefix, battery: SignalMicBattery(percent: percent), maxWidth: max, width: role.width(of:))
+        let role = DatasheetTheme.Typography.micLabel
+        let max = DatasheetTheme.Metrics.micMaxWidth
+        func layout(_ percent: Int?, after prefix: String = "") -> DatasheetMicLabel.Layout {
+            DatasheetMicLabel.layout(prefix: prefix, battery: DatasheetMicBattery(percent: percent), maxWidth: max, width: role.width(of:))
         }
         let lapel = [layout(nil), layout(0), layout(5), layout(33), layout(100)]
         XCTAssertTrue(lapel.allSatisfy { $0.name == "Hollyland lapel" }, "LAPEL in every lapel state")
@@ -4742,13 +4742,13 @@ final class LapelMicBatteryTests: XCTestCase {
         XCTAssertLessThanOrEqual(edit[0].width, max)
 
         // The pair, centred, clears the word count's box at the left end and WPM's slot at the right.
-        let inner = SignalOverlayGeometry.forSize(.medium).innerWidth
-        let words = role.width(of: SignalCounterSmoother.padded(9999, places: 4)) + SignalCounterFace.labelGap + role.width(of: "WORDS")
+        let inner = DatasheetOverlayGeometry.forSize(.medium).innerWidth
+        let words = role.width(of: DatasheetCounterSmoother.padded(9999, places: 4)) + DatasheetCounterFace.labelGap + role.width(of: "WORDS")
         for width in [lapel[0].width, edit[0].width] {
-            let pair = SignalTheme.Metrics.targetIcon + SignalTheme.Metrics.footGap + width
+            let pair = DatasheetTheme.Metrics.targetIcon + DatasheetTheme.Metrics.footGap + width
             let left = (inner - pair) / 2
             XCTAssertGreaterThanOrEqual(left, words, "the pair clears \"9999 WORDS\" at \(width)")
-            XCTAssertLessThanOrEqual(left + pair, inner - SignalTheme.Metrics.placardWidth, "the pair clears WPM at \(width)")
+            XCTAssertLessThanOrEqual(left + pair, inner - DatasheetTheme.Metrics.placardWidth, "the pair clears WPM at \(width)")
         }
     }
 
@@ -4759,28 +4759,28 @@ final class LapelMicBatteryTests: XCTestCase {
         XCTAssertEqual(LarkA1HIDTransport().heartbeat(), .noDevice)
         LapelMicBatteryMonitor.shared.noteSelectedInput(uid: "hollyland-lapel-mic")
         XCTAssertNil(LapelMicBatteryMonitor.shared.followedInputUID, "the monitor never starts in quiet mode")
-        XCTAssertNil(SignalOverlayModel.shared.micBattery)
+        XCTAssertNil(DatasheetOverlayModel.shared.micBattery)
     }
 
     /// Renders only, for design review (the geometry is asserted above): the listening overlay with
     /// the lapel mic selected, no reading, 33% and low (design/visual-language/
     /// native-renders when MOUTHKEYS_RENDER_DIR is set).
     func testRendersTheLapelLabelForReview() throws {
-        let states: [(String, SignalMicBattery)] = [
-            ("lapel-none", SignalMicBattery(percent: nil)),
-            ("lapel-33", SignalMicBattery(percent: 33)),
-            ("lapel-9", SignalMicBattery(percent: 9)),
+        let states: [(String, DatasheetMicBattery)] = [
+            ("lapel-none", DatasheetMicBattery(percent: nil)),
+            ("lapel-33", DatasheetMicBattery(percent: 33)),
+            ("lapel-9", DatasheetMicBattery(percent: 9)),
         ]
         let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
             for (name, battery) in states {
-                SignalRenderStage.listening()
-                SignalOverlayModel.shared.microphoneName = "Hollyland Lapel Mic"
-                SignalOverlayModel.shared.micBattery = battery
-                let rep = try SignalRenderStage.render(BottomOverlayView(), appearance: appearance)
+                DatasheetRenderStage.listening()
+                DatasheetOverlayModel.shared.microphoneName = "Hollyland Lapel Mic"
+                DatasheetOverlayModel.shared.micBattery = battery
+                let rep = try DatasheetRenderStage.render(BottomOverlayView(), appearance: appearance)
                 if let folder {
-                    try SignalRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-23-\(name).png"))
+                    try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-23-\(name).png"))
                 }
             }
         }

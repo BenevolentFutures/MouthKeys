@@ -1,17 +1,17 @@
 import AppKit
 import SwiftUI
 
-// Signal: MouthKeys' visual language (design/visual-language/DESIGN.md, binding prototype
-// design/visual-language/prototypes/signal/index.html). The single source of colour, type,
+// Datasheet Mono: MouthKeys' visual language (design/visual-language/DESIGN.md, binding prototype
+// design/visual-language/prototypes/datasheet/index.html). The single source of colour, type,
 // spacing and motion for the recording overlay, its cards, the history card and the menu bar.
 //
 // Square solid surfaces, 1 px rules, square-ended ink bars, SF Mono for every number and label,
 // and one colour, international orange, only for something live or actionable. No radius, no
 // gradients, no glow, no materials, and one blur: the soft floating shadow under the pill and
-// cards (DESIGN.md §6, Atin 2026-09-29), drawn by SignalFloatShadow. Dark is the default; light is print on paper and
+// cards (DESIGN.md §6, Atin 2026-09-29), drawn by DatasheetFloatShadow. Dark is the default; light is print on paper and
 // follows the system appearance.
 
-enum SignalTheme {
+enum DatasheetTheme {
     // MARK: - Colour
 
     /// The colour tokens (DESIGN.md §2) for one appearance.
@@ -60,53 +60,53 @@ enum SignalTheme {
         let graticule: Color
 
         static let dark = Palette(
-            accent: SignalTheme.rgb(0xFF4F1F),
-            onAccent: SignalTheme.rgb(0x111214),
-            surface: SignalTheme.rgb(0x111214),
-            edge: SignalTheme.rgb(0x2C2E33),
-            chip: SignalTheme.rgb(0x1A1B1F),
+            accent: DatasheetTheme.rgb(0xFF4F1F),
+            onAccent: DatasheetTheme.rgb(0x111214),
+            surface: DatasheetTheme.rgb(0x111214),
+            edge: DatasheetTheme.rgb(0x2C2E33),
+            chip: DatasheetTheme.rgb(0x1A1B1F),
             drop: Color.black.opacity(0.35),
             floatShadow: Color.black.opacity(0.55),
             floatShadowRadius: 18,
             floatShadowY: 9,
             ink: .white,
-            midline: SignalTheme.rgb(0x2C2E33),
+            midline: DatasheetTheme.rgb(0x2C2E33),
             text: Color.white.opacity(0.92),
             text2: Color.white.opacity(0.58),
             textDim: Color.white.opacity(0.46),
             glyph: Color.white.opacity(0.85),
             glyphOff: Color.white.opacity(0.28),
-            rule: SignalTheme.rgb(0x2C2E33),
+            rule: DatasheetTheme.rgb(0x2C2E33),
             invBackground: .white,
-            invForeground: SignalTheme.rgb(0x111214),
-            invForeground2: SignalTheme.rgb(0x111214).opacity(0.62),
+            invForeground: DatasheetTheme.rgb(0x111214),
+            invForeground2: DatasheetTheme.rgb(0x111214).opacity(0.62),
             bracket: Color.white.opacity(0.78),
             graticule: Color.white.opacity(0.20)
         )
 
         static let light = Palette(
-            accent: SignalTheme.rgb(0xFF4F1F),
-            onAccent: SignalTheme.rgb(0x111214),
+            accent: DatasheetTheme.rgb(0xFF4F1F),
+            onAccent: DatasheetTheme.rgb(0x111214),
             surface: .white,
-            edge: SignalTheme.rgb(0x111214),
-            chip: SignalTheme.rgb(0xF2F2F4),
-            drop: SignalTheme.rgb(0x111214),
+            edge: DatasheetTheme.rgb(0x111214),
+            chip: DatasheetTheme.rgb(0xF2F2F4),
+            drop: DatasheetTheme.rgb(0x111214),
             floatShadow: Color.black.opacity(0.16),
             floatShadowRadius: 12,
             floatShadowY: 5,
-            ink: SignalTheme.rgb(0x111214),
-            midline: SignalTheme.rgb(0xD3D4D8),
-            text: SignalTheme.rgb(0x111214),
-            text2: SignalTheme.rgb(0x111214),
-            textDim: SignalTheme.rgb(0x111214).opacity(0.50),
-            glyph: SignalTheme.rgb(0x111214),
-            glyphOff: SignalTheme.rgb(0x111214).opacity(0.28),
-            rule: SignalTheme.rgb(0x111214),
-            invBackground: SignalTheme.rgb(0x111214),
+            ink: DatasheetTheme.rgb(0x111214),
+            midline: DatasheetTheme.rgb(0xD3D4D8),
+            text: DatasheetTheme.rgb(0x111214),
+            text2: DatasheetTheme.rgb(0x111214),
+            textDim: DatasheetTheme.rgb(0x111214).opacity(0.50),
+            glyph: DatasheetTheme.rgb(0x111214),
+            glyphOff: DatasheetTheme.rgb(0x111214).opacity(0.28),
+            rule: DatasheetTheme.rgb(0x111214),
+            invBackground: DatasheetTheme.rgb(0x111214),
             invForeground: .white,
             invForeground2: Color.white.opacity(0.66),
-            bracket: SignalTheme.rgb(0x111214),
-            graticule: SignalTheme.rgb(0x111214).opacity(0.30)
+            bracket: DatasheetTheme.rgb(0x111214),
+            graticule: DatasheetTheme.rgb(0x111214).opacity(0.30)
         )
 
         static func forScheme(_ scheme: ColorScheme) -> Palette {
@@ -375,36 +375,36 @@ extension Font.Weight {
 
 // MARK: - Environment
 
-private struct SignalPaletteKey: EnvironmentKey {
-    static let defaultValue = SignalTheme.Palette.dark
+private struct DatasheetPaletteKey: EnvironmentKey {
+    static let defaultValue = DatasheetTheme.Palette.dark
 }
 
 extension EnvironmentValues {
-    /// The Signal palette for this view's appearance. Set by `.signalPalette()` from the
+    /// The Datasheet palette for this view's appearance. Set by `.datasheetPalette()` from the
     /// colour scheme, so overlay views follow the system appearance.
-    var signalPalette: SignalTheme.Palette {
-        get { self[SignalPaletteKey.self] }
-        set { self[SignalPaletteKey.self] = newValue }
+    var datasheetPalette: DatasheetTheme.Palette {
+        get { self[DatasheetPaletteKey.self] }
+        set { self[DatasheetPaletteKey.self] = newValue }
     }
 }
 
-private struct SignalPaletteFromScheme: ViewModifier {
+private struct DatasheetPaletteFromScheme: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        content.environment(\.signalPalette, SignalTheme.Palette.forScheme(self.colorScheme))
+        content.environment(\.datasheetPalette, DatasheetTheme.Palette.forScheme(self.colorScheme))
     }
 }
 
 extension View {
-    /// Resolves the Signal palette from the current colour scheme (dark default, light when the
+    /// Resolves the Datasheet palette from the current colour scheme (dark default, light when the
     /// system appearance is light).
-    func signalPalette() -> some View {
-        self.modifier(SignalPaletteFromScheme())
+    func datasheetPalette() -> some View {
+        self.modifier(DatasheetPaletteFromScheme())
     }
 
-    /// A Signal type role: face, size and weight, tracking, and the prototype's line height.
-    func signalType(_ role: SignalTheme.TypeRole) -> some View {
+    /// A Datasheet type role: face, size and weight, tracking, and the prototype's line height.
+    func datasheetType(_ role: DatasheetTheme.TypeRole) -> some View {
         self
             .font(role.font)
             .tracking(role.tracking)

@@ -7,30 +7,30 @@ import SwiftUI
 /// steps by age, and static ruler ticks below (2 pt every 0.25 s, 4 pt every 1 s) in a 6 pt band
 /// that stays reserved. The transcribing sweep is a Core Animation layer, so it costs the main
 /// thread nothing while the final pass runs.
-struct SignalTraceView: View {
-    let model: SignalTraceModel
+struct DatasheetTraceView: View {
+    let model: DatasheetTraceModel
     /// Recording: the frame clock runs and the write head is orange.
     let isLive: Bool
     /// Transcribing: the orange 24 x 4 block steps across on the bar pitch.
     let isSweeping: Bool
     /// Spoken Send's countdown: the trace draws flat under the drain bar.
-    var drain: SignalDrain?
+    var drain: DatasheetDrain?
     /// Draws the sweep at this fraction of its period inside the Canvas instead of animating it
     /// (renders and inspection: an offscreen renderer draws no Core Animation layer).
     var staticSweepProgress: Double?
     var showsAgeRuler = true
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Keeps the frame clock running briefly after a stop, for the 60 ms stop-to-flat.
     @State private var settlesUntil: Date = .distantPast
 
     private var width: CGFloat {
-        SignalTraceModel.width(forBars: self.model.barCount)
+        DatasheetTraceModel.width(forBars: self.model.barCount)
     }
 
     private var height: CGFloat {
-        SignalTheme.Metrics.traceHeight + SignalTheme.Metrics.rulerHeight
+        DatasheetTheme.Metrics.traceHeight + DatasheetTheme.Metrics.rulerHeight
     }
 
     var body: some View {
@@ -46,14 +46,14 @@ struct SignalTraceView: View {
         .frame(width: self.width, height: self.height)
         .overlay(alignment: .topLeading) {
             if self.isSweeping, self.staticSweepProgress == nil {
-                SignalSweep(traceWidth: self.width, reducesMotion: self.reduceMotion)
-                    .frame(width: self.width, height: SignalTheme.Metrics.traceHeight)
+                DatasheetSweep(traceWidth: self.width, reducesMotion: self.reduceMotion)
+                    .frame(width: self.width, height: DatasheetTheme.Metrics.traceHeight)
                     .allowsHitTesting(false)
             }
         }
         .onChange(of: self.isLive) { _, live in
             guard !live else { return }
-            let settle = SignalTheme.Motion.stopToFlat + 0.04
+            let settle = DatasheetTheme.Motion.stopToFlat + 0.04
             self.settlesUntil = Date().addingTimeInterval(settle)
             DispatchQueue.main.asyncAfter(deadline: .now() + settle + 0.02) {
                 self.settlesUntil = .distantPast
@@ -63,7 +63,7 @@ struct SignalTraceView: View {
     }
 
     private func draw(in context: inout GraphicsContext, now: TimeInterval) {
-        let metrics = SignalTheme.Metrics.self
+        let metrics = DatasheetTheme.Metrics.self
         let mid = metrics.traceMidline
         // The 1 px midline rule, full width, behind the bars.
         context.fill(Path(CGRect(x: 0, y: mid - 0.5, width: self.width, height: 1)), with: .color(self.palette.midline))
@@ -80,13 +80,13 @@ struct SignalTraceView: View {
         bars.clip(to: Path(CGRect(x: 0, y: 0, width: self.width, height: metrics.traceHeight)))
         for index in 0..<count {
             let age = count - 1 - index
-            let barHeight = flat ? SignalTraceModel.floor : self.model.shownHeight(at: index, now: now)
+            let barHeight = flat ? DatasheetTraceModel.floor : self.model.shownHeight(at: index, now: now)
             let x = pixel(self.width - metrics.barWidth - CGFloat(age) * metrics.barPitch - slide)
             guard x + metrics.barWidth > 0 else { continue }
             let isHead = live && age < metrics.writeHeadBars
             let color = isHead
                 ? self.palette.accent
-                : self.palette.ink.opacity(SignalTraceModel.bandOpacity(age: age, of: count))
+                : self.palette.ink.opacity(DatasheetTraceModel.bandOpacity(age: age, of: count))
             let top = pixel(mid - barHeight / 2)
             let bottom = max(pixel(mid + barHeight / 2), top + 1 / scale)
             bars.fill(
@@ -96,7 +96,7 @@ struct SignalTraceView: View {
         }
 
         if self.isSweeping, let progress = self.staticSweepProgress {
-            let steps = SignalSweepView.steps(traceWidth: self.width, reducesMotion: false)
+            let steps = DatasheetSweepView.steps(traceWidth: self.width, reducesMotion: false)
             let x = steps.last(where: { $0.time <= progress })?.x ?? steps[0].x
             context.fill(
                 Path(CGRect(x: x, y: mid - metrics.sweepHeight / 2, width: metrics.sweepWidth, height: metrics.sweepHeight)),
@@ -133,7 +133,7 @@ struct SignalTraceView: View {
 }
 
 /// Spoken Send's quiet countdown (round 5): its length and start, or where a cancel stopped it.
-struct SignalDrain: Equatable {
+struct DatasheetDrain: Equatable {
     let startedAt: Date
     let duration: TimeInterval
     /// Set once canceled: the bar stops here, in ink.
@@ -156,20 +156,20 @@ struct SignalDrain: Equatable {
 /// The transcribing sweep: a solid 24 x 4 orange block stepped across the trace on the 4 pt
 /// pitch every 1.05 s, as a discrete keyframe animation the compositor runs. Reduced motion holds
 /// four positions per cycle.
-private struct SignalSweep: NSViewRepresentable {
+private struct DatasheetSweep: NSViewRepresentable {
     let traceWidth: CGFloat
     let reducesMotion: Bool
 
-    func makeNSView(context: Context) -> SignalSweepView {
-        SignalSweepView()
+    func makeNSView(context: Context) -> DatasheetSweepView {
+        DatasheetSweepView()
     }
 
-    func updateNSView(_ view: SignalSweepView, context: Context) {
+    func updateNSView(_ view: DatasheetSweepView, context: Context) {
         view.configure(traceWidth: self.traceWidth, reducesMotion: self.reducesMotion)
     }
 }
 
-final class SignalSweepView: NSView {
+final class DatasheetSweepView: NSView {
     private let block = CALayer()
     private var traceWidth: CGFloat = 0
     private var reducesMotion = false
@@ -178,7 +178,7 @@ final class SignalSweepView: NSView {
         super.init(frame: frameRect)
         self.wantsLayer = true
         self.layer?.masksToBounds = true
-        self.block.backgroundColor = SignalTheme.AppKitColors.accent.cgColor
+        self.block.backgroundColor = DatasheetTheme.AppKitColors.accent.cgColor
         self.block.anchorPoint = .zero
         self.block.actions = ["position": NSNull(), "bounds": NSNull()]
         self.layer?.addSublayer(self.block)
@@ -211,7 +211,7 @@ final class SignalSweepView: NSView {
     }
 
     private func restart() {
-        let metrics = SignalTheme.Metrics.self
+        let metrics = DatasheetTheme.Metrics.self
         self.block.removeAllAnimations()
         guard self.window != nil, self.traceWidth > 0 else { return }
         CATransaction.begin()
@@ -227,7 +227,7 @@ final class SignalSweepView: NSView {
         // Discrete keyframes take one more key time than values, ending at 1.
         animation.keyTimes = steps.map { NSNumber(value: $0.time) } + [1]
         animation.calculationMode = .discrete
-        animation.duration = SignalTheme.Motion.sweepPeriod
+        animation.duration = DatasheetTheme.Motion.sweepPeriod
         animation.repeatCount = .infinity
         animation.isRemovedOnCompletion = false
         self.block.add(animation, forKey: "signal.sweep")
@@ -236,7 +236,7 @@ final class SignalSweepView: NSView {
     /// The block's left edge and when it moves there, as fractions of the period: the prototype's
     /// `x = 1 + round((-24 + p * (width + 24)) / 4) * 4`, one keyframe per step.
     static func steps(traceWidth: CGFloat, reducesMotion: Bool) -> [(x: CGFloat, time: Double)] {
-        let metrics = SignalTheme.Metrics.self
+        let metrics = DatasheetTheme.Metrics.self
         let span = traceWidth + metrics.sweepWidth
         func x(at progress: Double) -> CGFloat {
             1 + ((-metrics.sweepWidth + CGFloat(progress) * span) / metrics.barPitch).rounded() * metrics.barPitch

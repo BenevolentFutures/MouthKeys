@@ -6,7 +6,7 @@ import AppKit
 /// while transcribing the jaw is closed and the square is outlined. The width never changes. On
 /// hover, and while the menu is open, a bracket draws inside the box (the menu bar has no room
 /// outside it).
-enum SignalMenuBarMark {
+enum DatasheetMenuBarMark {
     enum Kind: Equatable {
         case idle
         case listening
@@ -74,18 +74,18 @@ enum SignalMenuBarMark {
     /// while the voice is on, wide (2 pt) on the louder half of the range, closed once the voice
     /// has been off past the 250 ms hangover, so the mark never talks while Atin is quiet.
     static func listeningJaw(
-        from trace: SignalTraceModel,
+        from trace: DatasheetTraceModel,
         at now: TimeInterval = Date().timeIntervalSinceReferenceDate
     ) -> CGFloat {
         guard trace.isVoiceActive(at: now), let sample = trace.current.dropLast().last ?? trace.current.last else { return 0 }
-        let level = (sample - SignalTraceModel.floor) / (SignalTraceModel.ceiling - SignalTraceModel.floor)
+        let level = (sample - DatasheetTraceModel.floor) / (DatasheetTraceModel.ceiling - DatasheetTraceModel.floor)
         return level >= 0.5 ? self.maxJaw : 1
     }
 }
 
 /// The menu's header row: "MOUTHKEYS" on the left and the state on the right, mono 10 pt
 /// uppercase, with the orange square while listening (DESIGN.md §10).
-final class SignalMenuHeaderView: NSView {
+final class DatasheetMenuHeaderView: NSView {
     var stateText = "Ready" {
         didSet { if self.stateText != oldValue { self.needsDisplay = true } }
     }
@@ -123,7 +123,7 @@ final class SignalMenuHeaderView: NSView {
         let stateX = self.bounds.width - inset - stateSize.width
         state.draw(at: NSPoint(x: stateX, y: (self.bounds.height - stateSize.height) / 2))
         if self.isLive {
-            SignalTheme.AppKitColors.accent.setFill()
+            DatasheetTheme.AppKitColors.accent.setFill()
             NSRect(x: stateX - 12, y: self.bounds.midY - 3, width: 6, height: 6).fill()
         }
     }

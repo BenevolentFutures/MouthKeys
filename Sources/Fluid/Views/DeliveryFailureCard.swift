@@ -5,7 +5,7 @@ import SwiftUI
 //   @d5cc5090 friendlier wording, @ff92b4b8 shorter title, @8a820022 one Copy action and a
 //   10 s auto-dismiss, @088efe13 its own transient panel instead of an overlay state, and
 //   @9c25e758 a card for every failure, with Open Settings for Accessibility.
-// The look is Signal's recovery-card family: the pill grown upward from where the overlay sits
+// The look is Datasheet's recovery-card family: the pill grown upward from where the overlay sits
 // (a dragged position included), with the orange 2 pt top rule, a headline, one reason line, the
 // transcript for a failed paste, one orange primary action, Dismiss and mono meta, between the
 // overlay's own rails. Its trace row, mic row, rails and chips sit exactly where the overlay's do.
@@ -21,7 +21,7 @@ final class DeliveryFailureOverlayController {
     private var panel: NSPanel?
     /// The card's floating shadow (DESIGN.md §6), in its own click-through panel under the card's;
     /// it follows the card's alpha, so the dismiss fade takes it along.
-    let floatShadow = SignalFloatShadow { state in SignalFloatShadowView(state: state).signalPalette() }
+    let floatShadow = DatasheetFloatShadow { state in DatasheetFloatShadowView(state: state).datasheetPalette() }
     private var hostingView: NSHostingView<DeliveryFailureCardView>?
     private var dismissTask: Task<Void, Never>?
     private var generation: UInt64 = 0
@@ -49,8 +49,8 @@ final class DeliveryFailureOverlayController {
         let reason = Self.reasonText(failure: failure, clipboard: report.clipboard, inHistory: report.inHistory)
         let appName = BottomOverlayWindowController.shared.heldDictationAppName(forDictation: report.traceID)
         let isAccessibility = failure == .accessibilityNotTrusted
-        let words = SignalOverlayModel.wordCount(transcript)
-        let content = SignalCardContent(
+        let words = DatasheetOverlayModel.wordCount(transcript)
+        let content = DatasheetCardContent(
             headline: isAccessibility
                 ? "Accessibility is off"
                 : appName.map { "Couldn\u{2019}t paste into \($0)" } ?? "Couldn\u{2019}t paste the text",
@@ -70,7 +70,7 @@ final class DeliveryFailureOverlayController {
             } else {
                 ClipboardService.copyToClipboard(transcript)
                 // Close once the "✓ Copied" confirmation has shown.
-                self?.hide(after: SignalTheme.Motion.copyFeedbackButton)
+                self?.hide(after: DatasheetTheme.Motion.copyFeedbackButton)
             }
         }
         self.presentedFailure = failure
@@ -98,19 +98,19 @@ final class DeliveryFailureOverlayController {
             DebugLogger.shared.info("Recognition-back notice row shown in the pill", source: "DeliveryFailureCard")
             return
         }
-        let content: SignalCardContent = switch notice {
+        let content: DatasheetCardContent = switch notice {
         case .timedOut:
-            SignalCardContent(headline: "Transcription timed out", reason: "Your audio is kept", primary: .reprocess)
+            DatasheetCardContent(headline: "Transcription timed out", reason: "Your audio is kept", primary: .reprocess)
         case .recovered:
-            SignalCardContent(headline: "Speech recognition is back", reason: "A kept dictation is waiting", primary: .reprocess)
+            DatasheetCardContent(headline: "Speech recognition is back", reason: "A kept dictation is waiting", primary: .reprocess)
         case let .recordingRefused(hasKeptAudio):
-            SignalCardContent(
+            DatasheetCardContent(
                 headline: "Speech recognition is recovering",
                 reason: hasKeptAudio ? "This recording didn\u{2019}t start. Your earlier audio is kept" : "This recording didn\u{2019}t start. Try again in a moment",
                 primary: hasKeptAudio ? .reprocess : .none
             )
         case .reprocessUnavailable:
-            SignalCardContent(headline: "Speech recognition is recovering", reason: "Your audio is kept. Reprocess again in a moment", primary: .reprocess)
+            DatasheetCardContent(headline: "Speech recognition is recovering", reason: "Your audio is kept. Reprocess again in a moment", primary: .reprocess)
         }
         let refusedStart: Bool = if case .recordingRefused = notice { true } else { false }
         self.present(content, yieldOverlay: {
@@ -129,7 +129,7 @@ final class DeliveryFailureOverlayController {
     /// A dictation hotkey pressed while macOS denies the microphone: recording cannot start, so
     /// say so where the overlay would have appeared, with a way to the Microphone settings.
     func showMicrophoneAccessNeeded() {
-        let content = SignalCardContent(
+        let content = DatasheetCardContent(
             headline: "Microphone access is off",
             reason: "Allow \(Bundle.main.fluidAppDisplayName) in Privacy & Security",
             primary: .openSystemSettings,
@@ -145,14 +145,14 @@ final class DeliveryFailureOverlayController {
 
     /// `yieldOverlay`: asks the overlay to give way (a cut) when the card is about the dictation it
     /// is holding, so the card reads as the pill growing upward; otherwise the card sits above it.
-    private func present(_ content: SignalCardContent, yieldOverlay: () -> Bool, primary: @escaping () -> Void) {
+    private func present(_ content: DatasheetCardContent, yieldOverlay: () -> Bool, primary: @escaping () -> Void) {
         let overlayYielded = yieldOverlay()
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         let view = DeliveryFailureCardView(
             content: content,
             icon: NotchContentState.shared.targetAppIcon ?? ActiveAppMonitor.shared.activeAppIcon,
-            timerText: model.lastRecording.map { SignalOverlayModel.formatDuration($0.duration) } ?? "0:00",
-            microphoneName: BottomOverlayWindowController.cachedMicrophoneName(current: SignalOverlayModel.shared.microphoneName),
+            timerText: model.lastRecording.map { DatasheetOverlayModel.formatDuration($0.duration) } ?? "0:00",
+            microphoneName: BottomOverlayWindowController.cachedMicrophoneName(current: DatasheetOverlayModel.shared.microphoneName),
             micBattery: model.micBattery,
             onPrimary: primary,
             onDismiss: { [weak self] in self?.hide() },
@@ -218,7 +218,7 @@ final class DeliveryFailureOverlayController {
         self.presentedTranscript = nil
         self.presentedTimeout = nil
         self.presentedMicrophoneAccessNeeded = false
-        guard let panel = self.panel, panel.isVisible, !SignalTheme.Motion.isReduced else {
+        guard let panel = self.panel, panel.isVisible, !DatasheetTheme.Motion.isReduced else {
             self.panel?.orderOut(nil)
             return
         }
@@ -226,7 +226,7 @@ final class DeliveryFailureOverlayController {
         // (a cut under reduced motion). A card presented meanwhile keeps the panel.
         let generation = self.generation
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = SignalTheme.Motion.dismiss
+            context.duration = DatasheetTheme.Motion.dismiss
             context.timingFunction = CAMediaTimingFunction(name: .linear)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
@@ -289,7 +289,7 @@ final class DeliveryFailureOverlayController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         // No window-server shadow: the card's floating shadow is its own click-through panel
-        // (SignalFloatShadow, DESIGN.md §6), attached below.
+        // (DatasheetFloatShadow, DESIGN.md §6), attached below.
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
@@ -329,32 +329,32 @@ final class DeliveryFailureOverlayController {
 /// (flat, the frozen length), the mic row, the rails and the chips sit exactly where the overlay's
 /// were, so the card reads as the same object; only the top moves.
 struct DeliveryFailureCardView: View {
-    let content: SignalCardContent
+    let content: DatasheetCardContent
     let icon: NSImage?
     /// The dictation's frozen length ("0:41"); the microphone card shows a dim "0:00".
     let timerText: String
     let microphoneName: String
-    /// The lapel mic's battery as the card appeared, like the name (`SignalFootRow.micBattery`).
-    var micBattery: SignalMicBattery?
+    /// The lapel mic's battery as the card appeared, like the name (`DatasheetFootRow.micBattery`).
+    var micBattery: DatasheetMicBattery?
     let onPrimary: () -> Void
     let onDismiss: () -> Void
     let onHoverChanged: (Bool) -> Void
     /// The card panel's floating shadow, which this card reports its grown pill to. Only the
     /// card's own panel passes it; a render or another host reports nowhere.
-    var floatShadow: SignalFloatShadow.State?
+    var floatShadow: DatasheetFloatShadow.State?
 
     @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
     @ObservedObject private var historyCard = BottomOverlayHistoryMenuController.shared
     @State private var isHovered = false
     @State private var hoveredChips: Set<String> = []
     @State private var isCopyConfirming = false
-    @State private var historyChipAnchor = SignalChipAnchor()
+    @State private var historyChipAnchor = DatasheetChipAnchor()
     /// The grown pill between its rails on screen: the history card centres on it.
-    @State private var overlayAnchor = SignalOverlayAnchor()
-    @State private var trace = SignalTraceModel()
+    @State private var overlayAnchor = DatasheetOverlayAnchor()
+    @State private var trace = DatasheetTraceModel()
 
-    private var geometry: SignalOverlayGeometry {
-        SignalOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
+    private var geometry: DatasheetOverlayGeometry {
+        DatasheetOverlayGeometry.forSize(SettingsStore.shared.overlaySize)
     }
 
     private var hasHistory: Bool {
@@ -364,15 +364,15 @@ struct DeliveryFailureCardView: View {
     var body: some View {
         let geometry = self.geometry
         let cardHeight = self.content.height(width: geometry.innerWidth)
-        HStack(alignment: .bottom, spacing: SignalTheme.Metrics.railGap) {
-            SignalRail(height: geometry.railHeight) {
+        HStack(alignment: .bottom, spacing: DatasheetTheme.Metrics.railGap) {
+            DatasheetRail(height: geometry.railHeight) {
                 self.chip("history", "clock.arrow.circlepath", self.hasHistory ? "Recent Dictations" : "No saved dictation history available", enabled: self.hasHistory, latched: self.historyCard.isOpen) {
                     // The history card clears the grown pill: centred on it, 6 pt above its top.
                     BottomOverlayHistoryMenuController.shared.updateAnchor(
                         selectorFrameInScreen: self.historyChipAnchor.frameInScreen,
                         overlayFrameInScreen: self.overlayAnchor.frameInScreen(window: self.historyChipAnchor.window),
                         parentWindow: self.historyChipAnchor.window,
-                        maxWidth: SignalTheme.Metrics.historyWidth
+                        maxWidth: DatasheetTheme.Metrics.historyWidth
                     )
                     BottomOverlayHistoryMenuController.shared.toggleFromTap()
                 }
@@ -389,16 +389,16 @@ struct DeliveryFailureCardView: View {
                 self.chip("copy", "doc.on.doc", "Copy Last Transcription", enabled: self.hasHistory, confirming: self.isCopyConfirming) {
                     NotchContentState.shared.onCopyLastRequested?()
                     self.isCopyConfirming = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + SignalTheme.Motion.copyFeedbackChip) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + DatasheetTheme.Motion.copyFeedbackChip) {
                         self.isCopyConfirming = false
                     }
                 }
             }
 
-            SignalPill(
+            DatasheetPill(
                 geometry: geometry,
                 topHeight: cardHeight,
-                traceRow: SignalTraceRow(
+                traceRow: DatasheetTraceRow(
                     geometry: geometry,
                     trace: self.trace,
                     isLive: false,
@@ -406,7 +406,7 @@ struct DeliveryFailureCardView: View {
                     mark: self.content.isMicrophoneOff ? .closed : .none,
                     timer: .frozen(self.content.isMicrophoneOff ? "0:00" : self.timerText, dim: self.content.isMicrophoneOff)
                 ),
-                foot: SignalFootRow(
+                foot: DatasheetFootRow(
                     icon: self.icon,
                     micText: self.content.isMicrophoneOff ? "No microphone" : (self.microphoneName.isEmpty ? "Microphone" : self.microphoneName),
                     isMicEmphasized: self.content.isMicrophoneOff,
@@ -416,16 +416,16 @@ struct DeliveryFailureCardView: View {
                 // (DESIGN.md §7, Atin 2026-09-29).
                 marksFailure: true
             ) {
-                SignalCardBody(
+                DatasheetCardBody(
                     content: self.content,
                     width: geometry.innerWidth,
                     onPrimary: self.onPrimary,
                     onDismiss: self.onDismiss
                 )
             }
-            .signalFloatShadowSource(self.floatShadow)
+            .datasheetFloatShadowSource(self.floatShadow)
 
-            SignalRail(height: geometry.railHeight) {
+            DatasheetRail(height: geometry.railHeight) {
                 self.chip("cancel", "xmark", "Dismiss", enabled: true, action: self.onDismiss)
             } middle: {
                 Color.clear
@@ -436,16 +436,16 @@ struct DeliveryFailureCardView: View {
                 }
             }
         }
-        .signalOverlayAnchor(self.overlayAnchor)
+        .datasheetOverlayAnchor(self.overlayAnchor)
         .onHover { hovering in
             self.isHovered = hovering
             self.onHoverChanged(hovering)
         }
-        .padding(SignalTheme.Metrics.windowInsets)
-        .signalPalette()
+        .padding(DatasheetTheme.Metrics.windowInsets)
+        .datasheetPalette()
         .onAppear {
             if self.trace.barCount != geometry.traceBars {
-                self.trace = SignalTraceModel(barCount: geometry.traceBars)
+                self.trace = DatasheetTraceModel(barCount: geometry.traceBars)
             }
         }
         .accessibilityElement(children: .contain)
@@ -460,8 +460,8 @@ struct DeliveryFailureCardView: View {
         latched: Bool = false,
         confirming: Bool = false,
         action: @escaping () -> Void
-    ) -> SignalChip {
-        SignalChip(
+    ) -> DatasheetChip {
+        DatasheetChip(
             systemName: systemName,
             help: help,
             isEnabled: enabled,

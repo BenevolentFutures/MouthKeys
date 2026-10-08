@@ -17,13 +17,13 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     // Cached menu items to avoid rebuilding entire menu
     private var statusMenuItem: NSMenuItem?
-    private var headerView: SignalMenuHeaderView?
+    private var headerView: DatasheetMenuHeaderView?
     private var toggleDictationMenuItem: NSMenuItem?
     private var hotkeysPausedMenuItem: NSMenuItem?
     private var headerRefreshTimer: Timer?
 
-    // The Signal menu bar mark (DESIGN.md §10).
-    private var markKind: SignalMenuBarMark.Kind = .idle
+    // The Datasheet menu bar mark (DESIGN.md §10).
+    private var markKind: DatasheetMenuBarMark.Kind = .idle
     private var markJaw: CGFloat = 0
     private var isMarkHovered = false
     private var isMenuOpen = false
@@ -639,7 +639,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     private func startMarkTimer() {
         guard self.markTimer == nil else { return }
-        let timer = Timer(timeInterval: SignalTheme.Motion.menuBarBars, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: DatasheetTheme.Motion.menuBarBars, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.markTick() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -664,7 +664,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         if SpokenSendController.shared.indicator != .countingDown,
            NotchContentState.shared.isBottomOverlayPresented
         {
-            self.markJaw = SignalMenuBarMark.listeningJaw(from: SignalOverlayModel.shared.trace)
+            self.markJaw = DatasheetMenuBarMark.listeningJaw(from: DatasheetOverlayModel.shared.trace)
         }
         self.applyMark()
     }
@@ -696,7 +696,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             }
             return
         }
-        let image = SignalMenuBarMark.image(
+        let image = DatasheetMenuBarMark.image(
             kind: self.markKind,
             jaw: self.markKind == .listening ? self.markJaw : 0,
             bracket: self.isMarkHovered || self.isMenuOpen
@@ -715,7 +715,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
         menu.removeAllItems()
 
-        let header = SignalMenuHeaderView(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
+        let header = DatasheetMenuHeaderView(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
         let headerItem = NSMenuItem()
         headerItem.view = header
         headerItem.isEnabled = false
@@ -805,7 +805,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             let start = self.recordingStartedAt ?? Date()
             state = SpokenSendController.shared.indicator == .countingDown
                 ? "Sending"
-                : "Listening \(SignalOverlayModel.formatDuration(Date().timeIntervalSince(start)))"
+                : "Listening \(DatasheetOverlayModel.formatDuration(Date().timeIntervalSince(start)))"
         } else {
             state = self.isProcessingActive ? "Working" : (Self.hotkeysPaused ? "Paused" : "Ready")
         }

@@ -24,7 +24,7 @@ import Foundation
 /// trace's Canvas reads it from a `TimelineView` and drives `advance(to:)` from its frame clock.
 /// Main actor only. Times are seconds since the reference date.
 @MainActor
-final class SignalTraceModel {
+final class DatasheetTraceModel {
     let barCount: Int
     /// Settings > Visualizer > Sensitivity (0.01 "More" to 0.8 "Less", 0.4 by default): how far
     /// above the recording's quiet floor a level must rise to draw, `sensitivitySpan` at 1.0.
@@ -88,8 +88,8 @@ final class SignalTraceModel {
     /// How fast the peak falls after loud speech: 1.1 dB a second.
     static let peakFall: CGFloat = 0.02
 
-    static let floor = SignalTheme.Metrics.minBarHeight
-    static let ceiling = SignalTheme.Metrics.maxBarHeight
+    static let floor = DatasheetTheme.Metrics.minBarHeight
+    static let ceiling = DatasheetTheme.Metrics.maxBarHeight
 
     init(barCount: Int = 63, noiseThreshold: CGFloat = 0.4) {
         self.barCount = barCount
@@ -137,7 +137,7 @@ final class SignalTraceModel {
     /// Whether the voice is on at `now`: a level cleared the gate within the hangover.
     func isVoiceActive(at now: TimeInterval) -> Bool {
         guard let lastVoice else { return false }
-        return now - lastVoice <= SignalTheme.Motion.voiceHangover
+        return now - lastVoice <= DatasheetTheme.Motion.voiceHangover
     }
 
     /// Called on every level and every frame while live: closes real-time calibration windows,
@@ -146,7 +146,7 @@ final class SignalTraceModel {
     /// second and pushes at most one trace's worth, so it never loops long or leaps.
     func advance(to now: TimeInterval) {
         guard self.isLive else { return }
-        let sample = SignalTheme.Motion.traceSample
+        let sample = DatasheetTheme.Motion.traceSample
         let dt = min(max(now - self.lastFrame, 0), 0.25)
         self.lastFrame = max(self.lastFrame, now)
 
@@ -178,7 +178,7 @@ final class SignalTraceModel {
             }
         }
 
-        let ease = self.reducesMotion ? 1 : 1 - CGFloat(exp(-dt / (SignalTheme.Motion.barEase / 3)))
+        let ease = self.reducesMotion ? 1 : 1 - CGFloat(exp(-dt / (DatasheetTheme.Motion.barEase / 3)))
         for index in 0..<self.barCount {
             self.shown[index] += (self.current[index] - self.shown[index]) * ease
         }
@@ -189,7 +189,7 @@ final class SignalTraceModel {
     var scrollFraction: CGFloat {
         if self.stoppedAt != nil { return self.stoppedFraction }
         guard !self.reducesMotion else { return 0 }
-        let sample = SignalTheme.Motion.traceSample
+        let sample = DatasheetTheme.Motion.traceSample
         return CGFloat(min(max((self.advanced - self.advancedAtPush) / sample, 0), 0.999))
     }
 
@@ -219,7 +219,7 @@ final class SignalTraceModel {
     /// stop, the 60 ms linear run down to the floor.
     func shownHeight(at index: Int, now: TimeInterval) -> CGFloat {
         guard let stoppedAt else { return max(Self.floor, self.shown[index]) }
-        let progress = self.reducesMotion ? 1 : min(1, max(0, (now - stoppedAt) / SignalTheme.Motion.stopToFlat))
+        let progress = self.reducesMotion ? 1 : min(1, max(0, (now - stoppedAt) / DatasheetTheme.Motion.stopToFlat))
         return self.stopFrom[index] + (Self.floor - self.stopFrom[index]) * CGFloat(progress)
     }
 
@@ -231,7 +231,7 @@ final class SignalTraceModel {
     /// Follows one window's peak: the floor falls to a quieter window at once and rises 1.65 dB/s;
     /// the peak rises to a louder window at once, falls 1.1 dB/s, and keeps 11 dB above the gate.
     func calibrate(with level: CGFloat) {
-        let sample = CGFloat(SignalTheme.Motion.traceSample)
+        let sample = CGFloat(DatasheetTheme.Motion.traceSample)
         let level = min(max(level, 0), 1)
         if let floor = self.quietFloor {
             self.quietFloor = level < floor ? level : min(level, floor + Self.floorRise * sample)
@@ -285,10 +285,10 @@ final class SignalTraceModel {
 
     /// Bars that fit a trace of `width` on the 4 pt pitch (2 pt bars, 2 pt gaps).
     static func barCount(forWidth width: CGFloat) -> Int {
-        max(1, Int(((width + 2) / SignalTheme.Metrics.barPitch).rounded(.down)))
+        max(1, Int(((width + 2) / DatasheetTheme.Metrics.barPitch).rounded(.down)))
     }
 
     static func width(forBars bars: Int) -> CGFloat {
-        CGFloat(bars) * SignalTheme.Metrics.barPitch - (SignalTheme.Metrics.barPitch - SignalTheme.Metrics.barWidth)
+        CGFloat(bars) * DatasheetTheme.Metrics.barPitch - (DatasheetTheme.Metrics.barPitch - DatasheetTheme.Metrics.barWidth)
     }
 }

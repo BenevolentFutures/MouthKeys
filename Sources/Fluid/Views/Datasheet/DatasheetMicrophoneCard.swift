@@ -88,7 +88,7 @@ final class MicrophonePickerModel: ObservableObject {
         for uid: String,
         activeUID: String?,
         pendingUID: String?
-    ) -> SignalRecordMark {
+    ) -> DatasheetRecordMark {
         if let pendingUID, pendingUID != activeUID {
             return uid == pendingUID ? .closed : .none
         }
@@ -210,7 +210,7 @@ final class MicrophonePickerModel: ObservableObject {
 /// history card). Every input device, one 36 pt row each; the one capture is on carries the
 /// orange square, a pick still switching the outlined one. A click picks for MouthKeys only; the
 /// macOS default input is never touched.
-struct SignalMicrophoneCard: View {
+struct DatasheetMicrophoneCard: View {
     let rows: [MicrophonePickerModel.Row]
     let activeUID: String?
     let pendingUID: String?
@@ -219,7 +219,7 @@ struct SignalMicrophoneCard: View {
     let onPick: (MicrophonePickerModel.Row) -> Void
     var onHoverChanged: (Bool) -> Void = { _ in }
 
-    @Environment(\.signalPalette) private var palette
+    @Environment(\.datasheetPalette) private var palette
     @State private var hoveredUID: String?
 
     static let width: CGFloat = 340
@@ -227,8 +227,8 @@ struct SignalMicrophoneCard: View {
     static let markColumn: CGFloat = 30
     static let maxRowsVisible = 10
 
-    private var metrics: SignalTheme.Metrics.Type {
-        SignalTheme.Metrics.self
+    private var metrics: DatasheetTheme.Metrics.Type {
+        DatasheetTheme.Metrics.self
     }
 
     var body: some View {
@@ -239,7 +239,7 @@ struct SignalMicrophoneCard: View {
         }
         .frame(width: Self.width - 2)
         .padding(1)
-        .signalSurface()
+        .datasheetSurface()
         .onHover { hovering in self.onHoverChanged(hovering) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Microphone")
@@ -271,7 +271,7 @@ struct SignalMicrophoneCard: View {
         let content = VStack(spacing: 0) {
             if self.rows.isEmpty {
                 Text("No microphones connected")
-                    .font(SignalTheme.Typography.historyTranscript.font)
+                    .font(DatasheetTheme.Typography.historyTranscript.font)
                     .foregroundStyle(self.palette.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, self.metrics.historyPaddingHorizontal)
@@ -301,13 +301,13 @@ struct SignalMicrophoneCard: View {
                 self.markView(mark, inverted: isHovered)
                     .frame(width: Self.markColumn, alignment: .leading)
                 Text(row.device.name)
-                    .font(SignalTheme.Typography.historyTranscript.font)
+                    .font(DatasheetTheme.Typography.historyTranscript.font)
                     .foregroundStyle(primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 // Fixed width, so a row reading UNAVAILABLE never shifts its name.
-                SignalMonoLabel(text: row.isUsable ? row.kind : "Unavailable", color: secondary)
+                DatasheetMonoLabel(text: row.isUsable ? row.kind : "Unavailable", color: secondary)
                     .frame(width: 92, alignment: .trailing)
             }
             .padding(.horizontal, self.metrics.historyPaddingHorizontal)
@@ -332,22 +332,22 @@ struct SignalMicrophoneCard: View {
     }
 
     @ViewBuilder
-    private func markView(_ mark: SignalRecordMark, inverted: Bool) -> some View {
-        let size = SignalTheme.Metrics.recordSquare
+    private func markView(_ mark: DatasheetRecordMark, inverted: Bool) -> some View {
+        let size = DatasheetTheme.Metrics.recordSquare
         let color = inverted ? self.palette.invForeground : self.palette.accent
         switch mark {
         case .recording:
             Rectangle().fill(color).frame(width: size, height: size)
         case .closed:
             Rectangle()
-                .strokeBorder(color, lineWidth: SignalTheme.Metrics.recordSquareOutline)
+                .strokeBorder(color, lineWidth: DatasheetTheme.Metrics.recordSquareOutline)
                 .frame(width: size, height: size)
         case .none:
             Color.clear.frame(width: size, height: size)
         }
     }
 
-    static func accessibilityLabel(_ row: MicrophonePickerModel.Row, mark: SignalRecordMark) -> String {
+    static func accessibilityLabel(_ row: MicrophonePickerModel.Row, mark: DatasheetRecordMark) -> String {
         var parts = [row.device.name]
         switch mark {
         case .recording: parts.append("in use")
@@ -359,7 +359,7 @@ struct SignalMicrophoneCard: View {
     }
 
     private func label(_ text: String, color: Color, weight: Font.Weight = .medium) -> some View {
-        let role = SignalTheme.Typography.tableLabel
+        let role = DatasheetTheme.Typography.tableLabel
         return Text(text)
             .font(.system(size: role.size, weight: weight, design: .monospaced))
             .tracking(role.tracking)
@@ -385,14 +385,14 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
     @Published private(set) var isOpen = false
 
     private var panel: NSPanel?
-    let floatShadow = SignalFloatShadow { state in SignalFloatShadowView(state: state).signalPalette() }
+    let floatShadow = DatasheetFloatShadow { state in DatasheetFloatShadowView(state: state).datasheetPalette() }
     private var hostingView: NSHostingView<BottomOverlayMicrophonePickerView>?
     private var overlayFrameInScreen: CGRect = .zero
     private weak var parentWindow: NSWindow?
     private var sizeObserver: AnyCancellable?
     private var openGeneration = 0
     /// The overlay's mic label on screen, kept current by the label itself.
-    let labelAnchor = SignalChipAnchor()
+    let labelAnchor = DatasheetChipAnchor()
 
     private init() {}
 
@@ -507,8 +507,8 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
         let frame = BottomOverlayHistoryMenuController.cardFrame(
             panelSize: size,
             overlayFrame: self.overlayFrameInScreen,
-            gap: SignalTheme.Metrics.historyGapAboveOverlay,
-            insets: SignalTheme.Metrics.windowInsets,
+            gap: DatasheetTheme.Metrics.historyGapAboveOverlay,
+            insets: DatasheetTheme.Metrics.windowInsets,
             visibleFrame: screen?.visibleFrame
         )
         if panel.frame != frame { panel.setFrame(frame, display: true) }
@@ -517,11 +517,11 @@ final class BottomOverlayMicrophonePickerController: ObservableObject {
 
 private struct BottomOverlayMicrophonePickerView: View {
     @ObservedObject private var model = MicrophonePickerModel.shared
-    let floatShadow: SignalFloatShadow.State
+    let floatShadow: DatasheetFloatShadow.State
     let onPicked: () -> Void
 
     var body: some View {
-        SignalMicrophoneCard(
+        DatasheetMicrophoneCard(
             rows: self.model.rows,
             activeUID: self.model.activeUID,
             pendingUID: self.model.pendingUID,
@@ -530,8 +530,8 @@ private struct BottomOverlayMicrophonePickerView: View {
                 self.onPicked()
             }
         )
-        .signalFloatShadowSource(self.floatShadow)
-        .padding(SignalTheme.Metrics.windowInsets)
-        .signalPalette()
+        .datasheetFloatShadowSource(self.floatShadow)
+        .padding(DatasheetTheme.Metrics.windowInsets)
+        .datasheetPalette()
     }
 }
