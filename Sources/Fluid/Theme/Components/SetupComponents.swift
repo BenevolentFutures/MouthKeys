@@ -764,47 +764,38 @@ struct DatasheetKeyPracticeReadout: View {
                     .foregroundStyle(self.palette.text2)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 22) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        DatasheetMonoLabel(text: "Key", color: self.palette.text2)
-                        HStack(spacing: 7) {
-                            DatasheetStatusSquare(kind: self.isDown ? .orange : .outline)
-                            Text(self.isDown ? "DOWN" : "UP")
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(self.palette.text)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 22) {
+                        self.practiceKeyStatus
+                        self.practicePressCount
+                        self.practiceMeter
+                    }
+                    // Keep the same layout choice for KEY UP and KEY DOWN.
+                    .frame(minWidth: 240, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 22) {
+                            self.practiceKeyStatus
+                                .fixedSize(horizontal: true, vertical: false)
+                                .frame(width: 48, alignment: .leading)
+                            self.practicePressCount
                         }
+                        self.practiceMeter
                     }
-                    VStack(alignment: .leading, spacing: 5) {
-                        DatasheetMonoLabel(text: "Presses", color: self.palette.text2)
-                        Text("\(self.pressCount)/3")
-                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(self.palette.text)
-                            .monospacedDigit()
-                    }
-                    HStack(spacing: 3) {
-                        ForEach(0..<3, id: \.self) { index in
-                            Rectangle()
-                                .fill(index < self.pressCount ? self.palette.ink : .clear)
-                                .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-                                .frame(width: 22, height: 10)
-                        }
-                    }
-                    .accessibilityLabel("\(self.pressCount) of 3 presses")
                 }
 
-                HStack(spacing: 18) {
-                    Button(action: self.reset) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("RESET")
-                        }
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .tracking(0.3)
-                        .foregroundStyle(self.palette.text2)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 18) {
+                        self.practiceReset
+                        self.practiceFallbackHint
                     }
-                    .buttonStyle(DatasheetTextButtonStyle())
+                    .fixedSize(horizontal: true, vertical: false)
 
-                    DatasheetMonoLabel(text: "No key? Click the keycap.", color: self.palette.text2)
+                    VStack(alignment: .leading, spacing: 8) {
+                        self.practiceReset
+                        self.practiceFallbackHint
+                    }
                 }
             }
             .padding(.leading, 26)
@@ -812,6 +803,57 @@ struct DatasheetKeyPracticeReadout: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 18)
+    }
+
+    private var practiceKeyStatus: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            DatasheetMonoLabel(text: "Key", color: self.palette.text2)
+            HStack(spacing: 7) {
+                DatasheetStatusSquare(kind: self.isDown ? .orange : .outline)
+                Text(self.isDown ? "DOWN" : "UP")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
+            }
+        }
+    }
+
+    private var practicePressCount: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            DatasheetMonoLabel(text: "Presses", color: self.palette.text2)
+            Text("\(self.pressCount)/3")
+                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.text)
+                .monospacedDigit()
+        }
+    }
+
+    private var practiceMeter: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { index in
+                Rectangle()
+                    .fill(index < self.pressCount ? self.palette.ink : .clear)
+                    .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
+                    .frame(width: 22, height: 10)
+            }
+        }
+        .accessibilityLabel("\(self.pressCount) of 3 presses")
+    }
+
+    private var practiceReset: some View {
+        Button(action: self.reset) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                Text("RESET")
+            }
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .tracking(0.3)
+            .foregroundStyle(self.palette.text2)
+        }
+        .buttonStyle(DatasheetTextButtonStyle())
+    }
+
+    private var practiceFallbackHint: some View {
+        DatasheetMonoLabel(text: "No key? Click the keycap.", color: self.palette.text2)
     }
 }
 
