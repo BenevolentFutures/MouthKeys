@@ -5436,3 +5436,312 @@ private struct DatasheetWindowFoundationGallery: View {
         .frame(width: width + 24)
     }
 }
+
+/// Lane D's page renders in both appearance modes. This uses only the Debug test host's own
+/// stores and restores them after rendering; no window, clipboard, microphone capture, or audio
+/// playback is involved.
+@MainActor
+final class DatasheetLaneDRenderTests: XCTestCase {
+    private var outputFolder: URL? {
+        ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private var savedHistory: [TranscriptionHistoryEntry] = []
+    private var savedFileHistory: [FileTranscriptionEntry] = []
+    private var savedFileSelection: UUID?
+
+    override func setUp() {
+        super.setUp()
+        self.savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
+        TranscriptionHistoryStore.shared.restore(from: DatasheetRenderStage.sampleHistory)
+
+        let fileHistory = FileTranscriptionHistoryStore.shared
+        self.savedFileHistory = fileHistory.entries
+        self.savedFileSelection = fileHistory.selectedEntryID
+        fileHistory.clearAll()
+        fileHistory.addEntry(TranscriptionResult(
+            text: "We will send the revised agenda after the call.",
+            confidence: 0.97,
+            duration: 184,
+            processingTime: 42,
+            fileName: "weekly-review.m4a"
+        ))
+        fileHistory.addEntry(TranscriptionResult(
+            text: "The launch review is scheduled for Thursday morning.",
+            confidence: 0.94,
+            duration: 322,
+            processingTime: 66,
+            fileName: "launch-review.wav"
+        ))
+    }
+
+    override func tearDown() {
+        TranscriptionHistoryStore.shared.restore(from: self.savedHistory)
+
+        let fileHistory = FileTranscriptionHistoryStore.shared
+        fileHistory.clearAll()
+        for entry in self.savedFileHistory.reversed() {
+            fileHistory.addEntry(entry.toTranscriptionResult())
+        }
+        fileHistory.selectedEntryID = self.savedFileSelection
+        super.tearDown()
+    }
+
+    func testHistoryStatsAndFileTranscriptionRenderInBothThemes() throws {
+        let appearances: [(String, NSAppearance.Name)] = [("dark", .darkAqua), ("light", .aqua)]
+
+        for (theme, appearance) in appearances {
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-populated",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-full-detail",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 780)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-minimum-window",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-full-page",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 1180)
+            )
+            try self.render(
+                MeetingTranscriptionView(asrService: ASRService()),
+                name: "\(theme)-file-transcription-drop-and-recent",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 900)
+            )
+            try self.render(
+                MessageBubble(message: .init(role: .user, content: "List files in my Downloads folder")),
+                name: "\(theme)-command-user-message",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 84)
+            )
+            try self.render(
+                MessageBubble(message: .init(
+                    role: .assistant,
+                    content: "I will check the folder and list the files.",
+                    toolCall: .init(id: "render", command: "ls -la ~/Downloads", workingDirectory: nil, purpose: "List files")
+                )),
+                name: "\(theme)-command-tool-call",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 140)
+            )
+        }
+
+        TranscriptionHistoryStore.shared.restore(from: [])
+        for (theme, appearance) in appearances {
+            try self.render(
+                TranscriptionHistoryView(),
+                name: "\(theme)-history-empty",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+            try self.render(
+                StatsView(),
+                name: "\(theme)-stats-empty",
+                appearance: appearance,
+                size: CGSize(width: 580, height: 460)
+            )
+        }
+    }
+
+    private func render<Content: View>(
+        _ content: Content,
+        name: String,
+        appearance: NSAppearance.Name,
+        size: CGSize
+    ) throws {
+        let view = content
+            .frame(width: size.width, height: size.height)
+            .datasheetPalette()
+        let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+        XCTAssertGreaterThan(rep.pixelsWide, 0, name)
+        XCTAssertGreaterThan(rep.pixelsHigh, 0, name)
+
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+
+        if let folder = self.outputFolder {
+            try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(name).png"))
+        }
+    }
+}
+
+/// Native sizing catches the split-detail regression that ImageRenderer's blank page missed.
+/// These windows are never ordered, activated, or used to invoke an action.
+@MainActor
+final class DatasheetLaneDNativeLayoutTests: XCTestCase {
+    func testHistoryActionsReflowAtNarrowDetailWidth() {
+        for scheme in [ColorScheme.light, .dark] {
+            for hasAudio in [false, true] {
+                let narrow = self.actionBarSize(width: 320, scheme: scheme, hasAudio: hasAudio)
+                let wide = self.actionBarSize(width: 480, scheme: scheme, hasAudio: hasAudio)
+                XCTAssertEqual(narrow.width, 320, accuracy: 0.5)
+                XCTAssertEqual(wide.width, 480, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(narrow.height, 84, "Narrow details must reserve two full action rows")
+                XCTAssertLessThanOrEqual(wide.height, 64, "Wide details should keep the single-row toolbar")
+                XCTAssertGreaterThan(narrow.height, wide.height + 20)
+            }
+        }
+    }
+
+    private func actionBarSize(width: CGFloat, scheme: ColorScheme, hasAudio: Bool) -> CGSize {
+        let view = HistoryEntryActionBar(
+            hasAudio: hasAudio,
+            copyHelp: "Copy transcription",
+            copy: {}, audio: {}, export: {}, delete: {}
+        )
+        .datasheetPalette()
+        .environment(\.colorScheme, scheme)
+        .frame(width: width)
+        .fixedSize(horizontal: false, vertical: true)
+        let host = NSHostingView(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: width, height: 120),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertFalse(window.isMainWindow)
+        return host.fittingSize
+    }
+}
+
+/// Exercise the real Command Mode scroll document without ordering or activating a window.
+@MainActor
+final class DatasheetLaneDCommandScrollTests: XCTestCase {
+    func testNativeOuterScrollReachesComposerAtMinimumAndDefaultSizes() throws {
+        try DatasheetLaneDCommandPreferences.preservingValues(in: .standard) {
+            for scheme in [ColorScheme.light, .dark] {
+                for size in [CGSize(width: 549, height: 460), CGSize(width: 749, height: 660)] {
+                    try self.verifyComposerReachability(size: size, scheme: scheme)
+                }
+            }
+        }
+    }
+
+    func testFixtureRestoresStaleAbsentAndTypedModelValuesInSyntheticDomains() throws {
+        // The independent actual-view probe covers Sync-off onAppear normalization.
+        // Exercise its writes here without constructing a live service or changing Debug defaults.
+        let initialModels: [Any?] = [nil, "stale-model", Data([0x01, 0x02])]
+        for initialModel in initialModels {
+            let suiteName = "DatasheetLaneDCommandPreferences-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            defaults.set(Data([0x03]), forKey: "CommandModeChatSessions")
+            defaults.set("original-chat", forKey: "CommandModeCurrentChatID")
+            if let initialModel { defaults.set(initialModel, forKey: "CommandModeSelectedModel") }
+            let original = try XCTUnwrap(defaults.persistentDomain(forName: suiteName))
+
+            enum FixtureError: Error { case renderingFailed }
+            for failRendering in [false, true] {
+                do {
+                    try DatasheetLaneDCommandPreferences.preservingValues(in: defaults) {
+                        // Data-only lifecycle double: an unlinked provider normalizes a stale/absent model.
+                        defaults.set("synthetic-first-model", forKey: "CommandModeSelectedModel")
+                        defaults.set(Data([0x04]), forKey: "CommandModeChatSessions")
+                        defaults.removeObject(forKey: "CommandModeCurrentChatID")
+                        XCTAssertEqual(defaults.string(forKey: "CommandModeSelectedModel"), "synthetic-first-model")
+                        if failRendering { throw FixtureError.renderingFailed }
+                    }
+                    XCTAssertFalse(failRendering)
+                } catch FixtureError.renderingFailed {
+                    XCTAssertTrue(failRendering)
+                }
+                let restored = try XCTUnwrap(defaults.persistentDomain(forName: suiteName))
+                XCTAssertTrue(NSDictionary(dictionary: original).isEqual(to: restored),
+                              "Restore exact presence, type and value even when rendering throws")
+            }
+        }
+    }
+
+    private func verifyComposerReachability(size: CGSize, scheme: ColorScheme) throws {
+        let service = CommandModeService()
+        service.enableNotchOutput = false
+        let root = CommandModeView(service: service)
+            .environmentObject(AppServices.shared)
+            .environmentObject(MenuBarManager())
+            .datasheetPalette()
+            .environment(\.colorScheme, scheme)
+        let host = NSHostingView(rootView: root)
+        let window = NSWindow(
+            contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if descendants(host).filter({ $0 is NSScrollView }).count >= 2 { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        } while Date() < deadline
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let views = descendants(host)
+        let scrolls = views.compactMap { $0 as? NSScrollView }
+        XCTAssertGreaterThanOrEqual(scrolls.count, 2, "The page and chat each need their native scroll view")
+        let outer = try XCTUnwrap(scrolls.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+        let document = try XCTUnwrap(outer.documentView)
+        let clip = outer.contentView
+        let extent = max(0, document.bounds.height - clip.bounds.height)
+        if size.height == 460 {
+            XCTAssertGreaterThan(extent, 200, "Narrow controls must wrap into a scrollable document")
+        }
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: extent))
+        outer.reflectScrolledClipView(clip)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(clip.bounds.minY, extent, accuracy: 1)
+        let composers = views.compactMap { $0 as? NSTextField }.filter {
+            $0.placeholderString == "Type a command or ask a question..."
+        }
+        let composer = try XCTUnwrap(composers.first, "The real composer must exist")
+        XCTAssertEqual(composers.count, 1)
+        let composerRect = composer.convert(composer.bounds, to: document)
+        XCTAssertTrue(clip.bounds.contains(composerRect), "The full composer must be reachable at the native scroll limit")
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertFalse(window.isMainWindow)
+    }
+}
+
+private enum DatasheetLaneDCommandPreferences {
+    static func preservingValues<T>(in defaults: UserDefaults, _ body: () throws -> T) rethrows -> T {
+        let keys = ["CommandModeChatSessions", "CommandModeCurrentChatID", "CommandModeSelectedModel"]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        // The body constructs services/views and returns only after its hosts are dismantled.
+        return try body()
+    }
+}
