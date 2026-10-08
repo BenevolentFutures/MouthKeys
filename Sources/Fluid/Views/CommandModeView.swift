@@ -19,20 +19,14 @@ struct CommandModeView: View {
     @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                DatasheetSheetHeader(
-                    placard: "EXEC / 04",
-                    title: "Command Mode",
-                    lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
-                ) {
-                    self.headerView
-                }
+                self.pageHeader
 
                 self.readinessBanner
                 self.howToSection
                 self.chatArea
-                    .frame(minHeight: 80, maxHeight: .infinity)
+                    .frame(height: 240)
 
                 if let pending = self.service.pendingCommand {
                     self.pendingCommandView(pending)
@@ -75,6 +69,30 @@ struct CommandModeView: View {
     }
 
     // MARK: - Header
+
+    private var pageHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            DatasheetSheetHeader(
+                placard: "EXEC / 04",
+                title: "Command Mode",
+                lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
+            ) {
+                self.headerView.fixedSize()
+            }
+            .frame(minWidth: 650)
+            .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 0) {
+                DatasheetSheetHeader(
+                    placard: "EXEC / 04",
+                    title: "Command Mode",
+                    lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
+                )
+                self.headerView.fixedSize()
+                    .padding(.bottom, 20)
+            }
+        }
+    }
 
     private var headerView: some View {
         HStack(spacing: 8) {
@@ -447,49 +465,21 @@ struct CommandModeView: View {
                     }
 
                 VStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        HStack(spacing: 7) {
-                            DatasheetMonoLabel(text: "SYNC", color: self.palette.text2)
-                            Toggle("Sync", isOn: self.$settings.commandModeLinkedToGlobal)
-                                .labelsHidden()
-                                .toggleStyle(DatasheetToggleStyle())
-                                .fixedSize()
-                                .help("Use the same provider and model selected in AI Enhancement.")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            self.syncControl
+                            self.providerControl
+                            self.modelControl
                         }
+                        .fixedSize(horizontal: true, vertical: false)
 
-                        SearchableProviderPicker(
-                            builtInProviders: self.verifiedBuiltInProvidersList,
-                            savedProviders: self.verifiedSavedProviders,
-                            selectedProviderID: Binding(
-                                get: { self.settings.effectiveCommandModeProviderID },
-                                set: { newValue in
-                                    guard !self.settings.commandModeLinkedToGlobal else { return }
-                                    self.settings.commandModeSelectedProviderID = newValue
-                                    self.updateAvailableModels()
-                                }
-                            ),
-                            controlWidth: 140,
-                            controlHeight: 30
-                        )
-                        .disabled(self.settings.commandModeLinkedToGlobal)
-                        .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
-
-                        SearchableModelPicker(
-                            models: self.availableModels,
-                            selectedModel: Binding(
-                                get: { self.settings.effectiveCommandModeSelectedModel },
-                                set: { newValue in
-                                    guard !self.settings.commandModeLinkedToGlobal else { return }
-                                    self.settings.commandModeSelectedModel = newValue
-                                }
-                            ),
-                            onRefresh: nil,
-                            isRefreshing: false,
-                            selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
-                            controlWidth: 180,
-                            controlHeight: 30
-                        )
-                        .disabled(self.settings.commandModeLinkedToGlobal)
+                        VStack(alignment: .leading, spacing: 8) {
+                            self.syncControl
+                            HStack(spacing: 8) {
+                                self.providerControl
+                                self.modelControl
+                            }
+                        }
                     }
 
                     HStack(spacing: 8) {
@@ -527,6 +517,56 @@ struct CommandModeView: View {
         }
         .padding(.top, 12)
         .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
+    private var syncControl: some View {
+        HStack(spacing: 7) {
+            DatasheetMonoLabel(text: "SYNC", color: self.palette.text2)
+            Toggle("Sync", isOn: self.$settings.commandModeLinkedToGlobal)
+                .labelsHidden()
+                .toggleStyle(DatasheetToggleStyle())
+                .fixedSize()
+                .help("Use the same provider and model selected in AI Enhancement.")
+        }
+        .fixedSize()
+    }
+
+    private var providerControl: some View {
+        SearchableProviderPicker(
+            builtInProviders: self.verifiedBuiltInProvidersList,
+            savedProviders: self.verifiedSavedProviders,
+            selectedProviderID: Binding(
+                get: { self.settings.effectiveCommandModeProviderID },
+                set: { newValue in
+                    guard !self.settings.commandModeLinkedToGlobal else { return }
+                    self.settings.commandModeSelectedProviderID = newValue
+                    self.updateAvailableModels()
+                }
+            ),
+            controlWidth: 140,
+            controlHeight: 30
+        )
+        .disabled(self.settings.commandModeLinkedToGlobal)
+        .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
+    }
+
+    private var modelControl: some View {
+        SearchableModelPicker(
+            models: self.availableModels,
+            selectedModel: Binding(
+                get: { self.settings.effectiveCommandModeSelectedModel },
+                set: { newValue in
+                    guard !self.settings.commandModeLinkedToGlobal else { return }
+                    self.settings.commandModeSelectedModel = newValue
+                }
+            ),
+            onRefresh: nil,
+            isRefreshing: false,
+            selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
+            controlWidth: 180,
+            controlHeight: 30
+        )
+        .disabled(self.settings.commandModeLinkedToGlobal)
     }
 
     // MARK: - Actions

@@ -50,14 +50,14 @@ struct TranscriptionHistoryView: View {
             } else {
                 HSplitView {
                     self.indexPanel
-                        .frame(minWidth: 220, idealWidth: 340, maxWidth: 400)
+                        .frame(minWidth: 200, idealWidth: 300, maxWidth: 360)
 
                     if let entry = self.selectedEntry {
                         self.entryDetailView(entry)
-                            .frame(minWidth: 330)
+                            .frame(minWidth: 320)
                     } else {
                         self.noSelectionView
-                            .frame(minWidth: 330)
+                            .frame(minWidth: 320)
                     }
                 }
             }
@@ -172,6 +172,7 @@ struct TranscriptionHistoryView: View {
                 role: DatasheetTheme.Typography.tableLabel,
                 color: self.palette.text2
             )
+            .fixedSize()
             Rectangle()
                 .fill(self.palette.ruleSoft)
                 .frame(height: 1)
@@ -201,7 +202,7 @@ struct TranscriptionHistoryView: View {
                         .monospacedDigit()
 
                     Text(Self.rowTimeFormatter.string(from: entry.timestamp).uppercased())
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .tracking(0.3)
                         .opacity(0.72)
                 }
@@ -214,15 +215,10 @@ struct TranscriptionHistoryView: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
-                    HStack(spacing: 6) {
-                        Text(self.durationText(for: entry))
-                        Text("·")
-                        Text("\(self.wordCount(entry.processedText)) WORDS")
-                        Text("·")
-                        Text(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text("·")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(self.durationText(for: entry)) · \(self.wordCount(entry.processedText)) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 4) {
                             Rectangle()
                                 .strokeBorder(isSelected ? self.palette.invForeground : self.palette.text2, lineWidth: 1)
@@ -231,11 +227,11 @@ struct TranscriptionHistoryView: View {
                         }
                         .help("Delivery outcome was not recorded for this entry.")
                         .accessibilityLabel("Delivery outcome not recorded")
+                        .fixedSize()
                     }
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.35)
                     .opacity(0.74)
-                    .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -325,13 +321,12 @@ struct TranscriptionHistoryView: View {
                 .frame(height: 1)
 
             HStack(spacing: 8) {
-                DatasheetMonoLabel(
-                    text: "\(self.filteredEntries.count) ENTRIES · NEWEST FIRST",
-                    role: DatasheetTheme.Typography.tableLabel,
-                    color: self.palette.text2
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                Text("\(self.filteredEntries.count) ENTRIES · NEWEST FIRST")
+                    .font(DatasheetTheme.Typography.tableLabel.font)
+                    .tracking(DatasheetTheme.Typography.tableLabel.tracking)
+                    .foregroundStyle(self.palette.text2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 4)
 
@@ -343,11 +338,12 @@ struct TranscriptionHistoryView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(self.palette.text)
                         .buttonStyle(.plain)
+                        .fixedSize()
                     }
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 38)
+            .frame(height: 58)
         }
         .background(self.palette.surface)
     }
@@ -581,77 +577,20 @@ struct TranscriptionHistoryView: View {
     }
 
     private func detailActions(_ entry: TranscriptionHistoryEntry) -> some View {
-        let hasAudio = self.hasAudio(entry)
-
-        return HStack(spacing: 8) {
-            DatasheetBracketed(rest: true) {
-                Button {
-                    self.copyToClipboard(entry.processedText)
-                } label: {
-                    Label(entry.wasAIProcessed ? "Copy AI" : "Copy", systemImage: "doc.on.doc")
+        HistoryEntryActionBar(
+            hasAudio: self.hasAudio(entry),
+            copyHelp: entry.wasAIProcessed ? "Copy AI text" : "Copy transcription",
+            copy: { self.copyToClipboard(entry.processedText) },
+            audio: { self.revealAudio(entry) },
+            export: { self.exportPair(entry) },
+            delete: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
+                    self.historyStore.deleteEntry(id: entry.id)
+                    self.selectedEntryID = nextEntry?.id
                 }
-                .buttonStyle(DatasheetPrimaryButtonStyle())
-                .help(entry.wasAIProcessed ? "Copy AI text" : "Copy transcription")
             }
-
-            self.detailActionButton("Audio", systemImage: "waveform", isEnabled: hasAudio) {
-                self.revealAudio(entry)
-            }
-
-            self.detailActionButton("Export Pair", systemImage: "square.and.arrow.up", isEnabled: hasAudio) {
-                self.exportPair(entry)
-            }
-
-            Spacer(minLength: 0)
-
-            DatasheetBracketed(rest: false) {
-                Button(role: .destructive) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
-                        self.historyStore.deleteEntry(id: entry.id)
-                        self.selectedEntryID = nextEntry?.id
-                    }
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(self.palette.text)
-                        .frame(width: 34, height: 28)
-                        .contentShape(Rectangle())
-                        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
-                }
-                .buttonStyle(.plain)
-                .help("Delete entry")
-                .accessibilityLabel("Delete entry")
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 58)
-        .background(self.palette.surface)
-        .overlay(alignment: .top) {
-            Rectangle().fill(self.palette.rule).frame(height: 1)
-        }
-    }
-
-    private func detailActionButton(
-        _ title: String,
-        systemImage: String,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        DatasheetBracketed(rest: false) {
-            Button(action: action) {
-                Label(title, systemImage: systemImage)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(self.palette.text)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!isEnabled)
-            .opacity(isEnabled ? 1 : 0.42)
-        }
+        )
     }
 
     private var noSelectionView: some View {
@@ -776,4 +715,104 @@ private struct HistoryIndexRow<Content: View>: View {
     TranscriptionHistoryView()
         .frame(width: 800, height: 600)
         .datasheetPalette()
+}
+
+/// The same actions stay fully labelled when the split detail becomes narrow.
+struct HistoryEntryActionBar: View {
+    let hasAudio: Bool
+    let copyHelp: String
+    let copy: () -> Void
+    let audio: () -> Void
+    let export: () -> Void
+    let delete: () -> Void
+
+    @Environment(\.datasheetPalette) private var palette
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                self.copyButton
+                self.audioButton
+                self.exportButton
+                Spacer(minLength: 0)
+                self.deleteButton
+            }
+            .frame(minWidth: 366)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    self.copyButton
+                    self.audioButton
+                    Spacer(minLength: 0)
+                    self.deleteButton
+                }
+                self.exportButton
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.surface)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
+    private var copyButton: some View {
+        DatasheetBracketed(rest: true) {
+            Button(action: self.copy) {
+                Label("Copy", systemImage: "doc.on.doc")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.invForeground)
+                    .fixedSize()
+                    .frame(width: 100, height: 28)
+                    .background(self.palette.invBackground)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(self.copyHelp)
+            .accessibilityIdentifier("history-copy")
+        }
+    }
+
+    private var audioButton: some View {
+        self.secondaryButton("Audio", symbol: "waveform", width: 88, action: self.audio)
+            .disabled(!self.hasAudio)
+            .opacity(self.hasAudio ? 1 : 0.42)
+    }
+
+    private var exportButton: some View {
+        self.secondaryButton("Export Pair", symbol: "square.and.arrow.up", width: 120, action: self.export)
+            .disabled(!self.hasAudio)
+            .opacity(self.hasAudio ? 1 : 0.42)
+    }
+
+    private var deleteButton: some View {
+        DatasheetBracketed(rest: false) {
+            Button(role: .destructive, action: self.delete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .frame(width: 34, height: 28)
+                    .contentShape(Rectangle())
+                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+            .help("Delete entry")
+            .accessibilityLabel("Delete entry")
+        }
+    }
+
+    private func secondaryButton(_ title: String, symbol: String, width: CGFloat, action: @escaping () -> Void) -> some View {
+        DatasheetBracketed(rest: false) {
+            Button(action: action) {
+                Label(title, systemImage: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .fixedSize()
+                    .frame(width: width, height: 28)
+                    .contentShape(Rectangle())
+                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+        }
+    }
 }

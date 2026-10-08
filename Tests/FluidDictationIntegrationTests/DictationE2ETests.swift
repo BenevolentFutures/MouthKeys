@@ -5580,3 +5580,51 @@ final class DatasheetLaneDRenderTests: XCTestCase {
         }
     }
 }
+
+/// Native sizing catches the split-detail regression that ImageRenderer's blank page missed.
+/// These windows are never ordered, activated, or used to invoke an action.
+@MainActor
+final class DatasheetLaneDNativeLayoutTests: XCTestCase {
+    func testHistoryActionsReflowAtNarrowDetailWidth() {
+        for scheme in [ColorScheme.light, .dark] {
+            for hasAudio in [false, true] {
+                let narrow = self.actionBarSize(width: 320, scheme: scheme, hasAudio: hasAudio)
+                let wide = self.actionBarSize(width: 480, scheme: scheme, hasAudio: hasAudio)
+                XCTAssertEqual(narrow.width, 320, accuracy: 0.5)
+                XCTAssertEqual(wide.width, 480, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(narrow.height, 84, "Narrow details must reserve two full action rows")
+                XCTAssertLessThanOrEqual(wide.height, 64, "Wide details should keep the single-row toolbar")
+                XCTAssertGreaterThan(narrow.height, wide.height + 20)
+            }
+        }
+    }
+
+    private func actionBarSize(width: CGFloat, scheme: ColorScheme, hasAudio: Bool) -> CGSize {
+        let view = HistoryEntryActionBar(
+            hasAudio: hasAudio,
+            copyHelp: "Copy transcription",
+            copy: {}, audio: {}, export: {}, delete: {}
+        )
+        .datasheetPalette()
+        .environment(\.colorScheme, scheme)
+        .frame(width: width)
+        .fixedSize(horizontal: false, vertical: true)
+        let host = NSHostingView(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: width, height: 120),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertFalse(window.isMainWindow)
+        return host.fittingSize
+    }
+}

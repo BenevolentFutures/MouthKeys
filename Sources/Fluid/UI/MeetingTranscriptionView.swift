@@ -669,17 +669,17 @@ private struct FileTranscriptionIndexRow: View {
     var body: some View {
         Button(action: self.action) {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(self.entry.fileName)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(self.entry.relativeTimeString.uppercased())
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .tracking(0.3)
-                        .opacity(0.74)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(self.entry.fileName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(self.entry.relativeTimeString.uppercased())
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .tracking(0.3)
+                    .lineLimit(1)
+                    .frame(width: 92, alignment: .leading)
 
                 Text(self.length)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))

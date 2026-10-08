@@ -70,64 +70,83 @@ struct StatsView: View {
     }
 
     private var kpiGrid: some View {
-        HStack(spacing: 0) {
-            self.kpiCell(title: "TIME SAVED", value: self.historyStore.formattedTimeSaved(typingWPM: self.settings.userTypingWPM)) {
-                Button {
-                    self.editingWPM = "\(self.settings.userTypingWPM)"
-                    self.showWPMEditor = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Text("BASED ON \(self.settings.userTypingWPM) WPM TYPING")
-                        Image(systemName: "pencil")
-                            .font(.system(size: 8, weight: .medium))
-                    }
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .tracking(0.3)
-                    .foregroundStyle(self.palette.text2)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                }
-                .buttonStyle(.plain)
-                .datasheetHoverBracket()
-                .popover(isPresented: self.$showWPMEditor) {
-                    self.wpmEditorPopover
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                self.timeSavedKPI
+                self.totalWordsKPI
+                self.streakKPI
+                self.transcriptionsKPI
             }
-
-            self.kpiCell(title: "TOTAL WORDS", value: self.formatNumber(self.historyStore.totalWords)) {
-                DatasheetMonoLabel(
-                    text: "+\(self.formatNumber(self.historyStore.wordsToday)) TODAY",
-                    role: DatasheetTheme.Typography.tableLabel,
-                    color: self.palette.text2
-                )
-            }
-
-            self.kpiCell(title: "CURRENT STREAK", value: "\(self.historyStore.currentStreak)") {
-                DatasheetMonoLabel(
-                    text: "BEST: \(self.historyStore.bestStreak) DAYS",
-                    role: DatasheetTheme.Typography.tableLabel,
-                    color: self.palette.text2
-                )
-            }
-
-            self.kpiCell(title: "TRANSCRIPTIONS", value: self.formatNumber(self.historyStore.entries.count)) {
-                VStack(alignment: .leading, spacing: 3) {
-                    DatasheetMonoLabel(
-                        text: "\(self.historyStore.todaySummary.transcriptions) TODAY",
-                        role: DatasheetTheme.Typography.tableLabel,
-                        color: self.palette.text2
-                    )
-                    .accessibilityLabel("\(self.historyStore.todaySummary.transcriptions) sessions today")
-                    DatasheetMonoLabel(
-                        text: "AVG: \(self.historyStore.averageWordsPerTranscription) WORDS EACH",
-                        role: DatasheetTheme.Typography.tableLabel,
-                        color: self.palette.text2
-                    )
-                }
+            VStack(spacing: 0) {
+                HStack(spacing: 0) { self.timeSavedKPI; self.totalWordsKPI }
+                HStack(spacing: 0) { self.streakKPI; self.transcriptionsKPI }
             }
         }
         .overlay {
             Rectangle().strokeBorder(self.palette.rule, lineWidth: 1)
+        }
+    }
+
+    private var timeSavedKPI: some View {
+        self.kpiCell(title: "TIME SAVED", value: self.historyStore.formattedTimeSaved(typingWPM: self.settings.userTypingWPM)) {
+            Button {
+                self.editingWPM = "\(self.settings.userTypingWPM)"
+                self.showWPMEditor = true
+            } label: {
+                HStack(spacing: 5) {
+                    Text("BASED ON \(self.settings.userTypingWPM) WPM TYPING")
+                    Image(systemName: "pencil")
+                        .font(.system(size: 8, weight: .medium))
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .tracking(0.3)
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(.plain)
+            .datasheetHoverBracket()
+            .popover(isPresented: self.$showWPMEditor) {
+                self.wpmEditorPopover
+            }
+        }
+    }
+
+    private var totalWordsKPI: some View {
+        self.kpiCell(title: "TOTAL WORDS", value: self.formatNumber(self.historyStore.totalWords)) {
+            DatasheetMonoLabel(
+                text: "+\(self.formatNumber(self.historyStore.wordsToday)) TODAY",
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+        }
+    }
+
+    private var streakKPI: some View {
+        self.kpiCell(title: "CURRENT STREAK", value: "\(self.historyStore.currentStreak)") {
+            DatasheetMonoLabel(
+                text: "BEST: \(self.historyStore.bestStreak) DAYS",
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+        }
+    }
+
+    private var transcriptionsKPI: some View {
+        self.kpiCell(title: "TRANSCRIPTIONS", value: self.formatNumber(self.historyStore.entries.count)) {
+            VStack(alignment: .leading, spacing: 3) {
+                DatasheetMonoLabel(
+                    text: "\(self.historyStore.todaySummary.transcriptions) TODAY",
+                    role: DatasheetTheme.Typography.tableLabel,
+                    color: self.palette.text2
+                )
+                .accessibilityLabel("\(self.historyStore.todaySummary.transcriptions) sessions today")
+                DatasheetMonoLabel(
+                    text: "AVG: \(self.historyStore.averageWordsPerTranscription) WORDS EACH",
+                    role: DatasheetTheme.Typography.tableLabel,
+                    color: self.palette.text2
+                )
+            }
         }
     }
 
@@ -152,7 +171,7 @@ struct StatsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+        .frame(minWidth: 170, maxWidth: .infinity, minHeight: 112, alignment: .leading)
         .overlay(alignment: .trailing) {
             Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
         }
@@ -292,7 +311,7 @@ struct StatsView: View {
                 Spacer(minLength: 0)
                 Text("0")
             }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(self.palette.text2)
             .frame(width: 36, height: plotHeight, alignment: .trailing)
         }
@@ -339,7 +358,7 @@ struct StatsView: View {
 
             if self.chartDays == 7 {
                 Text(Calendar.current.isDateInToday(item.date) ? "TODAY" : self.dayLabel(item.date))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.25)
                     .foregroundStyle(self.palette.text2)
                     .lineLimit(1)
