@@ -5668,6 +5668,20 @@ final class DatasheetLaneDCommandScrollDiagnosisTests: XCTestCase {
             let doc = try XCTUnwrap(scroll.documentView)
             print("D_SCROLL_BEFORE label=\(label) index=\(index) frame=\(scroll.frame) clip=\(clip.bounds) doc=\(doc.frame) flipped=\(doc.isFlipped) vertical=\(scroll.hasVerticalScroller) scroller=\(String(describing: scroll.verticalScroller?.floatValue)) knob=\(String(describing: scroll.verticalScroller?.knobProportion))")
             let extent = max(0, doc.bounds.height - clip.bounds.height)
+            if label == "current", index == 0 {
+                let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -450, wheel2: 0, wheel3: 0))
+                cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                let event = try XCTUnwrap(NSEvent(cgEvent: cg))
+                print("D_WHEEL_INPUT label=\(label) class=\(type(of:scroll)) precise=\(event.hasPreciseScrollingDeltas) deltaY=\(event.scrollingDeltaY) before=\(clip.bounds)")
+                scroll.scrollWheel(with: event)
+                let wheelDeadline = Date().addingTimeInterval(1)
+                while clip.bounds.minY == 0 && Date() < wheelDeadline {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+                    host.layoutSubtreeIfNeeded()
+                }
+                print("D_WHEEL_AFTER label=\(label) clip=\(clip.bounds) extent=\(extent)")
+                XCTAssertGreaterThan(clip.bounds.minY, 0, "A user wheel delivered to the actual outer native scroll view must move its clip")
+            }
             clip.scroll(to: NSPoint(x: clip.bounds.minX, y: extent))
             scroll.reflectScrolledClipView(clip)
             host.layoutSubtreeIfNeeded()
