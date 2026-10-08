@@ -11,20 +11,15 @@ import SwiftUI
 
 struct WelcomeView: View {
     @EnvironmentObject var appServices: AppServices
-    private var asr: ASRService {
-        self.appServices.asr
-    }
-
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var permissionMonitor = AccessibilityTrustMonitor.shared
+    @Environment(\.datasheetPalette) private var palette
+
+    private var asr: ASRService { self.appServices.asr }
+
     @Binding var selectedSidebarItem: SidebarItem?
     @Binding var playgroundUsed: Bool
     var isTranscriptionFocused: FocusState<Bool>.Binding
-    @State private var isHowToUseExpanded = false
-    @State private var isCommandModeGuideExpanded = false
-    @State private var isEditModeGuideExpanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.theme) private var theme
 
     let accessibilityEnabled: Bool
     let stopAndProcessTranscription: () async -> Void
@@ -32,582 +27,396 @@ struct WelcomeView: View {
     let openAccessibilitySettings: () -> Void
     let restartApp: () -> Void
 
-    private var commandModeShortcutDisplay: String {
-        self.settings.commandModeHotkeyShortcut?.displayString ?? "Not set"
-    }
-
-    private var writeModeShortcutDisplay: String {
-        self.settings.rewriteModeHotkeyShortcut.displayString
-    }
+    @State private var isHotkeyPracticeActive = false
+    @State private var hotkeyPracticeCount = 0
+    @State private var isPracticeKeyDown = false
+    @State private var practiceEventMonitor: Any?
 
     private let playgroundSectionID = "welcome-playground-section"
 
-    private var commandModeColor: Color {
-        self.theme.palette.warning
+    private var isModelReady: Bool {
+        self.asr.isAsrReady || self.asr.modelsExistOnDisk
     }
 
-    private var editModeColor: Color {
-        self.theme.palette.accent
+    private var primaryShortcut: String {
+        self.settings.primaryDictationShortcuts.first?.displayString ?? "Not set"
     }
 
-    private var appDisplayName: String {
-        Bundle.main.fluidAppDisplayName
+    private var completedSetupCount: Int {
+        [self.isModelReady, self.asr.micStatus == .authorized, self.accessibilityEnabled, self.playgroundUsed]
+            .filter { $0 }
+            .count
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "book.fill")
-                            .font(self.theme.typography.titleIcon)
-                            .foregroundStyle(self.theme.palette.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text((self.asr.isAsrReady || self.asr.modelsExistOnDisk) ? "Getting Started" : "Welcome to MouthKeys")
-                                .font(self.theme.typography.title)
-                            Text("Talk anywhere. MouthKeys types for you.")
-                                .font(self.theme.typography.bodySmall)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.bottom, 4)
-
-                    // Quick Setup Checklist
-                    ThemedCard(style: .prominent) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 10) {
-                                Label("Quick Setup", systemImage: "checkmark.circle.fill")
-                                    .font(self.theme.typography.sectionTitle)
-                                    .foregroundStyle(self.theme.palette.accent)
-
-                                Spacer()
-
-                                Button {
-                                    self.settings.resetOnboardingProgress()
-                                    self.playgroundUsed = false
-                                } label: {
-                                    Label("Run Onboarding Again", systemImage: "arrow.counterclockwise")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                SetupStepView(
-                                    step: 1,
-                                    // Consider model step complete if ready OR downloaded (even if not loaded)
-                                    title: (self.asr.isAsrReady || self.asr.modelsExistOnDisk) ? "Voice Model Ready" : "Download Voice Model",
-                                    description: self.asr.isAsrReady
-                                        ? "Speech recognition model is loaded and ready"
-                                        : (
-                                            self.asr.modelsExistOnDisk
-                                                ? "Model downloaded, will load when needed"
-                                                : "Download the AI model for offline voice transcription (~500MB)"
-                                        ),
-                                    status: (self.asr.isAsrReady || self.asr.modelsExistOnDisk) ? .completed : .pending,
-                                    action: {
-                                        self.selectedSidebarItem = .voiceEngine
-                                    },
-                                    actionButtonTitle: "Go to Voice Engine",
-                                    showActionButton: !(self.asr.isAsrReady || self.asr.modelsExistOnDisk)
-                                )
-
-                                SetupStepView(
-                                    step: 2,
-                                    title: self.asr.micStatus == .authorized ? "Microphone Permission Granted" : "Grant Microphone Permission",
-                                    description: self.asr.micStatus == .authorized
-                                        ? "MouthKeys has access to your microphone"
-                                        : "Allow MouthKeys to access your microphone for voice input",
-                                    status: self.asr.micStatus == .authorized ? .completed : .pending,
-                                    action: {
-                                        if self.asr.micStatus == .notDetermined {
-                                            self.asr.requestMicAccess()
-                                        } else if self.asr.micStatus == .denied {
-                                            self.asr.openSystemSettingsForMic()
-                                        }
-                                    },
-                                    actionButtonTitle: self.asr.micStatus == .notDetermined ? "Grant Access" : "Open Settings",
-                                    showActionButton: self.asr.micStatus != .authorized
-                                )
-
-                                SetupStepView(
-                                    step: 3,
-                                    title: self.accessibilityEnabled ? "Accessibility Access Enabled" : "Enable Accessibility Access",
-                                    description: self.accessibilityEnabled
-                                        ? "Accessibility permission granted for typing into apps"
-                                        : "Drag \(self.appDisplayName) into the Accessibility apps list as shown",
-                                    status: self.accessibilityEnabled ? .completed : .pending,
-                                    action: {
-                                        self.openAccessibilitySettings()
-                                    },
-                                    actionButtonTitle: "Open Settings",
-                                    showActionButton: !self.accessibilityEnabled
-                                )
-
-                                AccessibilityRecoveryHintView(
-                                    hint: self.permissionMonitor.hint,
-                                    conflictingCopies: self.permissionMonitor.conflictingCopies,
-                                    openAccessibilitySettings: { self.permissionMonitor.openAccessibilitySettings() },
-                                    relaunch: self.restartApp
-                                )
-
-                                SetupStepView(
-                                    step: 4,
-                                    title: self.playgroundUsed ? "Setup Tested Successfully" : "Test Your Setup",
-                                    description: self.playgroundUsed
-                                        ? "You've successfully tested voice transcription"
-                                        : "Try the playground below to test your complete setup",
-                                    status: self.playgroundUsed ? .completed : .pending,
-                                    action: {
-                                        withAnimation(.easeInOut(duration: 0.25)) {
-                                            proxy.scrollTo(self.playgroundSectionID, anchor: .top)
-                                        }
-                                        self.isTranscriptionFocused.wrappedValue = true
-                                    },
-                                    actionButtonTitle: "Go to Playground",
-                                    showActionButton: !self.playgroundUsed
-                                )
-                                .id("playground-step-\(self.playgroundUsed)")
+                VStack(alignment: .leading, spacing: 0) {
+                    DatasheetSheetHeader(
+                        placard: "00 / START",
+                        title: self.isModelReady ? "Getting Started" : "Welcome to MouthKeys",
+                        lede: "Talk anywhere. MouthKeys types for you."
+                    ) {
+                        Button {
+                            self.settings.resetOnboardingProgress()
+                            self.playgroundUsed = false
+                            self.resetHotkeyPractice()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("RUN ONBOARDING AGAIN")
                             }
                         }
-                        .padding(14)
+                        .buttonStyle(DatasheetTextButtonStyle())
                     }
 
-                    // Test Playground
-                    ThemedCard(hoverEffect: false) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack {
-                                Label {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Test Playground")
-                                            .font(self.theme.typography.sectionTitle)
-                                        Text("Click record, speak, and see your transcription")
-                                            .font(self.theme.typography.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } icon: {
-                                    Image(systemName: "text.bubble")
-                                        .font(self.theme.typography.titleIcon)
-                                }
+                    DatasheetQuickSetupReadout(
+                        steps: self.setupSteps(proxy: proxy),
+                        completedCount: self.completedSetupCount,
+                        readyShortcut: self.primaryShortcut,
+                        recoveryHint: self.permissionMonitor.hint,
+                        conflictingCopies: self.permissionMonitor.conflictingCopies,
+                        openAccessibilitySettings: { self.permissionMonitor.openAccessibilitySettings() },
+                        relaunch: self.restartApp
+                    )
 
-                                Spacer()
+                    DatasheetWelcomeSectionHeader(
+                        title: "Your Dictation Key",
+                        trailing: "\(self.primaryShortcut) · \(self.settings.hotkeyMode.displayName)"
+                    )
+                    .padding(.top, 34)
 
+                    DatasheetKeyPracticeReadout(
+                        shortcut: self.primaryShortcut,
+                        mode: self.settings.hotkeyMode,
+                        pressCount: self.hotkeyPracticeCount,
+                        isPracticing: self.isHotkeyPracticeActive,
+                        isDown: self.isPracticeKeyDown,
+                        practicePress: self.countManualPracticePress,
+                        reset: self.resetHotkeyPractice,
+                        changeShortcut: { self.selectedSidebarItem = .preferences }
+                    )
+
+                    DatasheetWelcomeSectionHeader(title: "Test Playground", trailing: "The overlay you will see")
+                        .padding(.top, 34)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 16) {
+                            Button {
                                 if self.asr.isRunning {
-                                    HStack(spacing: 6) {
-                                        Circle()
-                                            .fill(.red)
-                                            .frame(width: 6, height: 6)
-                                        Text("Recording...")
-                                            .font(self.theme.typography.captionStrong)
-                                            .foregroundStyle(.red)
+                                    Task { await self.stopAndProcessTranscription() }
+                                } else {
+                                    self.startRecording()
+                                    self.markSetupTested()
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: self.asr.isRunning ? "stop.fill" : "mic.fill")
+                                    Text(self.asr.isRunning ? "STOP RECORDING" : "START RECORDING")
+                                }
+                                .frame(minWidth: 160)
+                            }
+                            .buttonStyle(DatasheetPrimaryButtonStyle())
+                            .disabled(!self.asr.isAsrReady && !self.asr.isRunning)
+
+                            DatasheetMonoLabel(text: "OR PRESS", color: self.palette.text2)
+                            Text(self.primaryShortcut.uppercased())
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(self.palette.text)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(self.palette.field)
+                                .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
+
+                            Spacer(minLength: 8)
+                            HStack(spacing: 12) {
+                                if self.asr.isRunning {
+                                    HStack(spacing: 7) {
+                                        DatasheetStatusSquare(kind: .orange)
+                                        DatasheetMonoLabel(text: "Listening", color: self.palette.accent)
                                     }
                                 } else if !self.asr.finalText.isEmpty {
-                                    Text("\(self.asr.finalText.count) characters")
-                                        .font(self.theme.typography.caption)
-                                        .foregroundStyle(.secondary)
+                                    DatasheetMonoLabel(text: "\(self.asr.finalText.count) Characters", color: self.palette.text2)
                                 }
-                            }
-
-                            if self.settings.selectedSpeechModel == .parakeetTDT || self.settings.selectedSpeechModel == .parakeetTDTv2 {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "text.magnifyingglass")
-                                        .font(self.theme.typography.caption)
-                                        .foregroundStyle(self.theme.palette.accent)
-                                    Text(self.asr.wordBoostStatusText)
-                                        .font(self.theme.typography.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(self.theme.palette.contentBackground.opacity(0.6))
-                                )
-                            }
-
-                            VStack(alignment: .leading, spacing: 14) {
-                                // Recording Control — centered button
-                                HStack {
-                                    Spacer()
-                                    Button {
-                                        if self.asr.isRunning {
-                                            Task {
-                                                await self.stopAndProcessTranscription()
-                                            }
-                                        } else {
-                                            self.startRecording()
-                                            self.playgroundUsed = true
-                                            SettingsStore.shared.playgroundUsed = true
-                                        }
-                                    } label: {
-                                        HStack(spacing: 8) {
-                                            Image(systemName: self.asr.isRunning ? "stop.fill" : "mic.fill")
-                                            Text(self.asr.isRunning ? "Stop Recording" : "Start Recording")
-                                        }
-                                        .frame(maxWidth: 220)
-                                    }
-                                    .fluidButton(.primary, size: .large, isRecording: self.asr.isRunning)
-                                    .buttonHoverEffect()
-                                    .scaleEffect(!self.reduceMotion && self.asr.isRunning ? 1.02 : 1.0)
-                                    .animation(self.reduceMotion ? nil : .spring(response: 0.3), value: self.asr.isRunning)
-                                    .disabled(!self.asr.isAsrReady && !self.asr.isRunning)
-                                    Spacer()
-                                }
-
-                                // Text Area
-                                VStack(alignment: .leading, spacing: 8) {
-                                    TextEditor(text: Binding(
-                                        get: { self.asr.finalText },
-                                        set: { self.asr.finalText = $0 }
-                                    ))
-                                    .font(self.theme.typography.body)
-                                    .focused(self.isTranscriptionFocused)
-                                    .frame(height: 120)
-                                    .padding(10)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(
-                                                self.asr.isRunning ? self.theme.palette.accent.opacity(0.06) : self.theme.palette.cardBackground
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                    .strokeBorder(
-                                                        self.asr.isRunning ? self.theme.palette.accent.opacity(0.4) : self.theme.palette.cardBorder.opacity(0.6),
-                                                        lineWidth: self.asr.isRunning ? 2 : 1
-                                                    )
-                                            )
-                                    )
-                                    .scrollContentBackground(.hidden)
-                                    .overlay(
-                                        VStack(spacing: 8) {
-                                            if self.asr.isRunning {
-                                                Image(systemName: "waveform")
-                                                    .font(self.theme.typography.titleIcon)
-                                                    .foregroundStyle(self.theme.palette.accent)
-                                                Text("Listening... Speak now!")
-                                                    .font(self.theme.typography.bodySmallStrong)
-                                                    .foregroundStyle(self.theme.palette.accent)
-                                                Text("Transcription will appear when you stop recording")
-                                                    .font(self.theme.typography.caption)
-                                                    .foregroundStyle(self.theme.palette.accent.opacity(0.7))
-                                            } else if self.asr.finalText.isEmpty {
-                                                Image(systemName: "text.bubble")
-                                                    .font(self.theme.typography.titleIcon)
-                                                    .foregroundStyle(.secondary.opacity(0.5))
-                                                Text("Press record or your hotkey to begin")
-                                                    .font(self.theme.typography.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        .allowsHitTesting(false)
-                                    )
-
-                                    if !self.asr.finalText.isEmpty {
-                                        HStack(spacing: 8) {
-                                            Button {
-                                                NSPasteboard.general.clearContents()
-                                                NSPasteboard.general.setString(self.asr.finalText, forType: .string)
-                                            } label: {
-                                                Label("Copy Text", systemImage: "doc.on.doc")
-                                            }
-                                            .buttonStyle(.borderedProminent)
-                                            .tint(self.theme.palette.accent)
-                                            .controlSize(.small)
-
-                                            Button("Clear & Test Again") {
-                                                self.asr.finalText = ""
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .controlSize(.small)
-
-                                            Spacer()
-                                        }
-                                    }
-                                }
+                                self.wordBoostReadout
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+
+                        TextEditor(text: Binding(
+                            get: { self.asr.finalText },
+                            set: { self.asr.finalText = $0 }
+                        ))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(self.palette.text)
+                        .focused(self.isTranscriptionFocused)
+                        .frame(height: 220)
                         .padding(16)
+                        .scrollContentBackground(.hidden)
+                        .background(self.palette.field)
+                        .overlay(alignment: .topLeading) {
+                            if self.asr.finalText.isEmpty {
+                                Text(self.asr.isRunning ? "Listening… Speak now." : "Press record or your hotkey to begin")
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(self.palette.text2)
+                                    .padding(.top, 32)
+                                    .padding(.leading, 32)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .overlay(Rectangle().stroke(self.asr.isRunning ? self.palette.accent : self.palette.edge, lineWidth: 1))
+
+                        HStack(spacing: 18) {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(self.asr.finalText, forType: .string)
+                            } label: {
+                                Label("COPY TEXT", systemImage: "doc.on.doc")
+                            }
+                            .buttonStyle(DatasheetTextButtonStyle())
+                            .disabled(self.asr.finalText.isEmpty)
+
+                            Button("CLEAR & TEST AGAIN") {
+                                self.asr.finalText = ""
+                            }
+                            .buttonStyle(DatasheetTextButtonStyle())
+
+                            Spacer()
+                            DatasheetMonoLabel(text: "Speak, stop, and the text lands here", color: self.palette.text2)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
                     }
+                    .background(self.palette.surface)
+                    .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
                     .id(self.playgroundSectionID)
 
-                    // Secondary guidance
-                    ThemedCard(style: .subtle) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            self.guideDisclosureRow(
-                                title: "How to Use",
-                                systemImage: "play.fill",
-                                color: self.theme.palette.accent,
-                                isExpanded: self.$isHowToUseExpanded
-                            ) {
-                                EmptyView()
-                            } content: {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    self.howToStep(number: 1, title: "Start Recording", description: "Press your hotkey (default: Right Option/Alt) or click the button")
-                                    self.howToStep(number: 2, title: "Speak Clearly", description: "Speak naturally - works best in quiet environments")
-                                    self.howToStep(number: 3, title: "Auto-Type Result", description: "Transcription is automatically typed into your focused app")
-                                }
-                            }
+                    DatasheetInlineOverlayPreview(
+                        fallbackText: self.asr.partialTranscription.isEmpty
+                            ? self.asr.finalText
+                            : self.asr.partialTranscription
+                    )
+                    .frame(height: 288)
+                    .padding(.top, 14)
+                    .background(self.palette.field)
+                    .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
 
-                            Divider().opacity(0.2)
-
-                            self.guideDisclosureRow(
-                                title: "Command Mode",
-                                systemImage: "terminal.fill",
-                                color: self.commandModeColor,
-                                isExpanded: self.$isCommandModeGuideExpanded
-                            ) {
-                                self.featureBadge("New", color: self.commandModeColor)
-                                self.featureBadge("Alpha", color: self.commandModeColor.opacity(0.75))
-                            } content: {
-                                self.commandModeGuide
-                            }
-
-                            Divider().opacity(0.2)
-
-                            self.guideDisclosureRow(
-                                title: "Edit Mode",
-                                systemImage: "pencil.and.outline",
-                                color: self.editModeColor,
-                                isExpanded: self.$isEditModeGuideExpanded
-                            ) {
-                                self.featureBadge("New", color: self.editModeColor)
-                            } content: {
-                                self.editModeGuide
-                            }
-                        }
-                        .padding(12)
-                    }
                 }
-                .padding(16)
-            }
-        }
-        .onAppear {
-            Task { @MainActor in
-                await AudioStartupGate.shared.scheduleOpenAfterInitialUISettled()
-                await AudioStartupGate.shared.waitUntilOpen()
-                self.asr.micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-                await self.asr.checkIfModelsExistAsync()
-            }
-        }
-    }
-
-    // MARK: - Helper Views
-
-    private func guideDisclosureRow<Accessories: View, Content: View>(
-        title: String,
-        systemImage: String,
-        color: Color,
-        isExpanded: Binding<Bool>,
-        @ViewBuilder accessories: () -> Accessories,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(self.reduceMotion ? nil : .easeInOut(duration: 0.16)) {
-                    isExpanded.wrappedValue.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary.opacity(0.85))
-                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
-                        .frame(width: 16)
-
-                    Label(title, systemImage: systemImage)
-                        .font(self.theme.typography.sectionTitle)
-                        .foregroundStyle(color)
-
-                    accessories()
-
-                    Spacer(minLength: 0)
-                }
+                .padding(.horizontal, 28)
+                .padding(.top, 26)
+                .padding(.bottom, 36)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(title))
-            .accessibilityValue(Text(isExpanded.wrappedValue ? "Expanded" : "Collapsed"))
-            .accessibilityHint(Text("Activates to expand or collapse"))
-
-            if isExpanded.wrappedValue {
-                content()
-                    .padding(.top, 8)
-                    .padding(.leading, 26)
+            .scrollIndicators(.visible)
+            .onAppear {
+                if self.hotkeyPracticeCount < 3 {
+                    self.beginHotkeyPractice()
+                }
+                Task { @MainActor in
+                    await AudioStartupGate.shared.scheduleOpenAfterInitialUISettled()
+                    await AudioStartupGate.shared.waitUntilOpen()
+                    self.asr.micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+                    await self.asr.checkIfModelsExistAsync()
+                }
+            }
+            .onDisappear {
+                self.removePracticeEventMonitor()
             }
         }
     }
 
-    private var commandModeGuide: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Control your Mac with voice commands. Execute terminal commands, open apps, and more.")
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Open") {
-                    self.selectedSidebarItem = .commandMode
+    private var wordBoostReadout: some View {
+        Group {
+            if self.settings.selectedSpeechModel == .parakeetTDT || self.settings.selectedSpeechModel == .parakeetTDTv2 {
+                HStack(spacing: 8) {
+                    DatasheetStatusSquare(kind: .ink)
+                    Text(self.asr.wordBoostStatusText.uppercased())
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .tracking(0.35)
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Getting Started")
-                    .font(self.theme.typography.bodySmallStrong)
-                    .foregroundStyle(self.commandModeColor)
-
-                HStack(spacing: 4) {
-                    Text("Press")
-                    self.keyboardBadge(self.commandModeShortcutDisplay)
-                    Text("to open, speak your command, then press again to send.")
-                }
-                .font(self.theme.typography.caption)
-                .foregroundStyle(.primary.opacity(0.8))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Examples")
-                    .font(self.theme.typography.bodySmallStrong)
-                    .foregroundStyle(self.commandModeColor)
-                self.commandModeExample(icon: "folder", text: "\"List files in my Downloads folder\"")
-                self.commandModeExample(icon: "plus.rectangle.on.folder", text: "\"Create a folder called Projects on Desktop\"")
-                self.commandModeExample(icon: "network", text: "\"What's my IP address?\"")
-                self.commandModeExample(icon: "safari", text: "\"Open Safari\"")
-            }
-
-            HStack(spacing: 4) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(self.theme.typography.captionSmall)
-                    .foregroundStyle(self.commandModeColor)
-                Text("AI can make mistakes. Avoid destructive commands.")
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(.secondary)
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
 
-    private var editModeGuide: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("AI-powered editing assistant. Write fresh content or edit selected text with voice.")
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(.secondary)
+    private func setupSteps(proxy: ScrollViewProxy) -> [DatasheetSetupStep] {
+        let completion = [self.isModelReady, self.asr.micStatus == .authorized, self.accessibilityEnabled, self.playgroundUsed]
+        let current = completion.firstIndex(of: false)
 
-                Spacer()
+        func status(_ index: Int) -> DatasheetSetupStepStatus {
+            if completion[index] { return .complete }
+            return index == current ? .current : .later
+        }
 
-                Button("Open AI Settings") {
-                    self.selectedSidebarItem = .aiEnhancements
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
+        let modelTitle = self.isModelReady ? "Voice Model Ready" : "Download Voice Model"
+        let modelDetail = self.asr.isAsrReady
+            ? "Speech recognition model is loaded and ready"
+            : (self.asr.modelsExistOnDisk ? "Model downloaded, will load when needed" : "Download the AI model for offline voice transcription (~500MB)")
 
-            Label("Configure an AI model provider in AI Settings before using Edit Mode.", systemImage: "info.circle")
-                .font(self.theme.typography.caption)
-                .foregroundStyle(.secondary)
+        let microphoneTitle = self.asr.micStatus == .authorized
+            ? "Microphone Permission Granted"
+            : "Grant Microphone Permission"
+        let microphoneActionTitle = self.asr.micStatus == .notDetermined ? "Grant Access" : "Open Settings"
 
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Create New Text")
-                        .font(self.theme.typography.bodySmallStrong)
-                        .foregroundStyle(self.editModeColor)
-
-                    HStack(spacing: 4) {
-                        Text("Press")
-                        self.keyboardBadge(self.writeModeShortcutDisplay)
-                        Text("and speak what you want to write.")
+        return [
+            DatasheetSetupStep(
+                number: 1,
+                title: modelTitle,
+                detail: modelDetail,
+                completedTitle: "Voice Model Ready",
+                completedDetail: "\(self.settings.selectedSpeechModel.displayName) · \(self.asr.isAsrReady ? "loaded" : "ready")",
+                actionTitle: "Go to Voice Engine",
+                actionSymbol: "arrow.down",
+                status: status(0),
+                action: { self.selectedSidebarItem = .voiceEngine }
+            ),
+            DatasheetSetupStep(
+                number: 2,
+                title: microphoneTitle,
+                detail: self.asr.micStatus == .authorized
+                    ? "MouthKeys has access to your microphone"
+                    : "Allow MouthKeys to access your microphone for voice input",
+                completedTitle: "Microphone Permission Granted",
+                completedDetail: "Access granted",
+                actionTitle: microphoneActionTitle,
+                actionSymbol: "mic",
+                status: status(1),
+                action: {
+                    if self.asr.micStatus == .notDetermined {
+                        self.asr.requestMicAccess()
+                    } else if self.asr.micStatus == .denied {
+                        self.asr.openSystemSettingsForMic()
                     }
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(.primary.opacity(0.8))
-
-                    self.writeModeExample(text: "\"Write an email asking for time off\"")
-                    self.writeModeExample(text: "\"Draft a thank you note\"")
                 }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Edit Selected Text")
-                        .font(self.theme.typography.bodySmallStrong)
-                        .foregroundStyle(self.editModeColor)
-
-                    HStack(spacing: 4) {
-                        Text("Select text first, then press")
-                        self.keyboardBadge(self.writeModeShortcutDisplay)
-                        Text("and speak your instruction.")
+            ),
+            DatasheetSetupStep(
+                number: 3,
+                title: self.accessibilityEnabled ? "Accessibility Access Enabled" : "Enable Accessibility Access",
+                detail: self.accessibilityEnabled
+                    ? "Accessibility permission granted for typing into apps"
+                    : "Drag \(Bundle.main.fluidAppDisplayName) into the Accessibility apps list as shown",
+                completedTitle: "Accessibility Access Enabled",
+                completedDetail: "Typing into apps",
+                actionTitle: "Open Settings",
+                actionSymbol: "hand.raised",
+                status: status(2),
+                action: self.openAccessibilitySettings
+            ),
+            DatasheetSetupStep(
+                number: 4,
+                title: self.playgroundUsed ? "Setup Tested Successfully" : "Test Your Setup",
+                detail: self.playgroundUsed
+                    ? "You’ve successfully tested voice transcription"
+                    : "Try the playground below to test your complete setup",
+                completedTitle: "Setup Tested Successfully",
+                completedDetail: "Playground",
+                actionTitle: "Go to Playground",
+                actionSymbol: "arrow.right",
+                status: status(3),
+                action: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(self.playgroundSectionID, anchor: .top)
                     }
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(.primary.opacity(0.8))
-
-                    self.writeModeExample(text: "\"Make this more formal\"")
-                    self.writeModeExample(text: "\"Fix grammar and spelling\"")
-                    self.writeModeExample(text: "\"Summarize this\"")
+                    self.isTranscriptionFocused.wrappedValue = true
                 }
+            ),
+        ]
+    }
+
+    private func markSetupTested() {
+        self.playgroundUsed = true
+        self.settings.playgroundUsed = true
+    }
+
+    private func beginHotkeyPractice() {
+        self.isPracticeKeyDown = false
+        self.isHotkeyPracticeActive = true
+        self.installPracticeEventMonitor()
+    }
+
+    private func countManualPracticePress() {
+        guard self.hotkeyPracticeCount < 3 else { return }
+        self.isHotkeyPracticeActive = true
+        self.isPracticeKeyDown = false
+        self.hotkeyPracticeCount += 1
+        self.finishHotkeyPracticeIfNeeded()
+    }
+
+    private func installPracticeEventMonitor() {
+        guard !TestHostQuietMode.isActive, self.practiceEventMonitor == nil else { return }
+        self.practiceEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
+            self.observePracticeShortcutEvent(event)
+            return event
+        }
+    }
+
+    private func observePracticeShortcutEvent(_ event: NSEvent) {
+        guard self.isHotkeyPracticeActive,
+              let shortcut = self.settings.primaryDictationShortcuts.first,
+              !shortcut.isMouseShortcut
+        else { return }
+
+        if shortcut.isModifierOnlyShortcut {
+            guard event.type == .flagsChanged,
+                  event.keyCode == shortcut.keyCode,
+                  let trigger = shortcut.modifierTriggerFlag
+            else { return }
+            let isDown = event.modifierFlags.contains(trigger)
+            guard isDown != self.isPracticeKeyDown else { return }
+            self.isPracticeKeyDown = isDown
+            if isDown, self.hotkeyPracticeCount < 3 {
+                self.recordObservedPracticePress()
+            } else {
+                self.finishHotkeyPracticeIfNeeded()
             }
+            return
         }
-    }
 
-    private func howToStep(number: Int, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(self.theme.palette.accent.opacity(0.15))
-                    .frame(width: 28, height: 28)
-                Text("\(number)")
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(self.theme.palette.accent)
+        switch event.type {
+        case .keyDown:
+            guard self.hotkeyPracticeCount < 3,
+                  !event.isARepeat,
+                  shortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags)
+            else { return }
+            self.isPracticeKeyDown = true
+            self.recordObservedPracticePress()
+        case .keyUp:
+            if event.keyCode == shortcut.keyCode {
+                self.isPracticeKeyDown = false
+                self.finishHotkeyPracticeIfNeeded()
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(self.theme.typography.bodyStrong)
-                Text(description)
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        default:
+            break
         }
     }
 
-    private func featureBadge(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(self.theme.typography.badge)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    private func recordObservedPracticePress() {
+        guard self.hotkeyPracticeCount < 3 else { return }
+        self.hotkeyPracticeCount += 1
+        self.finishHotkeyPracticeIfNeeded()
     }
 
-    private func keyboardBadge(_ text: String) -> some View {
-        Text(text)
-            .font(self.theme.typography.captionStrong)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(self.theme.palette.cardBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    private func finishHotkeyPracticeIfNeeded() {
+        guard self.hotkeyPracticeCount >= 3, !self.isPracticeKeyDown else { return }
+        self.isHotkeyPracticeActive = false
+        self.removePracticeEventMonitor()
     }
 
-    private func commandModeExample(icon: String, text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(self.theme.typography.captionSmall)
-                .foregroundStyle(self.commandModeColor.opacity(0.8))
-                .frame(width: 14)
-            Text(text)
-                .font(self.theme.typography.caption)
-                .foregroundStyle(.primary.opacity(0.8))
-        }
+    private func resetHotkeyPractice() {
+        self.hotkeyPracticeCount = 0
+        self.isPracticeKeyDown = false
+        self.beginHotkeyPractice()
     }
 
-    private func writeModeExample(text: String) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(self.editModeColor.opacity(0.6))
-                .frame(width: 4, height: 4)
-            Text(text)
-                .font(self.theme.typography.caption)
-                .foregroundStyle(.primary.opacity(0.8))
-        }
+    private func removePracticeEventMonitor() {
+        guard let monitor = self.practiceEventMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        self.practiceEventMonitor = nil
     }
 }
 

@@ -5129,6 +5129,160 @@ final class DatasheetWindowRenderTests: XCTestCase {
     }
 }
 
+/// Quiet, offscreen Getting Started states for lane B. These views use the production setup rows,
+/// key practice readout, and inline overlay composition without opening a window or performing an
+/// action. Set MOUTHKEYS_RENDER_DIR to retain both appearances for comparison with app-signal/shots.
+@MainActor
+final class GettingStartedDatasheetRenderTests: XCTestCase {
+    private var outputFolder: URL? {
+        (ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            ?? ProcessInfo.processInfo.environment["TEST_RUNNER_MOUTHKEYS_RENDER_DIR"])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    func testQuickSetupAndShortcutStatesRenderInBothAppearances() throws {
+        let states: [(String, Int)] = [("fresh", 0), ("mid", 2), ("done", 4)]
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let theme = appearance == .darkAqua ? "dark" : "light"
+            for (name, completedCount) in states {
+                let rep = try DatasheetRenderStage.render(
+                    self.setupScene(completedCount: completedCount, appearance: appearance),
+                    appearance: appearance
+                )
+                XCTAssertGreaterThan(rep.pixelsWide, 0)
+                if let outputFolder {
+                    try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent("B-start-\(name)-\(theme).png"))
+                }
+            }
+
+            for (name, hint) in [
+                ("stale", AccessibilityHint.staleGrant),
+                ("copies", .conflictingCopies),
+                ("relaunch", .relaunch),
+            ] {
+                let recovery = self.setupScene(completedCount: 2, appearance: appearance, recoveryHint: hint)
+                let recoveryRep = try DatasheetRenderStage.render(recovery, appearance: appearance)
+                XCTAssertGreaterThan(recoveryRep.pixelsWide, 0)
+                if let outputFolder {
+                    try DatasheetRenderStage.write(
+                        recoveryRep,
+                        to: outputFolder.appendingPathComponent("B-start-recovery-\(name)-\(theme).png")
+                    )
+                }
+            }
+
+            for (name, pressCount, practicing, isDown) in [("mid", 1, true, true), ("done", 3, false, false)] {
+                let keyView = self.keyScene(pressCount: pressCount, isPracticing: practicing, isDown: isDown, appearance: appearance)
+                let rep = try DatasheetRenderStage.render(keyView, appearance: appearance)
+                XCTAssertGreaterThan(rep.pixelsWide, 0)
+                if let outputFolder {
+                    try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent("B-key-\(name)-\(theme).png"))
+                }
+            }
+
+            let overlay = DatasheetInlineOverlayPreview(
+                fallbackText: "Press record to watch the pill and playground fill together.",
+                inspectionHover: "wc"
+            )
+            .frame(width: 680, height: 230, alignment: .top)
+            .background((appearance == .darkAqua ? DatasheetTheme.Palette.dark : .light).surface)
+            .datasheetPalette()
+            let overlayRep = try DatasheetRenderStage.render(overlay, appearance: appearance)
+            XCTAssertGreaterThan(overlayRep.pixelsWide, 0)
+            if let outputFolder {
+                try DatasheetRenderStage.write(overlayRep, to: outputFolder.appendingPathComponent("B-playground-wc-\(theme).png"))
+            }
+        }
+    }
+
+    private func setupScene(
+        completedCount: Int,
+        appearance: NSAppearance.Name,
+        recoveryHint: AccessibilityHint = .none
+    ) -> some View {
+        let isDark = appearance == .darkAqua
+        let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
+        let scheme: ColorScheme = isDark ? .dark : .light
+        return VStack(alignment: .leading, spacing: 0) {
+            DatasheetSheetHeader(
+                placard: "00 / START",
+                title: completedCount == 0 ? "Welcome to MouthKeys" : "Getting Started",
+                lede: "Talk anywhere. MouthKeys types for you."
+            )
+            DatasheetQuickSetupReadout(
+                steps: self.steps(completedCount: completedCount),
+                completedCount: completedCount,
+                readyShortcut: "Right ⌥",
+                recoveryHint: recoveryHint,
+                conflictingCopies: [URL(fileURLWithPath: "/Applications/MouthKeys (older copy).app")],
+                openAccessibilitySettings: {},
+                relaunch: {}
+            )
+        }
+        .padding(24)
+        .frame(width: 820, height: 780, alignment: .topLeading)
+        .background(palette.surface)
+        .environment(\.colorScheme, scheme)
+        .datasheetPalette()
+    }
+
+    private func keyScene(pressCount: Int, isPracticing: Bool, isDown: Bool, appearance: NSAppearance.Name) -> some View {
+        let isDark = appearance == .darkAqua
+        let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
+        let scheme: ColorScheme = isDark ? .dark : .light
+        return VStack(alignment: .leading, spacing: 0) {
+            DatasheetSheetHeader(placard: "00 / START", title: "Getting Started")
+            DatasheetWelcomeSectionHeader(title: "Your Dictation Key", trailing: "Right ⌥ · Toggle")
+            DatasheetKeyPracticeReadout(
+                shortcut: "Right ⌥",
+                mode: .toggle,
+                pressCount: pressCount,
+                isPracticing: isPracticing,
+                isDown: isDown,
+                practicePress: {},
+                reset: {},
+                changeShortcut: {}
+            )
+        }
+        .padding(24)
+        .frame(width: 820, height: 360, alignment: .topLeading)
+        .background(palette.surface)
+        .environment(\.colorScheme, scheme)
+        .datasheetPalette()
+    }
+
+    private func steps(completedCount: Int) -> [DatasheetSetupStep] {
+        let current = completedCount < 4 ? completedCount : nil
+        let details = [
+            ("Download Voice Model", "Download the AI model for offline voice transcription (~500MB)", "Go to Voice Engine"),
+            ("Grant Microphone Permission", "Allow MouthKeys to access your microphone for voice input", "Grant Access"),
+            ("Enable Accessibility Access", "Drag MouthKeys into the Accessibility apps list as shown", "Open Settings"),
+            ("Test Your Setup", "Try the playground below to test your complete setup", "Go to Playground"),
+        ]
+        return details.enumerated().map { index, item in
+            let status: DatasheetSetupStepStatus
+            if index < completedCount {
+                status = .complete
+            } else if index == current {
+                status = .current
+            } else {
+                status = .later
+            }
+            return DatasheetSetupStep(
+                number: index + 1,
+                title: item.0,
+                detail: item.1,
+                completedTitle: ["Voice Model Ready", "Microphone Permission Granted", "Accessibility Access Enabled", "Setup Tested Successfully"][index],
+                completedDetail: ["Parakeet TDT v2 · loaded", "Access granted", "Typing into apps", "Playground"][index],
+                actionTitle: item.2,
+                actionSymbol: ["arrow.down", "mic", "hand.raised", "arrow.right"][index],
+                status: status,
+                action: {}
+            )
+        }
+    }
+}
+
 @MainActor
 private final class DatasheetNativeShellTestModel: ObservableObject {
     @Published var visibility: NavigationSplitViewVisibility = .all
