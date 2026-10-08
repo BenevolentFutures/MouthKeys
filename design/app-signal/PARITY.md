@@ -159,24 +159,43 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 
 | Current screen / control or state | Current binding or effect | New target | Status |
 |---|---|---|---|
-| Quick Setup step actions and completion state | Existing onboarding/permission state | Four-cell setup readout | Restyle; done collapses, next action remains actionable |
-| Welcome title before model readiness | `ASRService` readiness | Getting Started lead | Preserve wording/ordering |
-| Microphone status and permission action | `ASRService` authorization and request | Setup status row | Restyle |
-| Accessibility status / Open Settings / floating guide | `AccessibilityTrustMonitor` | Permission recovery rows | Restyle |
-| “Already switched on?” recovery | Trust monitor result after return from System Settings | Permission recovery row | Preserve |
-| Conflicting app-copy Show in Finder list | `ConflictingAppCopyDetector` | Permission recovery row | Preserve paths and Finder action |
-| failed_trusted Relaunch MouthKeys | Existing relaunch callback | Permission recovery row | Preserve |
-| Grant Access | Existing microphone permission request | Permission recovery row | Preserve |
-| Your Dictation Key display and activation mode | `primaryDictationShortcuts`, `hotkeyMode` | Keycap and mode readout | Restyle |
-| Prototype addition: three-press hotkey practice drill | No matching baseline practice sequence or completion callback in `WelcomeView.swift` | Your Dictation Key | New prototype interaction; Getting Started lane must wire completion if retained |
-| Run Onboarding Again | `resetOnboardingProgress()` and `playgroundUsed = false` | Quick Setup header action | Preserve action and reset effect |
-| Editable transcript | `asr.finalText` binding | Playground transcript editor | Preserve edit and transcription state |
-| Copy Text | Copies `asr.finalText` to `NSPasteboard` | Playground transcript actions | Preserve copy action |
-| Clear & Test Again | Sets `asr.finalText` to the empty string | Playground transcript actions | Preserve clear action |
-| Playground microphone picker | Existing selected-input binding and device coordinator | Playground | Restyle; preserve real device selection |
-| Playground recording/cancel and inline overlay | Existing `SignalOverlay`/`DatasheetOverlay` state and callbacks | Playground | Preserve overlay and delivery behavior |
-| Prototype addition: hover callout zones | No baseline callout view or callback; annotation names and geometry are defined in prototype `callouts.js` | Playground annotations | New prototype annotations; implement in Getting Started lane |
-| Open Voice Engine / Settings actions | Existing sidebar routing callbacks | Setup step actions | Preserve destinations |
+| Page placard, title and lede | `ASRService.isAsrReady` / `modelsExistOnDisk` | `00 / START` sheet header | Restyled; fresh setup reads “Welcome to MouthKeys”; ready model reads “Getting Started” |
+| Header: Run Onboarding Again | `settings.resetOnboardingProgress()` and `playgroundUsed = false` | Header trailing action | Restyled; same reset effects, plus the local shortcut-practice counter resets |
+| Quick Setup title and progress readout | Model, microphone, and accessibility readiness plus voice validation or three local shortcut presses after those prerequisites are ready | Quick Setup header | Added four outlined/fill cells, `n/4`, and NOT STARTED / IN PROGRESS / READY; the fourth cell can reflect truthful key practice without persisting Playground validation |
+| Quick Setup row title and detail | Model readiness, microphone permission, accessibility trust, local shortcut practice, and `playgroundUsed` | Four numbered setup rows | Restyled; incomplete rows retain their explanatory detail, and completed rows show compact metadata plus DONE; step 4 distinguishes shortcut practice from voice transcription validation |
+| Quick Setup current and later row actions | Existing model, microphone, accessibility, and playground callbacks | Current row and later rows | Restyled; current row shows DO THIS NOW and a resting bracketed action, later rows show NEXT and outlined actions; each incomplete row remains clickable and completed rows are disabled |
+| Voice Model Ready / Download Voice Model | `ASRService` readiness; action selects `.voiceEngine` | Quick Setup row 1 | Restyled; completed metadata distinguishes the selected model and loaded/ready state; incomplete action routes to Voice Engine |
+| Microphone Permission Granted / Grant Microphone Permission | `ASRService.micStatus`; `requestMicAccess()` or `openSystemSettingsForMic()` | Quick Setup row 2 | Restyled; not-determined state offers Grant Access, denied state offers Open Settings, and authorized state shows completion metadata; a system prompt follows only an explicit click |
+| Accessibility Access Enabled / Enable Accessibility Access | `accessibilityEnabled`; `openAccessibilitySettings` | Quick Setup row 3 | Restyled; preserves the existing settings and floating-guide path |
+| Accessibility: “Already switched on?” | `AccessibilityTrustMonitor.hint == .staleGrant` | Recovery panel directly after row 3 | Restyled; preserves policy copy and Open Accessibility Settings action |
+| Accessibility: conflicting app copies | `AccessibilityTrustMonitor.conflictingCopies`; `ConflictingAppCopyDetector.displayPath` | Recovery panel directly after row 3 | Restyled; shows up to three selectable paths; Show in Finder selects those same copies and Open Accessibility Settings remains available |
+| Accessibility: Relaunch MouthKeys | `AccessibilityTrustMonitor.hint == .relaunch`; `restartApp` | Recovery panel directly after row 3 | Restyled; Relaunch MouthKeys callback preserved |
+| Test Your Setup / Setup Tested Successfully | Local three-press shortcut practice after rows 1–3 are ready, or `playgroundUsed` from the real voice path | Quick Setup row 4 | Three completed key presses can finish this step only after model, microphone, and Accessibility are ready; copy says voice transcription remains untested. Only the existing Playground recording path sets `playgroundUsed`; Go to Playground still scrolls to and focuses the real transcript |
+| Your Dictation Key and activation mode | `SettingsStore.primaryDictationShortcuts[0]`; `SettingsStore.hotkeyMode` | Your Dictation Key section header and keycap | Restyled; displays the configured shortcut and activation mode, including the mode description |
+| Prototype: three-press shortcut practice | No persisted setting; local `hotkeyPracticeCount` and practice event monitor | Your Dictation Key practice panel and Quick Setup row 4 | Added; listens while Getting Started is active and ASR is idle, requires the complete configured physical modifier chord, retains its release owner, and stops after three completed presses. Before recording starts and while ASR is running or starting, practice releases its own monitor and gate so the primary shortcut retains stop/hold-release routing. Once rows 1–3 are ready, the third release completes row 4; practice never sets `playgroundUsed` or claims voice transcription was tested |
+| Practice keycap fallback and Reset | Local `countManualPracticePress()` / `resetHotkeyPractice()` | Keycap button and Reset action | Added; clicking the keycap records an idle practice press; Reset clears and rearms an eligible idle drill. The fixed-size keycap inverts on DOWN, the completed released meter uses accent, and the narrow fallback hint wraps without moving the keycap or actions |
+| Change Key or Mode | Existing Preferences destination and `SettingsStore` shortcut/mode controls | Your Dictation Key action | Added; routes to `.preferences`; changing the actual shortcut or mode remains in Settings |
+| Playground Start / Stop Recording | `startRecording()` / `stopAndProcessTranscription()` | Test Playground action row | Restyled; retains the existing recording and transcription callbacks; Start marks the existing setup test completion. At narrow widths, status readouts move below the fixed-size recording control and shortcut reminder; the button keeps its frame across idle, recording, and transcript states |
+| Playground “OR PRESS” shortcut | Configured primary shortcut | Test Playground action row | Added as a shortcut reminder; the actual global shortcut behavior is unchanged |
+| Recording / transcript character count | `ASRService.isRunning`; `ASRService.finalText.count` | Playground status line | Restyled; shows Listening while recording or the transcript character count when text exists |
+| Parakeet word boost status | `selectedSpeechModel`; `ASRService.wordBoostStatusText` | Playground status line | Restyled; shown for the same Parakeet models |
+| Editable transcript | `ASRService.finalText` binding | Playground text editor | Restyled; editing, focus, and transcription state preserved |
+| Copy Text | Copies `ASRService.finalText` to `NSPasteboard` | Playground transcript actions | Restyled; same clipboard action and disabled state when empty |
+| Clear & Test Again | Sets `ASRService.finalText` to an empty string | Playground transcript actions | Restyled; clear action remains available |
+| Inline Datasheet overlay | Production `DatasheetPill`, `DatasheetTraceRow`, `DatasheetFootRow`, `DatasheetPreview`, `DatasheetRail`, and `DatasheetChip` read current shared overlay state | Inline reference below Playground controls | Added; read-only teaching reference; a single centered fit transform keeps the persisted pill size, rails and all twelve zones within the available inline width. The mic hotspot uses the production battery-label reservation; production floating overlay and delivery behavior are untouched |
+| Overlay preview, trace, recording square, timer, word count, WPM, target app and mic callouts | Current Datasheet overlay state and `callouts.js` annotations | Inline overlay callout zones | Added with twelve resting dashed outlines, a solid selected outline, leader, square terminus, label and description; visual and hover frames share the same fit transform |
+| History, copy, cancel and reprocess callouts | Live overlay chip semantics; `callouts.js` annotations | Inline overlay callout zones | Added as inert annotations; only the real floating overlay retains those actions |
+| How to Use, Command Mode and Edit Mode guide accordions | Local disclosure state and static examples | No new Getting Started control | Removed by the settled direction; Quick Setup, Your Dictation Key and Test Playground remain the three sections |
+| Onboarding microphone selector | `selectedOnboardingInputUID` and microphone coordinator inside `OnboardingFlowView` | First-run wizard, not Getting Started | Unchanged; lane B does not alter the lower `OnboardingFlowView` or its input selection |
+| Accessibility trust monitor and app-copy detector | `AccessibilityTrustMonitor` refresh and read-only copy detection | Quick Setup recovery panel | Unchanged services; no TCC edits or app-copy deletion |
+
+### Getting Started states omitted by the prototype
+
+- Downloaded-but-not-loaded model, model loading, denied or restricted microphone, “Already switched on?”, conflicting registered app copies, and `failed_trusted` relaunch remain represented by current ASR and permission-monitor state. The prototype does not replace those recovery paths.
+- The first-run wizard and its microphone input selection remain in `OnboardingFlowView`; lane B owns only the `WelcomeView` region above it.
+- The inline overlay is a teaching reference composed from production Datasheet views. Its chips do not trigger history, clipboard, cancellation, reprocess, or microphone-picker side effects. The real floating overlay continues to own those actions.
+- Shortcut practice is local: three presses complete Quick Setup row 4 only after model, microphone, and Accessibility are ready. It does not persist `playgroundUsed` or claim voice transcription was tested; only the existing Playground recording path sets that value.
+- The existing primary shortcut’s global hotkey handling, audio capture, transcript delivery, and text insertion are not changed by this lane.
 
 ## C — Voice Engine, Custom Dictionary, AI Enhancement, Feedback
 
