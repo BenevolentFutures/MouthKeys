@@ -4803,7 +4803,7 @@ final class DatasheetWindowRenderTests: XCTestCase {
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
             let view = DatasheetWindowFoundationGallery()
-                .frame(width: 940, height: 1680, alignment: .topLeading)
+                .frame(width: 940, height: 1900, alignment: .topLeading)
                 .environment(\.displayScale, 1)
                 .datasheetPalette()
             let rep = try DatasheetRenderStage.render(view, appearance: appearance)
@@ -4841,7 +4841,7 @@ private struct DatasheetWindowFoundationGallery: View {
                 }
             }
 
-            DatasheetSection(letter: "A", title: "Rows and controls", trailing: "6 CONTROLS", note: "State widths stay fixed as values change.") {
+            DatasheetSection(letter: "A", title: "Rows and controls", trailing: "9 CONTROLS", note: "State widths stay fixed as values change.") {
                 DatasheetRow(label: "Enable streaming preview", help: "Show live text while dictating.") {
                     Toggle("Streaming preview", isOn: self.$isEnabled)
                         .toggleStyle(DatasheetToggleStyle())
@@ -4861,6 +4861,24 @@ private struct DatasheetWindowFoundationGallery: View {
                         Button("Small") {}
                         Button("Medium") {}
                         Button("Large") {}
+                    }
+                }
+                DatasheetRow(label: "Short value, no detail") {
+                    DatasheetPicker(title: "Short value, no detail", value: "Small") {
+                        Button("Small") {}
+                        Button("Medium") {}
+                    }
+                }
+                DatasheetRow(label: "Long value and detail") {
+                    DatasheetPicker(title: "Long value and detail", value: "Hollyland Lapel Mic", detail: "33%") {
+                        Button("Hollyland Lapel Mic") {}
+                        Button("MacBook Pro Microphone") {}
+                    }
+                }
+                DatasheetRow(label: "Long value, no detail") {
+                    DatasheetPicker(title: "Long value, no detail", value: "MacBook Pro Speakers (System Default)") {
+                        Button("MacBook Pro Speakers") {}
+                        Button("System Default") {}
                     }
                 }
                 DatasheetRow(label: "Input sensitivity") {

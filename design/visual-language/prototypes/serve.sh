@@ -7,7 +7,7 @@ if ! lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
   nohup python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 &
   sleep 1
 fi
-for d in obsidian lumen signal; do
+for d in obsidian lumen datasheet; do
   [ -f "$d/index.html" ] && /usr/bin/open "http://localhost:$PORT/$d/index.html"
 done
 echo "serving http://localhost:$PORT (pid $(lsof -tiTCP:$PORT -sTCP:LISTEN | head -1))"

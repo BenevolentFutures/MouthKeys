@@ -106,8 +106,12 @@ struct DatasheetToggleStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityValue(configuration.isOn ? "On" : "Off")
-        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) {
+                configuration.label
+            }
+            .toggleStyle(.switch)
+        }
     }
 }
 
@@ -190,40 +194,60 @@ struct DatasheetPicker<Content: View>: View {
 
     var body: some View {
         DatasheetBracketed(rest: false) {
-            Menu {
-                self.content
-            } label: {
+            ZStack {
+                Menu {
+                    self.content
+                } label: {
+                    Text(self.value)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .buttonStyle(.plain)
+                .frame(width: self.minimumWidth, height: 32)
+                .accessibilityLabel(self.title)
+                .accessibilityValue(self.accessibilityValue)
+
                 HStack(spacing: 0) {
                     Text(self.value)
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .foregroundStyle(self.palette.text)
-                        .frame(width: 72, alignment: .leading)
+                        .layoutPriority(0)
 
                     if let detail = self.detail {
                         Text(detail.uppercased())
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .tracking(0.6)
                             .foregroundStyle(self.palette.text2)
+                            .fixedSize()
                             .padding(.leading, 8)
                     }
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .accessibilityHidden(true)
                 }
                 .padding(.horizontal, 12)
                 .frame(width: self.minimumWidth, height: 32, alignment: .leading)
-                .contentShape(Rectangle())
+                .background(self.palette.field)
+                .overlay {
+                    Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-            .frame(width: self.minimumWidth, height: 32, alignment: .leading)
-            .background(self.palette.field)
-            .overlay {
-                Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
-            }
-            .accessibilityLabel(self.title)
+            .frame(width: self.minimumWidth, height: 32)
         }
+    }
+
+    private var accessibilityValue: String {
+        guard let detail = self.detail, !detail.isEmpty else { return self.value }
+        return "\(self.value), \(detail.uppercased())"
     }
 }
 

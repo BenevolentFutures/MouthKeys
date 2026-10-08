@@ -14,7 +14,7 @@ These components have no independent `SettingsStore` binding. The consuming scre
 | Setting label, help, indent leader, row rule | Caller-supplied binding/control | `DatasheetRow` | Foundation |
 | On/off control | Caller-supplied `Binding<Bool>` | `DatasheetToggleStyle` | Foundation |
 | Fixed-cell choice control | Caller-supplied selection binding | `DatasheetSegmented` | Foundation |
-| Field-box menu | Caller-supplied menu actions/current value | `DatasheetPicker` | Foundation; native 240 × 32 field and stable Medium-to-Small width verified; native label inset and trailing arrow spacing differ from prototype, pending Astra review |
+| Field-box menu | Caller-supplied menu actions/current value and optional detail | `DatasheetPicker` | Foundation; native 240 × 32 field, stable value width, visible optional detail, and trailing disclosure; native menu remains the action surface |
 | Gridded value control and fixed readout | Caller-supplied `Binding<Double>` and range | `DatasheetSlider` | Foundation |
 | Shortcut display/capture well | Wrap the existing shortcut recorder and its callbacks | `DatasheetHotkeyWell` | Foundation |
 | Selectable table row | Caller-supplied action and selection | `DatasheetTableRow` | Foundation |
@@ -75,6 +75,9 @@ Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.p
 | Paste Last Transcription shortcut and enable toggle | `pasteLastTranscriptionShortcut`, `pasteLastTranscriptionShortcutEnabled` | B Hotkeys | Restyle |
 | Reprocess Last Dictation shortcut and enable toggle | `reprocessLastDictationShortcut`, `reprocessLastDictationShortcutEnabled` | B Hotkeys | Restyle |
 | Activation Mode picker | `hotkeyMode`; updates `GlobalHotkeyManager` | B Hotkeys | Restyle |
+| Global Hotkey: “Hotkey initializing…” status | `hotkeyManagerInitialized`; `ContentView.preferencesView` passes the state and `SettingsView` renders this branch while accessibility is enabled | B Hotkeys status row | Preserve; style the initializing state |
+| Input Device Priority: Move Up | `SettingsStore.moveMicrophonePriority(uid:by: -1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
+| Input Device Priority: Move Down | `SettingsStore.moveMicrophonePriority(uid:by: 1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
 | Copy to Clipboard | `copyToClipboard` / `SettingsStore.copyTranscriptionToClipboard` | C Dictation | Restyle |
 | Text Insertion Mode picker | `SettingsStore.textInsertionMode` | C Dictation | Restyle |
 | Return to Starting Field | `SettingsStore.returnDictationToStartingField` | C Dictation | Restyle |
@@ -137,10 +140,14 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 | failed_trusted Relaunch MouthKeys | Existing relaunch callback | Permission recovery row | Preserve |
 | Grant Access | Existing microphone permission request | Permission recovery row | Preserve |
 | Your Dictation Key display and activation mode | `primaryDictationShortcuts`, `hotkeyMode` | Keycap and mode readout | Restyle |
-| Three-press hotkey practice drill | Existing hotkey practice completion callback | Your Dictation Key | Preserve ability to complete setup step |
+| Prototype addition: three-press hotkey practice drill | No matching baseline practice sequence or completion callback in `WelcomeView.swift` | Your Dictation Key | New prototype interaction; Getting Started lane must wire completion if retained |
+| Run Onboarding Again | `resetOnboardingProgress()` and `playgroundUsed = false` | Quick Setup header action | Preserve action and reset effect |
+| Editable transcript | `asr.finalText` binding | Playground transcript editor | Preserve edit and transcription state |
+| Copy Text | Copies `asr.finalText` to `NSPasteboard` | Playground transcript actions | Preserve copy action |
+| Clear & Test Again | Sets `asr.finalText` to the empty string | Playground transcript actions | Preserve clear action |
 | Playground microphone picker | Existing selected-input binding and device coordinator | Playground | Restyle; preserve real device selection |
 | Playground recording/cancel and inline overlay | Existing `SignalOverlay`/`DatasheetOverlay` state and callbacks | Playground | Preserve overlay and delivery behavior |
-| Hover callout zones | Existing callout map from `callouts.js` | Playground annotations | Restyle; no new action |
+| Prototype addition: hover callout zones | No baseline callout view or callback; annotation names and geometry are defined in prototype `callouts.js` | Playground annotations | New prototype annotations; implement in Getting Started lane |
 | Open Voice Engine / Settings actions | Existing sidebar routing callbacks | Setup step actions | Preserve destinations |
 
 ## C — Voice Engine, Custom Dictionary, AI Enhancement, Feedback
