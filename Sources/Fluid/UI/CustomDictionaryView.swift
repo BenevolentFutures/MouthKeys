@@ -65,8 +65,10 @@ struct CustomDictionaryView: View {
     @State private var editingPunctuationRuleID: UUID?
     @State private var punctuationAliasesText = ""
     @State private var punctuationSymbolText = ""
+    private let datasheetRenderFixture: Bool
 
     init(datasheetRenderFixture: Bool = false) {
+        self.datasheetRenderFixture = datasheetRenderFixture
         guard datasheetRenderFixture else { return }
 
         self._entries = State(initialValue: [
@@ -274,6 +276,14 @@ struct CustomDictionaryView: View {
 
 
     var body: some View {
+        if self.datasheetRenderFixture {
+            self.datasheetScreenContent
+        } else {
+            self.productScreenContent
+        }
+    }
+
+    private var productScreenContent: some View {
         self.datasheetScreenContent
         .dismissTextFocusOnBackgroundTap()
         .sheet(item: self.$editingEntry) { entry in

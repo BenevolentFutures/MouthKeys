@@ -5480,7 +5480,6 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
             try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
 
             let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
-                .datasheetScreenContent
                 .environmentObject(appServices)
                 .frame(width: 960, height: 720, alignment: .topLeading)
                 .appTheme(appTheme)
