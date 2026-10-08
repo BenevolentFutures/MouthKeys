@@ -5483,7 +5483,7 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
                 .appTheme(appTheme)
                 .datasheetPalette()
                 try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
-                if width < 960 {
+                do {
                     let fullVoice = VoiceEngineSettingsView(viewModel: voiceViewModel, settings: settings, theme: appTheme, skipsLifecycleForRender: true)
                         .padding(14)
                         .frame(width: width, height: 3200, alignment: .topLeading)
@@ -5624,6 +5624,12 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         .appTheme(theme)
         .datasheetPalette()
         try self.render(view, name: name, appearance: appearance)
+        let fullView = VoiceEngineSettingsView(viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true)
+            .padding(14)
+            .frame(width: self.fixtureWidth, height: 3200, alignment: .topLeading)
+            .appTheme(theme)
+            .datasheetPalette()
+        try self.render(fullView, name: name.replacingOccurrences(of: ".png", with: "-full.png"), appearance: appearance, height: 3200)
     }
 
     private func render<V: View>(_ view: V, name: String, appearance: NSAppearance.Name, height: CGFloat = 720) throws {

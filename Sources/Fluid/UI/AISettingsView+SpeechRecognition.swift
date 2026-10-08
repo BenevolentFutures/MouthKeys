@@ -253,6 +253,7 @@ extension VoiceEngineSettingsView {
         let isActive = isConfiguredActive && model.isInstalled && self.viewModel.asr.isAsrReady
         let rowText = isSelected ? self.palette.invForeground : self.palette.text
         let metaText = isSelected ? self.palette.invForeground2 : self.palette.text2
+        let actionPalette = isSelected ? (self.colorScheme == .light ? DatasheetTheme.Palette.dark : .light) : self.palette
 
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
@@ -279,7 +280,7 @@ extension VoiceEngineSettingsView {
                     .frame(width: 42, alignment: .trailing)
                 self.monoLabel("\(Int(model.accuracyPercent * 100))", color: metaText)
                     .frame(width: 42, alignment: .trailing)
-                self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive)
+                self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive, palette: actionPalette)
                     .frame(width: 136, alignment: .trailing)
             }
             .frame(minWidth: 720)
@@ -294,7 +295,7 @@ extension VoiceEngineSettingsView {
                         self.monoLabel(self.speechModelSubtitle(for: model), color: metaText)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive)
+                    self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive, palette: actionPalette)
                         .frame(width: 136, alignment: .trailing)
                 }
                 Text("Size: \(model.downloadSize) · Languages: \(model.languageSupport) · Speed: \(Int(model.speedPercent * 100)) · Accuracy: \(Int(model.accuracyPercent * 100))")
@@ -322,26 +323,28 @@ extension VoiceEngineSettingsView {
     private func modelAction(
         for model: SettingsStore.SpeechModel,
         isActive: Bool,
-        isConfiguredActive: Bool
+        isConfiguredActive: Bool,
+        palette: DatasheetTheme.Palette
     ) -> some View {
         if self.viewModel.downloadingModel == model {
-            self.progressAction(for: model, preparation: false)
+            self.progressAction(for: model, preparation: false, palette: palette)
         } else if (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel || self.viewModel.asr.isCancellingModelPreparation),
                   isConfiguredActive,
                   !self.viewModel.asr.isAsrReady
         {
-            self.progressAction(for: model, preparation: true)
+            self.progressAction(for: model, preparation: true, palette: palette)
         } else if model.isInstalled {
             HStack(spacing: 8) {
                 if isActive {
-                    self.speechModelLanguagePicker(for: model)
+                    self.speechModelLanguagePicker(for: model, palette: palette)
                         .disabled(self.viewModel.areSpeechModelActionsBlocked)
                     HStack(spacing: 5) {
                         DatasheetStatusSquare(kind: .ink)
-                        self.monoLabel("Active")
+                            .environment(\.datasheetPalette, palette)
+                        self.monoLabel("Active", color: palette.text)
                     }
                 } else {
-                    self.actionButton("Activate") {
+                    self.actionButton("Activate", palette: palette) {
                         self.viewModel.activateSpeechModel(model)
                     }
                     .disabled(self.viewModel.areSpeechModelActionsBlocked)
@@ -353,7 +356,7 @@ extension VoiceEngineSettingsView {
                     } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(self.palette.text2)
+                            .foregroundStyle(palette.text2)
                     }
                     .buttonStyle(.plain)
                     .help("Delete this downloaded model")
@@ -370,17 +373,17 @@ extension VoiceEngineSettingsView {
                     } label: {
                         Image(systemName: "arrow.up.right.square")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(self.palette.text2)
+                            .foregroundStyle(palette.text2)
                     }
                     .buttonStyle(.plain)
                     .help("Open model source")
                     .disabled(self.viewModel.areSpeechModelActionsBlocked)
                 } else if !self.viewModel.previewSpeechModel.isInstalled {
-                    self.monoLabel("Not downloaded")
+                    self.monoLabel("Not downloaded", color: palette.text2)
                         .lineLimit(1)
                 }
 
-                self.actionButton("Download") {
+                self.actionButton("Download", palette: palette) {
                     self.viewModel.previewSpeechModel = model
                     self.viewModel.downloadSpeechModel(model)
                 }
@@ -427,7 +430,8 @@ extension VoiceEngineSettingsView {
     }
 
     @ViewBuilder
-    private func progressAction(for model: SettingsStore.SpeechModel, preparation: Bool) -> some View {
+    private func progressAction(for model: SettingsStore.SpeechModel, preparation: Bool, palette actionPalette: DatasheetTheme.Palette? = nil) -> some View {
+        let palette = actionPalette ?? self.palette
         let cancelling = preparation
             ? self.viewModel.asr.isCancellingModelPreparation
             : self.viewModel.isCancellingModelDownload
@@ -435,25 +439,25 @@ extension VoiceEngineSettingsView {
         VStack(alignment: .trailing, spacing: 5) {
             if cancelling {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini).tint(self.palette.accent)
-                    self.monoLabel("Cancelling…")
+                    ProgressView().controlSize(.mini).tint(palette.accent)
+                    self.monoLabel("Cancelling…", color: palette.text)
                 }
             } else if self.viewModel.asr.modelPreparationPhase == .downloading, let progress {
                 HStack(spacing: 8) {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
-                            Rectangle().fill(self.palette.ruleSoft)
-                            Rectangle().fill(self.palette.accent)
+                            Rectangle().fill(palette.ruleSoft)
+                            Rectangle().fill(palette.accent)
                                 .frame(width: proxy.size.width * max(0, min(1, progress)))
                         }
                     }
                     .frame(width: 64, height: 4)
-                    self.monoLabel("\(Int(progress * 100))%")
+                    self.monoLabel("\(Int(progress * 100))%", color: palette.text)
                 }
             } else {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini).tint(self.palette.accent)
-                    self.monoLabel(self.viewModel.asr.modelPreparationStatusText)
+                    ProgressView().controlSize(.mini).tint(palette.accent)
+                    self.monoLabel(self.viewModel.asr.modelPreparationStatusText, color: palette.text)
                         .lineLimit(1)
                 }
             }
@@ -466,7 +470,7 @@ extension VoiceEngineSettingsView {
                 }
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(self.palette.text)
+            .foregroundStyle(palette.text)
             .buttonStyle(.plain)
             .disabled(cancelling)
         }
@@ -553,15 +557,15 @@ extension VoiceEngineSettingsView {
         Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
     }
 
-    private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ title: String, palette actionPalette: DatasheetTheme.Palette? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(self.palette.text)
+                .foregroundStyle((actionPalette ?? self.palette).text)
                 .padding(.horizontal, 10)
                 .frame(minWidth: 66, minHeight: 28)
                 .overlay {
-                    Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+                    Rectangle().strokeBorder((actionPalette ?? self.palette).edge, lineWidth: 1)
                 }
                 .contentShape(Rectangle())
         }
@@ -585,7 +589,7 @@ extension VoiceEngineSettingsView {
     }
 
     @ViewBuilder
-    private func speechModelLanguagePicker(for model: SettingsStore.SpeechModel) -> some View {
+    private func speechModelLanguagePicker(for model: SettingsStore.SpeechModel, palette: DatasheetTheme.Palette) -> some View {
         if model == .cohereTranscribeSixBit {
             Menu {
                 ForEach(SettingsStore.CohereLanguage.allCases) { language in
@@ -602,7 +606,7 @@ extension VoiceEngineSettingsView {
                     }
                 }
             } label: {
-                self.languageChipLabel(self.settings.selectedCohereLanguage.displayName)
+                self.languageChipLabel(self.settings.selectedCohereLanguage.displayName, palette: palette)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.visible)
@@ -621,14 +625,14 @@ extension VoiceEngineSettingsView {
                     }
                 }
             } label: {
-                self.languageChipLabel(self.settings.selectedNemotronLanguage.compactDisplayName)
+                self.languageChipLabel(self.settings.selectedNemotronLanguage.compactDisplayName, palette: palette)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.visible)
         }
     }
 
-    private func languageChipLabel(_ title: String) -> some View {
+    private func languageChipLabel(_ title: String, palette: DatasheetTheme.Palette) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "globe")
             Text(title).lineLimit(1)
@@ -637,11 +641,11 @@ extension VoiceEngineSettingsView {
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .tracking(0.3)
-        .foregroundStyle(self.palette.text2)
+        .foregroundStyle(palette.text2)
         .padding(.horizontal, 6)
         .frame(height: 24)
         .overlay {
-            Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+            Rectangle().strokeBorder(palette.edge, lineWidth: 1)
         }
     }
 
