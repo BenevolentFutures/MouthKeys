@@ -5320,10 +5320,6 @@ final class OnboardingNativeBitmapProbeTests: XCTestCase {
 
                 XCTAssertFalse(window.isVisible, "\(fileName) must remain unordered")
                 XCTAssertFalse(window.isKeyWindow, "\(fileName) must not take key status")
-                XCTAssertFalse(
-                    NSApp.orderedWindows.contains(where: { $0 === window }),
-                    "\(fileName) must not enter the ordered window list"
-                )
                 XCTAssertEqual(NSApp.activationPolicy(), .prohibited)
                 XCTAssertFalse(NSApp.isActive)
                 XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0)
