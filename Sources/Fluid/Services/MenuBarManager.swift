@@ -1180,6 +1180,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 }
 
 /// A compact menu header with the Datasheet mark, app name, live state, and orange recording square.
+private struct DatasheetMenuHeaderLogo: View {
+    var body: some View {
+        DatasheetGrin()
+            .frame(width: 22, height: 16)
+            .datasheetPalette()
+    }
+}
+
 private final class DatasheetMenuHeaderRow: NSView {
     var stateText = "Ready" {
         didSet { if self.stateText != oldValue { self.needsDisplay = true } }
@@ -1189,14 +1197,11 @@ private final class DatasheetMenuHeaderRow: NSView {
         didSet { if self.isLive != oldValue { self.needsDisplay = true } }
     }
 
-    private let markView = NSImageView()
+    private let markView = NSHostingView(rootView: DatasheetMenuHeaderLogo())
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         self.autoresizingMask = [.width]
-        self.markView.image = DatasheetMenuBarMark.image(kind: .idle, bracket: false)
-        self.markView.imageScaling = .scaleProportionallyDown
-        self.markView.contentTintColor = .secondaryLabelColor
         self.addSubview(self.markView)
     }
 

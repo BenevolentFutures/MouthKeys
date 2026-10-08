@@ -171,12 +171,13 @@ struct DatasheetGrin: View {
                 context.fill(Path(upperRect), with: .color(self.palette.ink))
                 context.fill(Path(lowerRect), with: .color(index == master.gold ? self.palette.accent : self.palette.ink))
             } else {
-                let lineColor = index == master.gold ? self.palette.accent : self.palette.text2
-                context.stroke(Path(upperRect), with: .color(lineColor), lineWidth: 1)
-                context.stroke(Path(lowerRect), with: .color(lineColor), lineWidth: 1)
+                let upperColor = self.palette.text2
+                let lowerColor = index == master.gold ? self.palette.accent : self.palette.text2
+                context.stroke(Path(upperRect), with: .color(upperColor), lineWidth: 1)
+                context.stroke(Path(lowerRect), with: .color(lowerColor), lineWidth: 1)
                 if tier != .compact {
-                    self.drawOutlineKeycap(upperRect, color: lineColor, upper: true, in: &context)
-                    self.drawOutlineKeycap(lowerRect, color: lineColor, upper: false, in: &context)
+                    self.drawOutlineKeycap(upperRect, color: upperColor, upper: true, in: &context)
+                    self.drawOutlineKeycap(lowerRect, color: lowerColor, upper: false, in: &context)
                 }
             }
 
