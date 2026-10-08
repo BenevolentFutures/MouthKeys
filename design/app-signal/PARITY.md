@@ -349,9 +349,9 @@ Source: the lane-F presentation work below. The menu, screen bindings, and deliv
 | Settings: Sensitivity endpoints | Existing `visualizerNoiseThreshold` range and binding | Endpoint labels at 10 pt or larger | Restyled; range and reset value unchanged |
 | Settings: Backup Export / Import | Existing export/import handlers | Side-by-side neutral actions | Restyled; both callbacks retained |
 | Settings: initialization and hotkey recovery | Hotkey tap state and `AccessibilityTrustMonitor.hint` | Hide initializing row for failed-trusted/relaunch recovery; retain Relaunch action | Restyled; genuine initializing and recording states remain |
-| Inline playground rail and preview icons | Existing inline playground buttons | Square icons with the new default-preserving fixed button variant | Restyled only in the inline playground; live overlay and menu chips unchanged |
+| Inline playground rail and preview icons | Existing inline playground buttons | Retained existing square chips; no new button variant | Existing chip presentation retained; live overlay and menu chips unchanged |
 | Welcome: Figure 1 grin | Existing onboarding view and controls | Tileless grin with the existing prototype coordinates | Restyled; onboarding actions/defaults unchanged |
-| Welcome: practice detail | Existing practice count and readiness | Reserved detail height across zero-to-three words at the approved 443 pt width | Restyled; status, keycaps, and actions retain position |
+| Welcome: practice detail | Existing practice count and readiness | Reserved detail height across zero-to-three presses at the approved 443 pt width | Restyled; press count, status, keycaps, and actions retain position |
 | Try MouthKeys: typography and conflict detail | Existing shortcut, accessibility, and provider-conflict state | Mono text ≥10 pt; prose ≥13 pt; fixed height for the full conflict sentence | Restyled; actions and stored values unchanged |
 | Custom Dictionary: `No replacements yet` | Existing replacement-empty condition and Teach Words route | Quiet outline grin above the placard | Added only for this state; custom-word and punctuation empty states unchanged |
 | Legacy `ThemedGroupBox` | No references in `Sources/Fluid` or `Tests` | Remove dead wrapper | Retired after final zero-reference audit |

@@ -1189,14 +1189,13 @@ private final class DatasheetMenuHeaderRow: NSView {
         didSet { if self.isLive != oldValue { self.needsDisplay = true } }
     }
 
-    private let markView = NSImageView()
+    private let markView = NSHostingView(
+        rootView: DatasheetGrin().frame(width: 22, height: 16).datasheetPalette()
+    )
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         self.autoresizingMask = [.width]
-        self.markView.image = DatasheetMenuBarMark.image(kind: .idle, bracket: false)
-        self.markView.imageScaling = .scaleProportionallyDown
-        self.markView.contentTintColor = .secondaryLabelColor
         self.addSubview(self.markView)
     }
 
