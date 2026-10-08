@@ -548,3 +548,214 @@ extension View {
         self.modifier(OnboardingSecondaryButtonModifier(controlSize: controlSize))
     }
 }
+
+/// Welcome-step engineering drawing, using the app's shipping grin geometry.
+struct OnboardingFigureOne: View {
+    @Environment(\.datasheetPalette) private var palette
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(spacing: 5) {
+                    self.toothNumbers(1...7)
+
+                    DatasheetGrin()
+                        .frame(width: 270, height: 108)
+
+                    self.toothNumbers(8...14)
+
+                    Text("21.3 HIGH   ·   43.4 WIDE   ·   7 KEYS × 6.4 PITCH")
+                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                        .tracking(0.4)
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .frame(maxWidth: .infinity)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    self.callout("KEYCAP · PLAN VIEW", detail: "FACE INSET 0.22 · 4 CHAMFERS")
+                    self.callout("BITE 3.0 · SMILE 2.5", detail: "CENTRE LINE THROUGH THE BITE")
+                    self.callout("TOOTH 12 · GOLD", detail: "THE ONE COLOUR · #FF4F1F", isLive: true)
+                }
+                .frame(width: 205, alignment: .leading)
+            }
+
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(height: 1)
+
+            HStack(spacing: 12) {
+                Text("DWG / MK-01")
+                Spacer(minLength: 8)
+                Text("REV 01")
+                Spacer(minLength: 8)
+                Text("SHEET 01 OF 01")
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .tracking(0.5)
+            .foregroundStyle(self.palette.text2)
+        }
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Figure 1. MouthKeys grin engineering drawing, fourteen teeth, tooth twelve highlighted.")
+    }
+
+    private func toothNumbers(_ range: ClosedRange<Int>) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(range), id: \.self) { number in
+                Text(String(format: "%02d", number))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(number == 12 ? self.palette.accent : self.palette.text2)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(width: 270)
+    }
+
+    private func callout(_ title: String, detail: String, isLive: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if isLive {
+                    DatasheetStatusSquare(kind: .orange, size: 5)
+                }
+                Text(title)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .tracking(0.35)
+                    .foregroundStyle(self.palette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(height: 1)
+
+            Text(detail)
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .tracking(0.25)
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+        }
+    }
+}
+
+/// Datasheet rendering of the Accessibility recovery states shared with the app's existing
+/// trust monitor. The monitor and its actions remain the source of truth.
+struct OnboardingDatasheetRecoveryHintView: View {
+    @Environment(\.datasheetPalette) private var palette
+
+    let hint: AccessibilityHint
+    var conflictingCopies: [URL] = []
+    let openAccessibilitySettings: () -> Void
+    let relaunch: () -> Void
+
+    var body: some View {
+        switch self.hint {
+        case .none:
+            EmptyView()
+        case .staleGrant:
+            self.content(
+                headline: AccessibilityHintPolicy.staleGrantHeadline,
+                body: AccessibilityHintPolicy.staleGrantBody,
+                buttonTitle: "Open Accessibility Settings",
+                buttonIcon: "arrow.up.right",
+                action: self.openAccessibilitySettings
+            )
+        case .conflictingCopies:
+            self.content(
+                headline: AccessibilityHintPolicy.conflictingCopiesHeadline,
+                body: AccessibilityHintPolicy.conflictingCopiesBody,
+                paths: self.conflictingCopies.prefix(3).map { ConflictingAppCopyDetector.displayPath($0) },
+                buttonTitle: "Show in Finder",
+                buttonIcon: "folder",
+                action: {
+                    NSWorkspace.shared.activateFileViewerSelecting(Array(self.conflictingCopies.prefix(3)))
+                },
+                secondaryTitle: "Open Accessibility Settings",
+                secondaryAction: self.openAccessibilitySettings
+            )
+        case .relaunch:
+            self.content(
+                headline: AccessibilityHintPolicy.relaunchHeadline,
+                body: AccessibilityHintPolicy.relaunchBody,
+                buttonTitle: "Relaunch MouthKeys",
+                buttonIcon: "arrow.clockwise",
+                action: self.relaunch
+            )
+        }
+    }
+
+    private func content(
+        headline: String,
+        body: String,
+        paths: [String] = [],
+        buttonTitle: String,
+        buttonIcon: String,
+        action: @escaping () -> Void,
+        secondaryTitle: String? = nil,
+        secondaryAction: (() -> Void)? = nil
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            DatasheetStatusSquare(kind: .orange)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
+
+                ForEach(paths, id: \.self) { path in
+                    Text(path)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                Text(body)
+                    .font(.system(size: 12, weight: .regular))
+                    .lineSpacing(2)
+                    .foregroundStyle(self.palette.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Button(action: action) {
+                    Label(buttonTitle, systemImage: buttonIcon)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.invForeground)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: 116)
+                        .frame(height: 30)
+                        .background(self.palette.invBackground)
+                }
+                .buttonStyle(.plain)
+                .datasheetHoverBracket()
+                .fixedSize()
+
+                if let secondaryTitle, let secondaryAction {
+                    Button(secondaryTitle, action: secondaryAction)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .buttonStyle(.plain)
+                        .datasheetHoverBracket()
+                        .fixedSize()
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(headline) \(body)")
+    }
+}

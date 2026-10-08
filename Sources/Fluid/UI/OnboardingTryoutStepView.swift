@@ -13,8 +13,7 @@ struct OnboardingTryoutStepView: View {
     let onToggleShortcut: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.theme) private var theme
-    @State private var isChangeHovered = false
+    @Environment(\.datasheetPalette) private var palette
     @FocusState private var isEditorFocused: Bool
     @State private var isShortcutKeyPressed = false
     @State private var isShortcutGlowActive = false
@@ -142,24 +141,25 @@ struct OnboardingTryoutStepView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            self.keyboardCard
+            HStack(alignment: .top, spacing: 16) {
+                self.datasheetKeyboardCard
+                self.datasheetEditorPanel
+            }
 
-            // One slot, fixed height: a regional filler offer takes the hint's place after the
-            // first dictation lands, so nothing below it moves.
             ZStack {
                 if let offer = self.regionalOffer {
-                    self.regionalOfferRow(offer)
+                    self.datasheetRegionalOfferRow(offer)
                 } else {
                     Text(self.footerHint ?? "Feels slow or inaccurate? Go back and try another model for \(self.language.displayName).")
-                        .font(self.theme.typography.captionStrong)
-                        .foregroundStyle(Color.white.opacity(0.44))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
             }
-            .frame(height: 40)
+            .frame(height: 40, alignment: .leading)
         }
-        .frame(width: 560)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             self.isShortcutGlowActive = self.isRunning
         }
@@ -175,287 +175,170 @@ struct OnboardingTryoutStepView: View {
         return RegionalFillerOffer.offer(dictation: self.finalText)
     }
 
-    private func regionalOfferRow(_ offer: RegionalFillerOffer) -> some View {
-        HStack(spacing: 10) {
-            Text(offer.emoji)
-                .font(self.theme.typography.bodyStrong)
-            Text(offer.message)
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(Color.white.opacity(0.78))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Spacer(minLength: 4)
-            self.regionalOfferButton(offer.keepTitle, prominent: true) { self.answerRegionalOffer(offer, keep: true) }
-            self.regionalOfferButton("No thanks", prominent: false) { self.answerRegionalOffer(offer, keep: false) }
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.050))
-                .overlay(Capsule().strokeBorder(Color.red.opacity(0.35), lineWidth: 1))
-        )
-    }
-
-    private func regionalOfferButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(.white.opacity(prominent ? 0.96 : 0.70))
-                .lineLimit(1)
-                .frame(width: 84, height: 26)
-                .background(
-                    Capsule()
-                        .fill(prominent ? Color.red.opacity(0.55) : Color.white.opacity(0.07))
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
-                )
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-    }
-
     private func answerRegionalOffer(_ offer: RegionalFillerOffer, keep: Bool) {
         offer.answer(keep: keep, surface: "onboarding")
         self.regionalOfferAnswered = true
     }
 
-    private var keyboardCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+    private var datasheetKeyboardCard: some View {
+        VStack(spacing: 8) {
+            Text("YOUR DICTATION KEY")
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .tracking(0.4)
+                .foregroundStyle(self.palette.text2)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-        return VStack(spacing: 14) {
-            HStack {
-                Spacer()
-                self.changeShortcutButton
-            }
-            .frame(height: 0)
-            .offset(y: 8)
+            Spacer(minLength: 0)
 
-            self.shortcutVisual
-                .padding(.top, 10)
+            Text(self.isRecordingShortcut ? "PRESS KEY…" : self.shortcutDisplay)
+                .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .frame(width: 144, height: 74)
+                .background(self.palette.chip)
+                .overlay(Rectangle().stroke(self.isShortcutGlowActive ? self.palette.accent : self.palette.rule, lineWidth: 1))
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(self.palette.text)
+                        .frame(height: 3)
+                        .offset(y: self.isShortcutKeyPressed ? 2 : 0)
+                }
+                .offset(y: self.isShortcutKeyPressed ? 2 : 0)
+                .accessibilityLabel("Current shortcut \(self.shortcutDisplay)")
 
-            self.actionHintRow
-
-            if let shortcutRecordingMessage,
-               self.isRecordingShortcut,
-               !shortcutRecordingMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            {
-                Label(shortcutRecordingMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(self.theme.typography.captionSmall)
-                    .foregroundStyle(Color.orange.opacity(0.92))
+            HStack(spacing: 6) {
+                DatasheetStatusSquare(kind: self.isReady ? .ink : (self.isRecordingShortcut ? .orange : .outline), size: 5)
+                Text(self.shortcutRecordingMessage ?? (self.isReady ? "TEST COMPLETE" : (self.isRecordingShortcut ? "PRESS A KEY" : "READY TO TEST")))
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .tracking(0.25)
+                    .foregroundStyle(self.palette.text2)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.75)
             }
+            .frame(height: 14)
 
-            self.editorPanel
+            Spacer(minLength: 0)
+
+            Button {
+                self.onToggleShortcut()
+            } label: {
+                Text(self.isRecordingShortcut ? "Cancel" : "Change")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .frame(width: 88, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(self.isRunning)
+            .opacity(self.isRunning ? 0.45 : 1)
+            .datasheetHoverBracket()
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 18)
-        .background(
-            shape
-                .fill(Color.white.opacity(0.040))
-                .overlay(shape.stroke(Color.white.opacity(0.11), lineWidth: 1))
-                .overlay(
-                    shape.stroke(
-                        FluidOnboardingLandingColors.blue.opacity(self.isShortcutGlowActive ? 0.30 : 0.12),
-                        lineWidth: self.isShortcutGlowActive ? 1.3 : 1
-                    )
-                )
-        )
-        .accessibilityElement(children: .combine)
+        .padding(12)
+        .frame(width: 208, height: 208)
+        .background(self.palette.surface)
+        .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Dictation shortcut \(self.shortcutDisplay). Press once to start. Press again to stop.")
     }
 
-    private var changeShortcutButton: some View {
-        let shape = Capsule()
-        let isEnabled = !self.isRunning
-        let title = self.isRecordingShortcut ? "Cancel" : "Change"
-        let fillOpacity = isEnabled ? (self.isChangeHovered ? 0.11 : 0.07) : 0.045
-        let foregroundOpacity = isEnabled ? (self.isChangeHovered ? 0.94 : 0.78) : 0.42
-        let ringOpacity = self.isChangeHovered && isEnabled ? 0.50 : 0
-
-        return Button {
-            self.onToggleShortcut()
-        } label: {
-            Text(title)
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(.white.opacity(foregroundOpacity))
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .frame(width: 72, height: 32)
-                .background(
-                    shape
-                        .fill(Color.white.opacity(fillOpacity))
-                        .overlay(shape.stroke(self.isChangeHovered && isEnabled ? FluidOnboardingLandingColors.blue.opacity(0.30) : Color.white.opacity(0.07), lineWidth: 1))
-                        .overlay(
-                            shape
-                                .stroke(FluidOnboardingLandingColors.blue.opacity(ringOpacity), lineWidth: self.isChangeHovered && isEnabled ? 1.4 : 1)
-                                .padding(-2)
-                        )
-                        .shadow(color: FluidOnboardingLandingColors.blue.opacity(self.isChangeHovered && isEnabled ? 0.08 : 0), radius: 16, x: 0, y: 6)
-                )
-                .contentShape(shape)
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .contentShape(shape)
-        .disabled(!isEnabled)
-        .onHover { isHovered in
-            self.setChangeHovered(isHovered && isEnabled)
-        }
-    }
-
-    private var shortcutVisual: some View {
-        HStack(spacing: 14) {
-            self.sideKeyBox()
-            self.shortcutKeycap(self.shortcutDisplay)
-            self.sideKeyBox()
-        }
-    }
-
-    private var actionHintRow: some View {
-        Text("Press once to start. Press again to stop.")
-            .font(self.theme.typography.captionStrong)
-            .foregroundStyle(Color.white.opacity(0.62))
-            .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.82)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 2)
-    }
-
-    private var editorPanel: some View {
+    private var datasheetEditorPanel: some View {
         let examples = Array(self.exampleTexts.prefix(1))
 
-        return VStack(alignment: .leading, spacing: 10) {
-            if !examples.isEmpty {
-                Text(self.promptText)
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(Color.white.opacity(0.58))
-
-                ForEach(examples, id: \.self) { example in
-                    self.examplePill(example)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(self.promptText.uppercased())
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .tracking(0.35)
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 12)
+                .frame(height: 34, alignment: .leading)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(self.palette.rule).frame(height: 1)
                 }
-            } else {
-                self.examplePill("Say anything in \(self.language.displayName).")
-            }
+
+            Text(examples.first.map { "“\($0)”" } ?? "Say anything you'd want to dictate in \(self.language.displayName).")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(self.palette.text)
+                .lineSpacing(3)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 62, maxHeight: 62, alignment: .leading)
+                .padding(.horizontal, 12)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+                }
 
             ZStack(alignment: .topLeading) {
                 TextEditor(text: self.$finalText)
-                    .font(self.theme.typography.bodyStrong)
-                    .foregroundStyle(.white)
-                    .frame(height: 108)
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(self.isRunning ? 0.075 : 0.045))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(
-                                        self.isRunning ? FluidOnboardingLandingColors.blue.opacity(0.46) : Color.white.opacity(0.08),
-                                        lineWidth: self.isRunning ? 1.4 : 1
-                                    )
-                            )
-                    )
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(self.palette.text)
+                    .frame(maxWidth: .infinity, minHeight: 98, maxHeight: 98)
+                    .padding(8)
+                    .background(self.palette.field)
                     .scrollContentBackground(.hidden)
                     .focused(self.$isEditorFocused)
+                    .accessibilityLabel("Dictation practice text")
 
                 if self.shouldShowPlaceholder {
                     Text(self.placeholderText)
-                        .font(self.theme.typography.bodySmallStrong)
-                        .foregroundStyle(Color.white.opacity(0.38))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 17)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(self.palette.text2.opacity(0.75))
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
             }
+            .frame(maxWidth: .infinity, minHeight: 98, maxHeight: 98)
         }
-        .padding(.horizontal, 2)
-        .padding(.top, 4)
+        .frame(maxWidth: .infinity, minHeight: 208, maxHeight: 208)
+        .background(self.palette.surface)
+        .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
     }
 
-    private func sideKeyBox() -> some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.055),
-                        Color.white.opacity(0.020),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
-            )
-            .frame(width: 88, height: 66)
-    }
+    private func datasheetRegionalOfferRow(_ offer: RegionalFillerOffer) -> some View {
+        HStack(spacing: 8) {
+            DatasheetStatusSquare(kind: .orange, size: 5)
 
-    private func shortcutKeycap(_ text: String) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-        let isPressed = self.isShortcutKeyPressed
-        let isListening = self.isShortcutGlowActive
+            Text(offer.message)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
 
-        return Text(text)
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.62)
-            .padding(.horizontal, 14)
-            .frame(width: 112, height: 74)
-            .background(
-                shape
-                    .fill(Color.white.opacity(isListening ? 0.115 : 0.075))
-                    .overlay(
-                        shape.stroke(
-                            FluidOnboardingLandingColors.blue.opacity(isListening ? 0.86 : 0.48),
-                            lineWidth: isListening ? 1.6 : 1.2
-                        )
-                    )
-                    .shadow(
-                        color: FluidOnboardingLandingColors.blue.opacity(isListening ? 0.34 : 0.20),
-                        radius: isListening ? 18 : 12,
-                        x: 0,
-                        y: isPressed ? 2 : 0
-                    )
-            )
-            .scaleEffect(isPressed ? 0.965 : 1)
-            .offset(y: isPressed ? 4 : 0)
-            .accessibilityLabel("Current shortcut \(text)")
-    }
+            Spacer(minLength: 4)
 
-    private func examplePill(_ text: String) -> some View {
-        Text(text)
-            .font(self.theme.typography.captionStrong)
-            .foregroundStyle(Color.white.opacity(0.72))
-            .lineLimit(2)
-            .minimumScaleFactor(0.82)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(FluidOnboardingLandingColors.blue.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(FluidOnboardingLandingColors.blue.opacity(0.16), lineWidth: 1)
-                    )
-            )
-    }
-
-    private func setChangeHovered(_ isHovered: Bool) {
-        guard self.isChangeHovered != isHovered else { return }
-        if self.reduceMotion {
-            self.isChangeHovered = isHovered
-        } else {
-            withAnimation(.easeOut(duration: 0.14)) {
-                self.isChangeHovered = isHovered
+            self.datasheetRegionalOfferButton(offer.keepTitle, prominent: true) {
+                self.answerRegionalOffer(offer, keep: true)
+            }
+            self.datasheetRegionalOfferButton("No thanks", prominent: false) {
+                self.answerRegionalOffer(offer, keep: false)
             }
         }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 40)
+        .overlay(alignment: .top) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+    }
+
+    private func datasheetRegionalOfferButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(prominent ? self.palette.invForeground : self.palette.text)
+                .lineLimit(1)
+                .frame(width: 82, height: 28)
+                .background(prominent ? self.palette.invBackground : self.palette.surface)
+                .overlay(Rectangle().stroke(prominent ? self.palette.invBackground : self.palette.rule, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .datasheetHoverBracket()
+        .accessibilityLabel(title)
     }
 
     private func animateShortcutKeyToggle(to isListening: Bool) {

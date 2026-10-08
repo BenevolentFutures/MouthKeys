@@ -259,20 +259,27 @@ The Command scroll fixture snapshots chat sessions, current chat ID and selected
 
 ## E — First-run wizard
 
-Source: `OnboardingFlowView` in `WelcomeView.swift`, `UI/OnboardingTryoutStepView.swift`, `UI/OnboardingAIEnhancementStepView.swift`.
+Source: `OnboardingFlowView` in `WelcomeView.swift`, `UI/OnboardingTryoutStepView.swift`, and the recovery states in `Theme/Components/OnboardingComponents.swift`. The approved prototype's five pages are the baseline; native states below remain required even where the screenshots do not show them.
 
-| Current step / control | Current binding or effect | New target | Status |
+| Existing screen / control | Existing binding, key, or effect | New location | Status |
 |---|---|---|---|
-| Step rail and navigation | Existing onboarding step state | Six-step rail | Restyle; preserve ordering |
-| Welcome / Next | Existing step advance | Welcome with Fig. 1 | Restyle |
-| Language selection / all languages / custom language | Existing language selection, filter and picker callbacks | Language step | Restyle |
-| Voice Engine selection | `SettingsStore.selectedSpeechModel` and engine language settings | Voice Engine step | Restyle |
-| Voice Engine download / cancel / retry | Existing model preparation and download state | Voice Engine step | Preserve all progress/error states |
-| Enable Access actions | Existing microphone and Accessibility permission callbacks | Enable Access step | Preserve all permission recovery states |
-| Try MouthKeys practice drill | Existing primary shortcut and tryout callbacks | Try MouthKeys step | Restyle; preserve completion |
-| Regional filler-word offer: keep / No thanks | Existing offer answer callbacks | Try MouthKeys step | Preserve both answers |
-| AI Enhancement suggestions/provider choices | Existing onboarding provider actions | Optional AI Enhancement step | Restyle; preserve configuration effects |
-| Back / Next / Finish Setup | Existing step and onboarding completion callbacks | Ruled footer | Restyle; preserve completion gate |
+| Onboarding step / progress | `currentStep`; `AnalyticsOnboardingStep` completion events | Five-row step rail and page index | Restyled; legacy stored step 5 (retired AI page) resolves to Try MouthKeys |
+| Welcome / Next | Advance `currentStep`; onboarding welcome sound/lifecycle remains in the existing handlers | Ruled Welcome page with tileless themed Fig. 1 grin drawing | Restyled |
+| Language / popular choices / Other / search | `SettingsStore.onboardingSelectedLanguageID`; `VoiceEngineLanguageCatalog` choices and search | Language page | Restyled; all catalog languages and selection effects retained |
+| Voice Engine / recommended and other routes | `SettingsStore.selectedSpeechModel` plus Apple Speech, Cohere, and Nemotron language settings via `VoiceEngineLanguageCatalog.apply` | Voice Engine page | Restyled; route selection still resets tryout validation and provider state when relevant |
+| Model Download & Activate / Activate / Active now / Cancel / Delete | Existing ASR preparation, cancellation, installed-model cache deletion, and error alert | Voice Engine route rows | Restyled; download percentage/status, loading/cancelling/deleting, errors, and recording/preparation action locks retained |
+| Allow microphone / Open Settings | `ASRService.micStatus`, `requestMicAccess`, `openSystemSettingsForMic` | Enable Access permission row | Restyled; system prompt is invoked only by the existing Allow action; denied/restricted routes to Settings |
+| Select your microphone / input level | `SettingsStore.microphonePriority`; live preview, no-device state, level and preview error | Enable Access microphone panel | Restyled; shown after authorization, with device picker, no-device text, fixed meter and error status |
+| Enable Accessibility Access / Finish Accessibility Access / Open Settings / Show Guide | Existing accessibility trust binding, setup-in-progress state and `openAccessibilitySettings` callback | Enable Access permission row | Restyled; needed, in-Settings and ready states retained |
+| Accessibility recovery hint | `AccessibilityTrustMonitor.hint`; stale-grant Settings action, conflicting-copy paths plus Show in Finder and Settings actions, trusted-failed Relaunch action | Ruled recovery row under Accessibility | Restyled; `.none`, stale grant, conflicting copies, and relaunch states retained |
+| Already enabled it? | Existing trust monitor updates on its existing lifecycle | Enable Access help text | Retained when no recovery hint is active |
+| Your Dictation Key / Change / Cancel / press-key state | Existing primary-shortcut binding and recording callbacks | Try MouthKeys key panel | Restyled; actual shortcut, capture feedback, cancellation, and shortcut guards retained |
+| Dictation practice / final text | `ASRService.finalText`, real running/ready state, selected language | Try MouthKeys editor panel | Restyled; existing test completion gate retained |
+| Regional filler offer / keep / No thanks | `RegionalFillerOffer.offer` and `.answer(keep:surface: "onboarding")` | Fixed-height Try MouthKeys offer row | Restyled; both answers and offer eligibility retained |
+| Back / Skip setup / Next / Continue / Finish Setup | Existing step navigation, `onboardingPlaygroundSkipped`, completion, analytics, and `markAISkipped` when no provider is configured | Ruled fixed footer and setup header | Restyled; back/continue gates and lifecycle retained; skip remains available only on the final page when not recording; finish still requires a ready model, both permissions, and validated or skipped practice |
+| Optional AI Enhancement / provider choices | `UI/OnboardingAIEnhancementStepView` provider effects are not part of the approved five-page prototype or straight voice-to-text setup | No first-run page | Not shown; completion preserves the existing `markAISkipped` side effect when no provider is configured |
+
+Prototype omissions explicitly covered by the native inventory: microphone authorization/error/no-device/level states; Accessibility setup-in-progress and all trust-monitor recovery variants with their actions; model lifecycle, error and recording-lock states; shortcut capture; saved step migration; and footer navigation/skip/finish gates. No existing `SettingsStore` keys or effects are removed.
 
 ## F — Menu and finish
 

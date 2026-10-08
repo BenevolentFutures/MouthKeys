@@ -613,6 +613,7 @@ struct WelcomeView: View {
 
 struct OnboardingFlowView: View {
     @EnvironmentObject var appServices: AppServices
+    @Environment(\.datasheetPalette) private var palette
     @ObservedObject private var permissionMonitor = AccessibilityTrustMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var asr: ASRService {
@@ -707,9 +708,9 @@ struct OnboardingFlowView: View {
             case .landing:
                 return "Welcome"
             case .language:
-                return "Choose Language"
+                return "Language"
             case .voiceModel:
-                return "Choose Voice Engine"
+                return "Voice Engine"
             case .permissions:
                 return "Enable Access"
             case .playground:
@@ -916,21 +917,39 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            self.stepContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-        .background {
-            ZStack {
-                self.theme.palette.windowBackground
-                    .opacity(0.98)
-                    .ignoresSafeArea()
+            self.wizardHeader
+
+            HStack(spacing: 0) {
+                self.stepRail
+                    .frame(width: 240)
 
                 Rectangle()
-                    .fill(self.theme.materials.window)
-                    .opacity(0.75)
-                    .ignoresSafeArea()
+                    .fill(self.palette.rule)
+                    .frame(width: 1)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("\(String(format: "%02d", self.step.rawValue + 1)) / \(self.step.title.uppercased())")
+                            .font(DatasheetTheme.Typography.tableLabel.font)
+                            .tracking(DatasheetTheme.Typography.tableLabel.tracking)
+                            .foregroundStyle(self.palette.text2)
+
+                        self.stepContent
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: 860, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(self.palette.surface)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            self.wizardFooter
         }
+        .background(self.palette.surface.ignoresSafeArea())
+        .datasheetPalette()
         .onAppear {
             self.isOnboardingFlowVisible = true
             self.syncOnboardingSelectionFromSettings()
@@ -1017,30 +1036,182 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Welcome to MouthKeys")
-                .font(self.theme.typography.title)
-                .foregroundStyle(self.theme.palette.primaryText)
+    private var wizardHeader: some View {
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 240)
 
-            Text(self.step.subtitle)
-                .font(self.theme.typography.bodySmall)
-                .foregroundStyle(self.theme.palette.secondaryText)
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(width: 1)
 
-            HStack {
-                Text("Step \(self.step.rawValue + 1) of \(Step.allCases.count)")
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(self.step.title)
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(self.theme.palette.accent)
+            HStack(spacing: 8) {
+                Text("SETUP")
+                    .foregroundStyle(self.palette.text2)
+
+                Text("/")
+                    .foregroundStyle(self.palette.text2)
+
+                Text(self.step.title.uppercased())
+                    .foregroundStyle(self.palette.text)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    self.skipPlayground()
+                } label: {
+                    Text("Skip setup")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.canSkipSetup ? self.palette.text : self.palette.text2.opacity(0.45))
+                        .frame(width: 104, height: 39)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!self.canSkipSetup)
+                .datasheetHoverBracket()
+                .accessibilityLabel("Skip setup")
             }
-
-            ProgressView(value: self.progressValue)
-                .tint(self.theme.palette.accent)
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .tracking(0.5)
+            .padding(.leading, 18)
+            .padding(.trailing, 0)
         }
-        .padding(24)
+        .frame(height: 40)
+        .background(self.palette.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+    }
+
+    private var stepRail: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                ForEach(Step.allCases, id: \.rawValue) { item in
+                    let isCurrent = item == self.step
+                    let isComplete = item.rawValue < self.step.rawValue
+                    let foreground = isCurrent ? self.palette.invForeground : self.palette.text
+
+                    HStack(spacing: 10) {
+                        Text(String(format: "%02d", item.rawValue + 1))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .frame(width: 24, alignment: .leading)
+
+                        Text(item.title)
+                            .font(.system(size: 12, weight: isCurrent ? .medium : .regular))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+
+                        Spacer(minLength: 2)
+
+                        Text(isComplete ? "DONE" : (isCurrent ? "NOW" : ""))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .tracking(0.3)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                    .foregroundStyle(isCurrent ? foreground : self.palette.text2)
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .background(isCurrent ? self.palette.invBackground : Color.clear)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Step \(item.rawValue + 1), \(item.title)\(isComplete ? ", done" : (isCurrent ? ", current step" : ""))")
+                }
+            }
+            .padding(.top, 22)
+
+            Spacer(minLength: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("MOUTHKEYS")
+                Text("STRAIGHT VOICE TO TEXT")
+                Text("LOCAL · NO TELEMETRY")
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .tracking(0.45)
+            .foregroundStyle(self.palette.text2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
+        }
+        .frame(maxHeight: .infinity)
+        .background(self.palette.sidebar)
+    }
+
+    private var wizardFooter: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 5) {
+                Text("STEP")
+                Text(String(format: "%02d", self.step.rawValue + 1))
+                    .foregroundStyle(self.palette.text)
+                Text("OF")
+                Text(String(format: "%02d", Step.allCases.count))
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .tracking(0.4)
+            .foregroundStyle(self.palette.text2)
+            .frame(width: 240, alignment: .leading)
+            .padding(.leading, 18)
+
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(width: 1)
+
+            HStack(spacing: 12) {
+                if self.step != .landing {
+                    Button {
+                        self.goBack()
+                    } label: {
+                        Text("← Back")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(self.palette.text)
+                            .frame(width: 88, height: 32)
+                            .background(self.palette.surface)
+                            .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!self.canNavigateBack)
+                    .opacity(self.canNavigateBack ? 1 : 0.45)
+                    .keyboardShortcut(.cancelAction)
+                    .datasheetHoverBracket()
+                } else {
+                    Color.clear.frame(width: 88, height: 32)
+                }
+
+                Spacer(minLength: 12)
+
+                DatasheetBracketed(rest: self.canContinue) {
+                    Button {
+                        self.handlePrimaryAction()
+                    } label: {
+                        Text(self.primaryButtonTitle)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(self.palette.invForeground)
+                            .lineLimit(1)
+                            .frame(width: 160, height: 44)
+                            .background(self.palette.invBackground)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!self.canContinue)
+                    .opacity(self.canContinue ? 1 : 0.45)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityLabel(self.primaryButtonTitle)
+                }
+            }
+            .padding(.horizontal, 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: 72)
+        .background(self.palette.surface)
+        .overlay(alignment: .top) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+    }
+
+    private var canSkipSetup: Bool {
+        self.step == .playground && !self.asr.isRunning && !self.isRecordingAnyShortcut
+    }
+
+    private var canNavigateBack: Bool {
+        !self.isModelPreparationInProgress && !self.asr.isRunning && !self.isRecordingAnyShortcut
     }
 
     @ViewBuilder
@@ -1049,61 +1220,706 @@ struct OnboardingFlowView: View {
         case .landing:
             self.landingStep
         case .language:
-            self.languageStep
+            self.datasheetLanguageStep
         case .voiceModel:
-            self.voiceModelStep
+            self.datasheetVoiceModelStep
         case .permissions:
-            self.permissionsStep
+            self.datasheetPermissionsStep
         case .playground:
-            self.playgroundStep
+            self.datasheetPlaygroundStep
         }
     }
 
     private var landingStep: some View {
-        GeometryReader { proxy in
-            let landing = self.theme.metrics.onboardingSurface.landing
+        VStack(alignment: .leading, spacing: 22) {
+            OnboardingFigureOne()
+                .frame(height: 215)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
 
-            ZStack {
-                VStack(alignment: .center, spacing: self.theme.metrics.onboardingSurface.landing.sectionSpacing) {
-                    FluidOnboardingLandingHero(
-                        eyebrow: "",
-                        title: "Just speak.",
-                        accentTitle: "We'll handle the rest.",
-                        firstDetail: "Accurate. Fast. Private. Free.",
-                        secondDetail: "Built for creators, thinkers, and builders."
-                    ) {
-                        FluidOnboardingLandingPrimaryButton(title: "Next") {
-                            self.goNext()
-                        }
-                        .frame(
-                            width: FluidOnboardingLandingPrimaryButton.size.width,
-                            height: FluidOnboardingLandingPrimaryButton.size.height
-                        )
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Just speak.\nWe'll handle the rest.")
+                    .font(.system(size: 36, weight: .semibold))
+                    .tracking(-0.5)
+                    .lineSpacing(-1)
+                    .foregroundStyle(self.palette.text)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Accurate. Fast. Private. Free. Talk anywhere. MouthKeys types for you.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(self.palette.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: 640, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func pageHeading(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.25)
+                .foregroundStyle(self.palette.text)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(subtitle)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(self.palette.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, 8)
+    }
+
+    private var datasheetLanguageStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            self.pageHeading(
+                title: "What language will you speak most?",
+                subtitle: "We'll show the best voice engines for it."
+            )
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(minimum: 88), spacing: 10), count: 4),
+                spacing: 10
+            ) {
+                ForEach(self.popularOnboardingLanguages) { language in
+                    self.datasheetLanguageChoiceCard(for: language)
+                }
+                self.datasheetOtherLanguageCard
+            }
+
+            if self.isShowingAllLanguages {
+                self.datasheetAllLanguagesPicker
+                    .transition(.opacity)
+            }
+
+            Text("You can change this later in Voice Engine settings.")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(self.palette.text2)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: 700, alignment: .leading)
+    }
+
+    private func datasheetLanguageChoiceCard(for language: VoiceEngineLanguage) -> some View {
+        let isSelected = self.selectedLanguageID == language.id
+
+        return DatasheetBracketed(rest: isSelected) {
+            Button {
+                self.selectOnboardingLanguage(language)
+            } label: {
+                HStack(spacing: 8) {
+                    Text(language.popularDisplayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Spacer(minLength: 2)
+
+                    self.languageSelectionMark(isSelected: isSelected)
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                .background(self.palette.field)
+                .overlay(Rectangle().stroke(isSelected ? self.palette.rule : self.palette.ruleSoft, lineWidth: 1))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(language.displayName)
+            .accessibilityValue(isSelected ? "Selected" : "")
+        }
+        .onHover { self.setHoveredLanguage($0 ? language.id : nil) }
+    }
+
+    private var datasheetOtherLanguageCard: some View {
+        let isSelected = !self.selectedOnboardingLanguage.isPopular
+
+        return DatasheetBracketed(rest: isSelected || self.isShowingAllLanguages) {
+            Button {
+                self.toggleAllLanguagesPicker()
+            } label: {
+                HStack(spacing: 8) {
+                    Text(isSelected ? self.selectedOnboardingLanguage.displayName : "Other…")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.70)
+
+                    Spacer(minLength: 2)
+
+                    if isSelected {
+                        self.languageSelectionMark(isSelected: true)
+                    } else {
+                        Text("99")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(self.palette.text2)
                     }
                 }
-                .frame(width: landing.contentWidth, alignment: .center)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: proxy.size.height, alignment: .center)
-                .offset(y: -78)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 24)
-
-                FluidOnboardingLandingHoverTracker(
-                    onMove: { location, size in
-                        self.updateLandingGlow(location: location, in: size)
-                    },
-                    onExit: {
-                        self.resetLandingGlow()
-                    }
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .accessibilityHidden(true)
-                .zIndex(-1)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                .background(self.palette.field)
+                .overlay(Rectangle().stroke(isSelected ? self.palette.rule : self.palette.ruleSoft, lineWidth: 1))
+                .contentShape(Rectangle())
             }
-            .background {
-                FluidOnboardingLandingBackdrop(glowCenter: self.landingGlowCenter)
+            .buttonStyle(.plain)
+            .accessibilityLabel(isSelected ? self.selectedOnboardingLanguage.displayName : "Other languages")
+            .accessibilityValue(self.isShowingAllLanguages ? "Expanded" : "")
+        }
+        .onHover { self.setHoveredLanguage($0 ? "other" : nil) }
+    }
+
+    private func languageSelectionMark(isSelected: Bool) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(isSelected ? self.palette.invBackground : self.palette.field)
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(self.palette.invForeground)
+            } else {
+                Rectangle()
+                    .strokeBorder(self.palette.ruleSoft, lineWidth: 1)
             }
         }
+        .frame(width: 17, height: 17)
+        .accessibilityHidden(true)
+    }
+
+    private var datasheetAllLanguagesPicker: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("Search all languages", text: self.$languageSearchText)
+                    .font(.system(size: 13, weight: .regular))
+                    .textFieldStyle(.plain)
+                    .focused(self.$isLanguageSearchFocused)
+                    .accessibilityLabel("Search all languages")
+
+                Text(String(format: "%02d", self.searchedOnboardingLanguages.count))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 28, alignment: .trailing)
+            }
+            .foregroundStyle(self.palette.text)
+            .padding(.horizontal, 10)
+            .frame(height: 40)
+            .background(self.palette.field)
+            .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
+
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(spacing: 0) {
+                    ForEach(self.searchedOnboardingLanguages) { language in
+                        self.datasheetLanguageSearchRow(for: language)
+                    }
+                }
+            }
+            .frame(maxHeight: 176)
+            .overlay(Rectangle().stroke(self.palette.ruleSoft, lineWidth: 1))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func datasheetLanguageSearchRow(for language: VoiceEngineLanguage) -> some View {
+        let isSelected = self.selectedLanguageID == language.id
+
+        return Button {
+            self.selectOnboardingLanguage(language)
+        } label: {
+            HStack(spacing: 10) {
+                Text(language.displayName)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(self.palette.text)
+                Spacer()
+                Text(language.id.uppercased())
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(self.palette.text)
+                        .frame(width: 16)
+                } else {
+                    Color.clear.frame(width: 16, height: 12)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(isSelected ? self.palette.chip : self.palette.surface)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+        }
+        .accessibilityLabel(language.displayName)
+        .accessibilityValue(isSelected ? "Selected" : "")
+    }
+
+    private var datasheetVoiceModelStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            self.pageHeading(
+                title: "Choose your voice engine",
+                subtitle: self.recommendedModelReasonText
+            )
+
+            Text(self.selectedOnboardingLanguage.displayName.uppercased())
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .tracking(0.5)
+                .foregroundStyle(self.palette.text2)
+
+            let defaultRoutes = self.defaultDisplayedModelRoutes
+            if !defaultRoutes.isEmpty {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(defaultRoutes) { route in
+                        self.datasheetOnboardingRouteCard(for: route)
+                    }
+                }
+                .transaction { $0.animation = nil }
+            }
+
+            if !self.otherModelRoutes.isEmpty {
+                self.datasheetOtherModelRoutesToggleButton
+            }
+
+            if self.isShowingOtherModelRoutes {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(minimum: 210), spacing: 12, alignment: .top),
+                        GridItem(.flexible(minimum: 210), spacing: 12, alignment: .top),
+                    ],
+                    spacing: 12
+                ) {
+                    ForEach(self.otherModelRoutes) { route in
+                        self.datasheetOnboardingRouteCard(for: route, enablesHover: false)
+                    }
+                }
+                .transaction { $0.animation = nil }
+            }
+
+            if self.isModelPreparationInProgress {
+                HStack(spacing: 8) {
+                    DatasheetStatusSquare(kind: .orange)
+                    Text("Initial preparation can take a while to get your Mac ready for near-instant transcription.")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(self.palette.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 2)
+            }
+
+            Text("You can switch models later in Voice Engine settings.")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(self.palette.text2)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: 820, alignment: .leading)
+    }
+
+    private var datasheetOtherModelRoutesToggleButton: some View {
+        Button {
+            self.toggleOtherModelRoutes()
+        } label: {
+            HStack(spacing: 8) {
+                Text(self.isShowingOtherModelRoutes ? "−" : "+")
+                    .font(.system(size: 14, weight: .regular, design: .monospaced))
+                Text(self.isShowingOtherModelRoutes ? "Hide other models" : "Show other models")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(self.palette.text2)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .datasheetHoverBracket()
+        .accessibilityLabel(self.isShowingOtherModelRoutes ? "Hide other models" : "Show other models")
+    }
+
+    private func datasheetOnboardingRouteCard(
+        for route: VoiceEngineLanguageRoute,
+        enablesHover: Bool = true
+    ) -> some View {
+        let model = route.model
+        let isSelected = self.isOnboardingRouteSelected(route)
+        let isRouteActiveInSettings = self.isRouteSelectedInSettings(route)
+        let isDownloaded = self.isOnboardingModelBundledOrInstalled(model)
+            || (isRouteActiveInSettings && (self.asr.isAsrReady || self.asr.modelsExistOnDisk))
+        let isPreparing = self.preparingModelRouteID == route.id
+            || (isRouteActiveInSettings && (self.asr.isDownloadingModel || (self.asr.isLoadingModel && !self.asr.isAsrReady)))
+        let isReady = self.isOnboardingRouteReady(route)
+        let isUninstalling = self.uninstallingModelRouteID == route.id
+        let actionsBlocked = self.asr.isRunning
+            || self.uninstallingModelRouteID != nil
+            || self.preparingModelRouteID != nil
+            || isPreparing
+            || self.isModelPreparationInProgress
+        let isBuiltInAppleModel = model == .appleSpeech || model == .appleSpeechAnalyzer
+
+        return DatasheetBracketed(rest: isSelected) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(isSelected ? "SELECTED" : "OPTION")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .tracking(0.4)
+                            .foregroundStyle(self.palette.text2)
+
+                        Text(self.onboardingModelTitle(for: model))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(self.palette.text)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                    }
+
+                    Spacer(minLength: 2)
+
+                    DatasheetStatusSquare(kind: isReady ? .ink : (isPreparing ? .orange : .outline))
+                        .padding(.top, 3)
+                }
+                .frame(minHeight: 38, alignment: .top)
+
+                HStack(spacing: 6) {
+                    Text("\(self.onboardingModelSubtitle(for: model)) · \(model.downloadSize)")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    Spacer(minLength: 0)
+                    if let badgeText = route.badgeText {
+                        Text(badgeText.uppercased())
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .tracking(0.2)
+                            .foregroundStyle(self.palette.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.68)
+                    }
+                }
+
+                VStack(spacing: 5) {
+                    self.datasheetModelMetricRow(fillPercent: model.speedPercent, label: "SPEED")
+                    self.datasheetModelMetricRow(fillPercent: model.accuracyPercent, label: "ACCURACY")
+                }
+
+                if isPreparing || isUninstalling {
+                    if self.asr.isDownloadingModel,
+                       self.asr.modelPreparationPhase == .downloading,
+                       let progress = self.asr.downloadProgress
+                    {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(self.asr.modelPreparationStatusText.uppercased())
+                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                    .tracking(0.3)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text("\(Int((progress * 100).rounded()))%")
+                                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                    .frame(width: 34, alignment: .trailing)
+                            }
+                            ProgressView(value: progress)
+                                .tint(self.palette.accent)
+                                .frame(height: 8)
+                        }
+                        .foregroundStyle(self.palette.text2)
+                    } else {
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.small).fixedSize()
+                            Text(self.asr.isCancellingModelPreparation
+                                ? "Cancelling…"
+                                : (isUninstalling ? "Deleting…" : self.asr.modelPreparationStatusText))
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundStyle(self.palette.text2)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(height: 16)
+                    }
+                } else {
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 8) {
+                    if isPreparing {
+                        self.datasheetModelActionButton(
+                            id: "\(route.id)-cancel",
+                            title: self.asr.isCancellingModelPreparation ? "Cancelling…" : "Cancel",
+                            systemImage: "xmark",
+                            width: 104,
+                            isDisabled: self.asr.isCancellingModelPreparation
+                        ) {
+                            self.cancelOnboardingModelPreparation()
+                        }
+                    } else if isDownloaded, isBuiltInAppleModel {
+                        self.datasheetModelActionButton(
+                            id: "\(route.id)-activate",
+                            title: self.onboardingModelActionButtonTitle(isPreparing: false, isDownloaded: true, isReady: isReady),
+                            systemImage: isReady ? "checkmark" : "bolt.fill",
+                            width: nil,
+                            isDisabled: actionsBlocked || isReady
+                        ) {
+                            self.prepareOnboardingRoute(route)
+                        }
+                    } else if isDownloaded {
+                        self.datasheetModelActionButton(
+                            id: "\(route.id)-activate",
+                            title: self.onboardingModelActionButtonTitle(isPreparing: false, isDownloaded: true, isReady: isReady),
+                            systemImage: isReady ? "checkmark" : "bolt.fill",
+                            width: 116,
+                            isDisabled: actionsBlocked || isReady
+                        ) {
+                            self.prepareOnboardingRoute(route)
+                        }
+
+                        self.datasheetModelActionButton(
+                            id: "\(route.id)-uninstall",
+                            title: "Delete",
+                            systemImage: "trash",
+                            width: 88,
+                            isSecondary: true,
+                            isDisabled: actionsBlocked
+                        ) {
+                            self.uninstallOnboardingRoute(route)
+                        }
+                    } else {
+                        self.datasheetModelActionButton(
+                            id: "\(route.id)-download-activate",
+                            title: self.onboardingModelActionButtonTitle(isPreparing: false, isDownloaded: false, isReady: false),
+                            systemImage: "arrow.down.circle",
+                            width: nil,
+                            isDisabled: actionsBlocked
+                        ) {
+                            self.prepareOnboardingRoute(route)
+                        }
+                    }
+                }
+                .frame(height: 32)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 200, alignment: .topLeading)
+            .background(self.palette.surface)
+            .overlay(Rectangle().stroke(isSelected ? self.palette.rule : self.palette.ruleSoft, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !actionsBlocked else { return }
+                self.selectOnboardingRoute(route)
+            }
+            .onHover { hovering in
+                guard enablesHover else { return }
+                self.setHoveredModelRoute(hovering ? route.id : nil)
+            }
+        }
+    }
+
+    private func datasheetModelMetricRow(fillPercent: Double, label: String) -> some View {
+        let clamped = min(max(fillPercent, 0), 1)
+
+        return HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .tracking(0.3)
+                .foregroundStyle(self.palette.text2)
+                .frame(width: 58, alignment: .leading)
+
+            DatasheetMeter(value: Int((clamped * 10).rounded()), count: 10, segmentWidth: 5, segmentHeight: 8)
+
+            Spacer(minLength: 2)
+
+            Text("\(Int((clamped * 100).rounded()))%")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.palette.text)
+                .frame(width: 34, alignment: .trailing)
+                .contentTransition(.numericText())
+        }
+        .frame(height: 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), \(Int((clamped * 100).rounded())) percent")
+    }
+
+    private func datasheetModelActionButton(
+        id: String,
+        title: String,
+        systemImage: String,
+        width: CGFloat?,
+        isSecondary: Bool = false,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let isHovered = self.hoveredModelActionButtonID == id && !isDisabled
+        let foreground = isSecondary ? self.palette.text : self.palette.invForeground
+        let background = isSecondary ? self.palette.surface : self.palette.invBackground
+
+        return Button {
+            action()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .padding(.horizontal, 8)
+                .frame(width: width, height: 30)
+                .frame(maxWidth: width == nil ? .infinity : nil)
+                .background(background)
+                .overlay(Rectangle().stroke(isSecondary ? self.palette.ruleSoft : background, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+        .datasheetBracket(.chip, visible: isHovered)
+        .onHover { hovering in
+            self.setHoveredModelActionButton(hovering && !isDisabled ? id : nil)
+        }
+        .accessibilityLabel(title)
+    }
+
+    private var datasheetPermissionsStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            self.pageHeading(
+                title: "Let MouthKeys listen and type",
+                subtitle: "Two quick permissions make dictation work anywhere."
+            )
+
+            VStack(spacing: 0) {
+                self.datasheetPermissionRow(
+                    systemImage: "mic",
+                    title: self.isMicrophoneReady ? "Microphone access allowed" : "Allow microphone",
+                    subtitle: self.isMicrophoneReady
+                        ? "Choose the microphone you want MouthKeys to use."
+                        : "macOS will ask once. Click Allow to start dictating.",
+                    isReady: self.isMicrophoneReady,
+                    statusTitle: self.isMicrophoneReady ? "Ready" : "Needed",
+                    actionTitle: self.microphoneActionButtonTitle,
+                    action: self.handleMicrophoneAction
+                )
+
+                if self.isMicrophoneReady {
+                    OnboardingMicrophoneSetupPanel(
+                        devices: self.orderedOnboardingInputDevices,
+                        selectedUID: self.selectedOnboardingInputUID,
+                        level: self.onboardingMicrophoneLevel,
+                        errorMessage: self.asr.microphonePreviewError,
+                        onSelect: { self.selectOnboardingMicrophone(uid: $0) }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                Rectangle().fill(self.palette.rule).frame(height: 1)
+
+                self.datasheetPermissionRow(
+                    systemImage: "keyboard",
+                    title: self.accessibilityPermissionTitle,
+                    subtitle: self.accessibilityPermissionSubtitle,
+                    isReady: self.isAccessibilityReady,
+                    statusTitle: self.accessibilityPermissionStatusTitle,
+                    actionTitle: self.accessibilityPermissionActionTitle,
+                    action: self.openAccessibilitySettings
+                )
+
+                if self.permissionMonitor.hint != .none {
+                    OnboardingDatasheetRecoveryHintView(
+                        hint: self.permissionMonitor.hint,
+                        conflictingCopies: self.permissionMonitor.conflictingCopies,
+                        openAccessibilitySettings: { self.permissionMonitor.openAccessibilitySettings() },
+                        relaunch: self.restartApp
+                    )
+                } else if !self.isAccessibilityReady {
+                    Text("Already enabled it? MouthKeys will update when macOS confirms access.")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(self.palette.text2)
+                        .padding(.vertical, 12)
+                }
+            }
+            .frame(maxWidth: 760)
+        }
+        .frame(maxWidth: 820, alignment: .leading)
+    }
+
+    private func datasheetPermissionRow(
+        systemImage: String,
+        title: String,
+        subtitle: String,
+        isReady: Bool,
+        statusTitle: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Rectangle()
+                    .fill(isReady ? self.palette.invBackground : self.palette.field)
+                Image(systemName: isReady ? "checkmark" : systemImage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isReady ? self.palette.invForeground : self.palette.text)
+            }
+            .frame(width: 48, height: 64)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(self.palette.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                DatasheetStatusSquare(kind: isReady ? .ink : .orange, size: 5)
+                Text(statusTitle.uppercased())
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundStyle(self.palette.text2)
+            }
+            .frame(width: 82, alignment: .trailing)
+
+            if !isReady {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: ["Open Settings", "Show Guide"].contains(actionTitle) ? "arrow.up.right" : "hand.tap")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.invForeground)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .frame(width: 128, height: 34)
+                        .background(self.palette.invBackground)
+                }
+                .buttonStyle(.plain)
+                .datasheetHoverBracket()
+            } else {
+                Color.clear.frame(width: 128, height: 34)
+            }
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var datasheetPlaygroundStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            self.pageHeading(
+                title: "MouthKeys is ready.",
+                subtitle: "Now let's try it out. Press once to start. Press again to stop."
+            )
+
+            OnboardingTryoutStepView(
+                finalText: Binding(
+                    get: { self.asr.finalText },
+                    set: { self.asr.finalText = $0 }
+                ),
+                language: self.selectedOnboardingLanguage,
+                shortcutDisplay: self.onboardingShortcutDisplay,
+                isReady: self.isPlaygroundReady,
+                isRunning: self.asr.isRunning,
+                isRecordingShortcut: self.isRecordingPrimaryShortcut,
+                shortcutRecordingMessage: self.isRecordingPrimaryShortcut ? self.shortcutRecordingMessage : nil,
+                onToggleShortcut: self.togglePrimaryShortcutRecording
+            )
+        }
+        .frame(maxWidth: 820, alignment: .leading)
     }
 
     private func updateLandingGlow(location: CGPoint, in size: CGSize) {
@@ -2728,10 +3544,16 @@ struct OnboardingFlowView: View {
         }
     }
 
+    private func skipPlayground() {
+        guard self.canSkipSetup else { return }
+        self.settings.onboardingPlaygroundSkipped = true
+        self.finishSetup(outcome: .skipped)
+    }
+
     private func goBack() {
         self.activeShortcutRecordingTarget = nil
         self.shortcutRecordingMessage = nil
-        self.currentStep = max(0, self.currentStep - 1)
+        self.currentStep = max(0, self.step.rawValue - 1)
     }
 
     private func goNext(outcome: AnalyticsOnboardingOutcome = .continued) {
@@ -2837,7 +3659,7 @@ private extension OnboardingFlowView {
     }
 
     func refreshOnboardingMicrophones(startPreview: Bool) {
-        guard self.isOnboardingFlowVisible else { return }
+        guard self.isOnboardingFlowVisible, !TestHostQuietMode.isActive else { return }
         self.onboardingMicrophoneRefreshGeneration &+= 1
         let generation = self.onboardingMicrophoneRefreshGeneration
         let suppressedUIDs = self.settings.suppressedMicrophoneUIDs
@@ -2969,100 +3791,100 @@ private extension OnboardingFlowView {
 }
 
 private struct OnboardingMicrophoneSetupPanel: View {
+    @Environment(\.datasheetPalette) private var palette
+
     let devices: [AudioDevice.Device]
     let selectedUID: String
     let level: CGFloat
     let errorMessage: String?
     let onSelect: (String) -> Void
 
-    private var status: (text: String, color: Color) {
-        if let errorMessage, errorMessage.isEmpty == false {
-            return ("Microphone unavailable", Color.orange)
-        }
-        return ("Input level", Color.white.opacity(0.52))
+    private var selectedDeviceName: String {
+        self.devices.first(where: { $0.uid == self.selectedUID })?.name ?? "Select a microphone"
+    }
+
+    private var statusText: String {
+        guard let errorMessage = self.errorMessage, !errorMessage.isEmpty else { return "Input level" }
+        return errorMessage
+    }
+
+    private var hasPreviewError: Bool {
+        self.errorMessage?.isEmpty == false
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        let activeBarCount = min(16, max(0, Int(ceil(self.level * 16))))
-
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Text("Select your microphone")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.58))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text2)
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 8)
 
                 if self.devices.isEmpty {
                     Text("No microphone available")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.orange.opacity(0.9))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.accent)
                 } else {
-                    Picker(
-                        "Input microphone",
-                        selection: Binding(
-                            get: { self.selectedUID },
-                            set: self.onSelect
-                        )
-                    ) {
+                    DatasheetPicker(title: "Input microphone", value: self.selectedDeviceName, minimumWidth: 248) {
                         ForEach(self.devices) { device in
-                            Text(device.name).tag(device.uid)
+                            Button {
+                                self.onSelect(device.uid)
+                            } label: {
+                                if device.uid == self.selectedUID {
+                                    Label(device.name, systemImage: "checkmark")
+                                } else {
+                                    Text(device.name)
+                                }
+                            }
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 248)
-                    .tint(.white)
                     .accessibilityHint("Moves the selected microphone to first in MouthKeys priority")
                 }
             }
-            .padding(.horizontal, 18)
-            .frame(height: 62)
+            .padding(.horizontal, 12)
+            .frame(height: 46)
 
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(self.palette.ruleSoft)
                 .frame(height: 1)
-                .padding(.horizontal, 18)
 
             HStack(spacing: 12) {
-                Circle()
-                    .fill(self.status.color)
-                    .frame(width: 6, height: 6)
+                DatasheetStatusSquare(
+                    kind: self.hasPreviewError ? .orange : .ink,
+                    size: 5
+                )
 
-                Text(self.status.text)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(self.status.color)
+                Text(self.statusText)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(self.hasPreviewError ? self.palette.accent : self.palette.text2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
                 Spacer()
 
-                HStack(spacing: 0) {
-                    ForEach(0..<16, id: \.self) { index in
-                        Capsule()
-                            .fill(
-                                index < activeBarCount
-                                    ? FluidOnboardingLandingColors.blue.opacity(0.92)
-                                    : Color.white.opacity(0.14)
-                            )
-                            .frame(width: 5, height: 15)
-
-                        if index < 15 {
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-                .frame(width: 248)
+                DatasheetMeter(
+                    value: Int(ceil(min(max(self.level, 0), 1) * 16)),
+                    count: 16,
+                    segmentWidth: 5,
+                    segmentHeight: 14
+                )
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Microphone input level")
                 .accessibilityValue("\(Int((self.level * 100).rounded())) percent")
+
+                Text("\(Int((self.level * 100).rounded()))%")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 34, alignment: .trailing)
             }
-            .padding(.horizontal, 18)
-            .frame(height: 50)
+            .padding(.horizontal, 12)
+            .frame(height: 38)
         }
-        .background(
-            shape
-                .fill(Color.white.opacity(0.040))
-                .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 1))
-        )
+        .frame(maxWidth: .infinity)
+        .background(self.palette.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.rule).frame(height: 1)
+        }
     }
 }
