@@ -5482,3 +5482,106 @@ final class ASettingsMeterRenderTests: XCTestCase {
         }
     }
 }
+
+/// Offscreen native layout probe for the production Settings body at the actual detail-column widths.
+/// Persisted controls are read from current defaults; bindings are constant and no control is pressed.
+/// Ephemeral Accessibility/hotkey readiness inputs use the active state to expose B's full shortcut rows.
+@MainActor
+final class ASettingsContentWidthRenderTests: XCTestCase {
+    func testProductionSettingsBodyAt549And749PointDetailWidthsInBothThemes() throws {
+        XCTAssertTrue(TestHostQuietMode.isActive, "The Settings width probe must remain invisible and silent")
+
+        let outputFolder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent(
+                "mouthkeys-a-settings-width-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        print("A_SETTINGS_WIDTH_RENDER_DIR=\(outputFolder.path)")
+
+        let menuBarManager = MenuBarManager()
+        var darkRenderByWidth: [String: Data] = [:]
+        let renderSizes: [(name: String, width: CGFloat, height: CGFloat)] = [
+            ("549", 549, 6_400),
+            ("749", 749, 5_600),
+        ]
+        for size in renderSizes {
+            for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                let theme = appearance == .darkAqua ? "dark" : "light"
+                let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+                let view = self.productionSettingsBody(menuBarManager: menuBarManager)
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .background(DatasheetTheme.Palette.forScheme(scheme).surface)
+                    .appTheme(AppTheme.adaptive(accent: DatasheetTheme.Palette.dark.accent, colorScheme: scheme))
+                    .datasheetPalette()
+                    .environment(\.displayScale, 1)
+                    .environment(\.colorScheme, scheme)
+
+                let hostingView = NSHostingView(rootView: view)
+                hostingView.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+                hostingView.wantsLayer = true
+                hostingView.layer?.contentsScale = 1
+                hostingView.layoutSubtreeIfNeeded()
+                let representation = try XCTUnwrap(
+                    hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds),
+                    "Could not allocate \(theme) Settings bitmap at \(size.name) pt detail width"
+                )
+                hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
+                representation.size = NSSize(width: size.width, height: size.height)
+                let png = try XCTUnwrap(representation.representation(using: .png, properties: [:]))
+                if appearance == .darkAqua {
+                    darkRenderByWidth[size.name] = png
+                } else {
+                    XCTAssertNotEqual(darkRenderByWidth[size.name], png, "Dark and Light palettes must differ at \(size.name) pt detail width")
+                }
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = "a-settings-production-body-\(size.name)-\(theme)"
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+                try png.write(to: outputFolder.appendingPathComponent("a-settings-production-body-\(size.name)-\(theme).png"))
+            }
+        }
+    }
+
+    private func productionSettingsBody(menuBarManager: MenuBarManager) -> some View {
+        let services = AppServices.shared
+        let settings = SettingsStore.shared
+        return SettingsView(
+            microphonePreferenceCoordinator: services.microphonePreferenceCoordinator,
+            appear: .constant(false),
+            visualizerNoiseThreshold: .constant(settings.visualizerNoiseThreshold),
+            selectedInputUID: .constant(""),
+            selectedOutputUID: .constant(settings.preferredOutputDeviceUID ?? ""),
+            inputDevices: .constant([]),
+            outputDevices: .constant([]),
+            accessibilityEnabled: .constant(true),
+            primaryDictationShortcuts: .constant(settings.primaryDictationShortcuts),
+            activeShortcutRecordingTarget: .constant(nil),
+            shortcutRecordingMessage: .constant(nil),
+            commandModeShortcut: .constant(settings.commandModeHotkeyShortcut),
+            rewriteShortcut: .constant(settings.rewriteModeHotkeyShortcut),
+            cancelRecordingShortcut: .constant(settings.cancelRecordingHotkeyShortcut),
+            pasteLastTranscriptionShortcut: .constant(settings.pasteLastTranscriptionHotkeyShortcut),
+            reprocessLastDictationShortcut: .constant(settings.reprocessLastDictationHotkeyShortcut),
+            commandModeShortcutEnabled: .constant(settings.commandModeShortcutEnabled),
+            rewriteShortcutEnabled: .constant(settings.rewriteModeShortcutEnabled),
+            pasteLastTranscriptionShortcutEnabled: .constant(settings.pasteLastTranscriptionShortcutEnabled),
+            reprocessLastDictationShortcutEnabled: .constant(settings.reprocessLastDictationShortcutEnabled),
+            hotkeyManagerInitialized: .constant(true),
+            hotkeyMode: .constant(settings.hotkeyMode),
+            enableStreamingPreview: .constant(settings.enableStreamingPreview),
+            copyToClipboard: .constant(settings.copyTranscriptionToClipboard),
+            hotkeyManager: nil,
+            menuBarManager: menuBarManager,
+            startRecording: {},
+            refreshDevices: {},
+            openAccessibilitySettings: {},
+            restartApp: {},
+            revealAppInFinder: {},
+            openApplicationsFolder: {},
+            microphoneSettingsScrollRequest: 0
+        )
+        .environmentObject(services)
+    }
+}

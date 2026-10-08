@@ -641,6 +641,29 @@ struct SettingsView: View {
         let enabledValue = isEnabled?.wrappedValue ?? true
         let hasShortcut = shortcut != nil
         let enableToggleDisabled = isAnyRecordingActive || (requiresShortcutToEnable && !hasShortcut)
+        let shortcutWell = DatasheetHotkeyWell {
+            Text(isRecording ? "PRESS SHORTCUT…" : (shortcut?.displayString ?? "NOT SET"))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(isRecording ? self.datasheetPalette.accent : self.datasheetPalette.text)
+                .lineLimit(1)
+        }
+        .frame(width: 180)
+        let shortcutActions = HStack(spacing: 4) {
+            self.sheetAction(isRecording ? "Cancel" : "Change", icon: isRecording ? "xmark" : "pencil") {
+                if isRecording {
+                    self.shortcutRecordingMessage = nil
+                    self.activeShortcutRecordingTarget = nil
+                } else {
+                    onChangePressed()
+                }
+            }
+            .disabled(!isRecording && (isAnyRecordingActive || (!enabledValue && hasShortcut)))
+
+            if let onRemovePressed {
+                self.sheetAction("Remove", icon: "minus", action: onRemovePressed)
+                    .disabled(!hasShortcut || isAnyRecordingActive)
+            }
+        }
         DatasheetRow(label: content.title, help: content.description, dimmed: !enabledValue, control: {
             VStack(alignment: .trailing, spacing: 6) {
                 if let isEnabled {
@@ -649,29 +672,17 @@ struct SettingsView: View {
                         .toggleStyle(DatasheetToggleStyle())
                         .disabled(enableToggleDisabled)
                 }
-                HStack(spacing: 4) {
-                    DatasheetHotkeyWell {
-                        Text(isRecording ? "PRESS SHORTCUT…" : (shortcut?.displayString ?? "NOT SET"))
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(isRecording ? self.datasheetPalette.accent : self.datasheetPalette.text)
-                            .lineLimit(1)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        shortcutWell
+                        shortcutActions
                     }
-                    .frame(width: 180)
-
-                    self.sheetAction(isRecording ? "Cancel" : "Change", icon: isRecording ? "xmark" : "pencil") {
-                        if isRecording {
-                            self.shortcutRecordingMessage = nil
-                            self.activeShortcutRecordingTarget = nil
-                        } else {
-                            onChangePressed()
-                        }
+                    .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        shortcutWell
+                        shortcutActions
                     }
-                    .disabled(!isRecording && (isAnyRecordingActive || (!enabledValue && hasShortcut)))
-
-                    if let onRemovePressed {
-                        self.sheetAction("Remove", icon: "minus", action: onRemovePressed)
-                            .disabled(!hasShortcut || isAnyRecordingActive)
-                    }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
 
                 if isRecording, let recordingMessage, !recordingMessage.isEmpty {
@@ -969,36 +980,48 @@ private extension SettingsView {
             ForEach(Array(self.primaryDictationShortcuts.enumerated()), id: \.offset) { index, shortcut in
                 let target = ShortcutRecordingTarget.primaryDictation(.replace(index))
                 let isRecording = self.isRecording(target)
+                let shortcutWell = DatasheetHotkeyWell {
+                    Text(isRecording ? "PRESS SHORTCUT…" : shortcut.displayString)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(isRecording ? self.datasheetPalette.accent : self.datasheetPalette.text)
+                        .lineLimit(1)
+                }
+                .frame(width: 174)
+                let shortcutActions = HStack(spacing: 4) {
+                    self.sheetAction(isRecording ? "Cancel" : "Change", icon: isRecording ? "xmark" : "pencil") {
+                        if isRecording {
+                            self.shortcutRecordingMessage = nil
+                            self.activeShortcutRecordingTarget = nil
+                        } else {
+                            DebugLogger.shared.debug("Starting to record replacement primary dictation shortcut", source: "SettingsView")
+                            self.shortcutRecordingMessage = nil
+                            self.activeShortcutRecordingTarget = target
+                        }
+                    }
+                    .disabled(!isRecording && self.isRecordingAnyShortcut)
+                    self.sheetAction("Remove", icon: "minus") {
+                        guard self.primaryDictationShortcuts.count > 1,
+                              self.primaryDictationShortcuts.indices.contains(index)
+                        else { return }
+                        self.primaryDictationShortcuts.remove(at: index)
+                    }
+                    .disabled(self.primaryDictationShortcuts.count <= 1 || self.isRecordingAnyShortcut)
+                }
                 DatasheetRow(
                     label: "Dictation Shortcut \(index + 1)",
                     help: isRecording ? (self.shortcutRecordingMessage ?? "Press the new shortcut combination now.") : "Use a keyboard shortcut, auxiliary mouse button, or modified click.",
                     control: {
-                        HStack(spacing: 4) {
-                            DatasheetHotkeyWell {
-                                Text(isRecording ? "PRESS SHORTCUT…" : shortcut.displayString)
-                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(isRecording ? self.datasheetPalette.accent : self.datasheetPalette.text)
-                                    .lineLimit(1)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 4) {
+                                shortcutWell
+                                shortcutActions
                             }
-                            .frame(width: 174)
-                            self.sheetAction(isRecording ? "Cancel" : "Change", icon: isRecording ? "xmark" : "pencil") {
-                                if isRecording {
-                                    self.shortcutRecordingMessage = nil
-                                    self.activeShortcutRecordingTarget = nil
-                                } else {
-                                    DebugLogger.shared.debug("Starting to record replacement primary dictation shortcut", source: "SettingsView")
-                                    self.shortcutRecordingMessage = nil
-                                    self.activeShortcutRecordingTarget = target
-                                }
+                            .fixedSize(horizontal: true, vertical: false)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                shortcutWell
+                                shortcutActions
                             }
-                            .disabled(!isRecording && self.isRecordingAnyShortcut)
-                            self.sheetAction("Remove", icon: "minus") {
-                                guard self.primaryDictationShortcuts.count > 1,
-                                      self.primaryDictationShortcuts.indices.contains(index)
-                                else { return }
-                                self.primaryDictationShortcuts.remove(at: index)
-                            }
-                            .disabled(self.primaryDictationShortcuts.count <= 1 || self.isRecordingAnyShortcut)
+                            .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                 )
@@ -1719,21 +1742,31 @@ private extension SettingsView {
                     help: "Choose a sound cue for recording. Some cues include an end sound.",
                     control: {
                         let selected = SettingsStore.shared.transcriptionStartSound
-                        HStack(spacing: 4) {
-                            DatasheetPicker(title: "Transcription Sounds", value: selected.displayName, minimumWidth: 190) {
-                                ForEach(SettingsStore.TranscriptionStartSound.allCases) { option in
-                                    Button {
-                                        SettingsStore.shared.transcriptionStartSound = option
-                                        TranscriptionSoundPlayer.shared.playPreview(sound: option)
-                                    } label: {
-                                        if option == selected { Label(option.displayName, systemImage: "checkmark") }
-                                        else { Text(option.displayName) }
-                                    }
+                        let soundPicker = DatasheetPicker(title: "Transcription Sounds", value: selected.displayName, minimumWidth: 190) {
+                            ForEach(SettingsStore.TranscriptionStartSound.allCases) { option in
+                                Button {
+                                    SettingsStore.shared.transcriptionStartSound = option
+                                    TranscriptionSoundPlayer.shared.playPreview(sound: option)
+                                } label: {
+                                    if option == selected { Label(option.displayName, systemImage: "checkmark") }
+                                    else { Text(option.displayName) }
                                 }
                             }
-                            self.sheetAction("Preview", icon: "play.fill") {
-                                TranscriptionSoundPlayer.shared.playPreview(sound: SettingsStore.shared.transcriptionStartSound)
+                        }
+                        let previewAction = self.sheetAction("Preview", icon: "play.fill") {
+                            TranscriptionSoundPlayer.shared.playPreview(sound: SettingsStore.shared.transcriptionStartSound)
+                        }
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 4) {
+                                soundPicker
+                                previewAction
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                soundPicker
+                                previewAction
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                 )
