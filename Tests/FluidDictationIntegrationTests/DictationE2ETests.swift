@@ -5440,13 +5440,20 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
         XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: [], pressedKeys: []), .finish(wasCleanPress: true))
 
-        let eitherOption = HotkeyShortcut(keyCode: 61, modifierFlags: [])
+        // The single-modifier legacy form is normalized to its specific physical key.
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
+        // A legacy chord with aggregate flags and no explicit keycodes accepts either side.
+        let eitherOptionShift = HotkeyShortcut(keyCode: 58, modifierFlags: .shift)
         var eitherPress = DatasheetPracticeModifierPress()
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 58, modifiers: .option, pressedKeys: [58]), .start)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 61, modifiers: .option, pressedKeys: [61]), .ignore)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 60, modifiers: [.option, .shift], pressedKeys: [61, 60]), .start)
         eitherPress.interrupt()
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 58, modifiers: [], pressedKeys: []), .finish(wasCleanPress: false))
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 61, modifiers: [], pressedKeys: []), .finish(wasCleanPress: true))
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 61, modifiers: .shift, pressedKeys: [60]), .finish(wasCleanPress: false))
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 60, modifiers: [], pressedKeys: []), .ignore)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 56, modifiers: [.option, .shift], pressedKeys: [58, 56]), .start)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 56, modifiers: .option, pressedKeys: [58]), .finish(wasCleanPress: true))
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 58, modifiers: [], pressedKeys: []), .ignore)
     }
 
     func testInlineOverlayFitsAllTwelveZonesAndUsesTheProductionBatteryReservation() throws {
