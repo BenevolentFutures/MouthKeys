@@ -4,6 +4,7 @@ struct VoiceEngineSettingsView: View {
     @ObservedObject var viewModel: VoiceEngineSettingsViewModel
     @ObservedObject var settings: SettingsStore
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.datasheetPalette) var palette
     @State var isShowingNemotronLanguagePicker = false
     let theme: AppTheme
 

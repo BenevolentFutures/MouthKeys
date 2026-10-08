@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 // swiftlint:disable:next type_body_length
 struct CustomDictionaryView: View {
     @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var appServices: AppServices
 
@@ -25,7 +26,6 @@ struct CustomDictionaryView: View {
     @State private var boostHasError = false
     @State private var automaticDictionaryLearningEnabled = SettingsStore.shared.automaticDictionaryLearningEnabled
     @State private var vocabBoostingEnabled: Bool = SettingsStore.shared.vocabularyBoostingEnabled
-    @State private var isCustomWordsPresented = false
     @State private var isBoostWordEditorPresented = false
     @State private var editingBoostTermIndex: Int?
     @State private var boostTermText = ""
@@ -53,8 +53,6 @@ struct CustomDictionaryView: View {
     @State private var composerMode: DictionaryComposerMode = .train
     @State private var manualTriggerDraft = ""
     @State private var manualReplacement = ""
-    @State private var isYourDictionaryPresented = false
-    @State private var isPunctuationDictionaryPresented = false
     @State private var punctuationAutoConvertEnabled = SettingsStore.shared.autoConvertPunctuationEnabled
     @State private var punctuationPrefix = SettingsStore.shared.punctuationDictionaryPrefix
     @State private var punctuationRules = SettingsStore.shared.punctuationDictionaryRules
@@ -67,6 +65,35 @@ struct CustomDictionaryView: View {
     @State private var editingPunctuationRuleID: UUID?
     @State private var punctuationAliasesText = ""
     @State private var punctuationSymbolText = ""
+
+    init(datasheetRenderFixture: Bool = false) {
+        guard datasheetRenderFixture else { return }
+
+        self._entries = State(initialValue: [
+            .init(triggers: ["mouth keys", "mouse keys"], replacement: "MouthKeys"),
+            .init(triggers: ["c eleven", "see eleven"], replacement: "c11"),
+            .init(triggers: ["gregorovitch"], replacement: "Gregorovich"),
+        ])
+        self._boostTerms = State(initialValue: [
+            .init(text: "MouthKeys", weight: 0.8),
+            .init(text: "Parakeet", weight: 0.6),
+        ])
+        self._automaticDictionaryLearningEnabled = State(initialValue: true)
+        self._vocabBoostingEnabled = State(initialValue: true)
+        self._trainingReplacement = State(initialValue: "Gregorovich")
+        self._trainingVariants = State(initialValue: ["Gregorovitch"])
+        self._pronunciationMatchingEnabled = State(initialValue: false)
+        self._trainingSampleCount = State(initialValue: 2)
+        self._lastTrainingOutput = State(initialValue: "Gregorovich")
+        self._lastTrainingOutputIsCovered = State(initialValue: true)
+        self._consecutiveCoveredCaptures = State(initialValue: 2)
+        self._trainingStatusMessage = State(initialValue: "Keep going until the readiness meter reaches 3/3.")
+        self._punctuationAutoConvertEnabled = State(initialValue: true)
+        self._punctuationPrefix = State(initialValue: SettingsStore.defaultPunctuationDictionaryPrefix)
+        self._punctuationRules = State(initialValue: Array(SettingsStore.defaultPunctuationDictionaryRules.prefix(8)))
+        self._formattingActionRules = State(initialValue: SettingsStore.defaultSpokenFormattingActionRules)
+    }
+
     private var normalizedTrainingReplacement: String {
         self.trainingReplacement.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -244,38 +271,11 @@ struct CustomDictionaryView: View {
         !self.normalizedBoostTermText.isEmpty && !self.isBoostTermDuplicate
     }
 
-    private enum DictionaryHeaderControlLayout {
-        static let controlsWidth: CGFloat = 194
-        static let toggleColumnWidth: CGFloat = 54
-        static let actionButtonWidth: CGFloat = 128
-        static let actionButtonLabelWidth: CGFloat = 104
-        static let controlHeight: CGFloat = 36
-    }
+
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: self.theme.metrics.spacing.xl) {
-                self.pageHeader
-
-                VStack(alignment: .leading, spacing: self.theme.metrics.spacing.xxl) {
-                    self.trainReplacementSection
-                    self.yourDictionarySection
-                    self.punctuationDictionarySection
-                    self.aiPostProcessingSection
-                }
-            }
-            .frame(maxWidth: 860, alignment: .leading)
-            .padding(self.theme.metrics.spacing.xl)
-        }
+        self.datasheetScreenContent
         .dismissTextFocusOnBackgroundTap()
-        .overlay {
-            if let confirmation = self.replacementConfirmation {
-                ReplacementConfirmationToast(confirmation: confirmation)
-                    .padding(self.theme.metrics.spacing.xl)
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
-        }
         .sheet(item: self.$editingEntry) { entry in
             EditDictionaryEntrySheet(
                 entry: entry,
@@ -318,6 +318,8 @@ struct CustomDictionaryView: View {
         .onDisappear {
             self.isAutomaticTrainingEnabled = false
             DictionaryTrainingEndpointMonitor.shared.stop()
+            self.savePunctuationDictionaryPrefix()
+            self.dismissBoostTermEditor()
             guard self.isTrainingRecording else { return }
             Task { @MainActor in
                 await self.stopTrainingSample()
@@ -325,72 +327,77 @@ struct CustomDictionaryView: View {
         }
     }
 
-    // MARK: - Page Header
-
-    private var pageHeader: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-            self.settingsIconTile(systemName: "text.book.closed.fill")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Custom Dictionary")
-                    .font(self.theme.typography.title)
-                Text("Correct recurring mistakes and teach the voice engine the words you use.")
-                    .font(self.theme.typography.bodySmall)
-                    .foregroundStyle(self.theme.palette.secondaryText)
+    var datasheetScreenContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                self.pageHeader
+                self.trainReplacementSection
+                self.yourDictionarySection
+                self.punctuationDictionarySection
+                self.aiPostProcessingSection
             }
-
-            Spacer(minLength: self.theme.metrics.spacing.md)
-
-            HStack(spacing: self.theme.metrics.spacing.sm) {
-                self.automaticLearningToggle
-
-                Button(action: self.importDictionary) {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                .fluidButton(.compact, size: .compact)
-
-                Button(action: self.exportDictionary) {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .fluidButton(.compact, size: .compact)
+            .frame(maxWidth: 880, alignment: .leading)
+            .padding(.horizontal, 40)
+            .padding(.top, 28)
+            .padding(.bottom, 40)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .overlay {
+            if let confirmation = self.replacementConfirmation {
+                ReplacementConfirmationToast(confirmation: confirmation)
+                    .padding(self.theme.metrics.spacing.xl)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    .allowsHitTesting(false)
             }
         }
     }
 
-    private var automaticLearningToggle: some View {
-        HStack(spacing: self.theme.metrics.spacing.sm) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Auto-learn words")
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(self.theme.palette.primaryText)
-                    .lineLimit(1)
+    // MARK: - Page Header
 
-                Text("Show notifications")
-                    .font(self.theme.typography.captionSmall)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                    .lineLimit(1)
+    private var pageHeader: some View {
+        DatasheetSheetHeader(
+            placard: "03 / Configure",
+            title: "Custom Dictionary",
+            lede: "Correct recurring mistakes and teach the voice engine the words you use."
+        ) {
+            HStack(spacing: self.theme.metrics.spacing.sm) {
+                self.automaticLearningToggle
+                self.headerAction("Import", icon: "square.and.arrow.down", action: self.importDictionary)
+                self.headerAction("Export", icon: "square.and.arrow.up", action: self.exportDictionary)
             }
+        }
+    }
 
+    private func headerAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(self.palette.text)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var automaticLearningToggle: some View {
+        HStack(spacing: 8) {
+            Text("Auto-learn")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(1)
             Toggle("Auto-learn words while typing", isOn: self.$automaticDictionaryLearningEnabled)
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(self.theme.palette.accent)
+                .toggleStyle(DatasheetToggleStyle())
         }
-        .padding(.horizontal, 10)
-        .frame(height: 40)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(
-                            self.automaticDictionaryLearningEnabled
-                                ? self.theme.palette.accent.opacity(0.42)
-                                : self.theme.palette.cardBorder.opacity(0.3),
-                            lineWidth: 1
-                        )
-                )
-        )
+        .padding(.horizontal, 8)
+        .frame(height: 34)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         .onChange(of: self.automaticDictionaryLearningEnabled) { _, newValue in
             SettingsStore.shared.automaticDictionaryLearningEnabled = newValue
             if !newValue {
@@ -402,24 +409,12 @@ struct CustomDictionaryView: View {
 
     private func settingsIconTile(systemName: String) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.82))
-                .overlay(
-                    LinearGradient(
-                        colors: [.white.opacity(0.1), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.35), lineWidth: 1)
-                )
-
+            Rectangle()
+                .fill(self.palette.surface)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             Image(systemName: systemName)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(self.theme.palette.accent)
+                .foregroundStyle(self.palette.text)
         }
         .frame(width: 34, height: 34)
     }
@@ -427,20 +422,13 @@ struct CustomDictionaryView: View {
     // MARK: - Teach Words
 
     private var trainReplacementSection: some View {
-        ThemedCard(style: .standard, hoverEffect: false) {
-            VStack(alignment: .leading, spacing: self.theme.metrics.spacing.lg) {
-                HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-                    self.settingsIconTile(systemName: "mic.fill")
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Teach Words")
-                            .font(self.theme.typography.sectionTitle)
-                        Text("Show MouthKeys the right spelling, by voice or by typing.")
-                            .font(self.theme.typography.caption)
-                            .foregroundStyle(self.theme.palette.secondaryText)
-                    }
-                }
-
+        DatasheetSection(
+            letter: "A",
+            title: "Teach Words",
+            note: "Show MouthKeys the right spelling, by voice or by typing.",
+            topSpacing: 0
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
                 self.dictionaryComposerModePicker
 
                 Group {
@@ -462,84 +450,64 @@ struct CustomDictionaryView: View {
             self.dictionaryComposerModeSegmented
 
             Text(self.composerModeDetail)
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .font(.system(size: 12))
+                .foregroundStyle(self.palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var dictionaryComposerModeSegmented: some View {
-        HStack(spacing: 2) {
-            ForEach(DictionaryComposerMode.allCases) { mode in
-                DictionaryComposerModeTab(
-                    mode: mode,
-                    isSelected: self.composerMode == mode,
-                    isDisabled: self.isTrainingRecording || self.isTrainingProcessing
-                ) {
-                    self.selectComposerMode(mode)
-                }
-            }
-        }
-        .padding(3)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
+        DatasheetSegmented(
+            selection: self.$composerMode,
+            choices: [
+                .init(value: .train, title: "Train by Voice"),
+                .init(value: .manual, title: "Add Manually"),
+            ],
+            cellWidth: 148
         )
+        .disabled(self.isTrainingRecording || self.isTrainingProcessing)
+        .onChange(of: self.composerMode) { _, mode in
+            self.selectComposerMode(mode)
+        }
     }
 
     private var trainReplacementComposer: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-            TextField("Type the correct text, e.g. MouthKeys", text: self.$trainingReplacement)
-                .dictionaryInputChrome()
-                .disabled(self.isTrainingRecording || self.isTrainingProcessing)
-                .onChange(of: self.trainingReplacement) { oldValue, newValue in
-                    self.handleTrainingReplacementChange(oldValue: oldValue, newValue: newValue)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 16) {
+                TextField("Type the correct text, e.g. MouthKeys", text: self.$trainingReplacement)
+                    .dictionaryInputChrome()
+                    .disabled(self.isTrainingRecording || self.isTrainingProcessing)
+                    .onChange(of: self.trainingReplacement) { oldValue, newValue in
+                        self.handleTrainingReplacementChange(oldValue: oldValue, newValue: newValue)
+                    }
+                    .frame(maxWidth: .infinity)
 
-            self.voiceMatchingSettingsRow
-
-            self.trainingRecorderPanel
-
-            self.trainingFinalOutputPanel
-
-            if !self.trainingVariants.isEmpty {
-                self.trainingHeardSection
+                self.voiceMatchingSettingsRow
+                    .frame(width: 285, alignment: .topLeading)
             }
 
+            self.trainingRecorderPanel
             self.trainingFooter
-
-            Spacer(minLength: 0)
 
             Button {
                 Task { await self.addTrainedReplacement() }
             } label: {
-                Label(
-                    self.trainedReplacementButtonTitle,
-                    systemImage: self.shouldEmphasizeTrainedReplacementButton
-                        ? "sparkles"
-                        : (self.trainingAlreadyCorrectWithoutReplacement ? "checkmark" : "plus")
-                )
+                HStack(spacing: 7) {
+                    Image(systemName: self.trainingAlreadyCorrectWithoutReplacement ? "checkmark" : "plus")
+                    Text(self.trainedReplacementButtonTitle)
+                }
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .tracking(0.4)
+                .foregroundStyle(self.palette.invForeground)
                 .frame(maxWidth: .infinity)
-                .frame(height: 38)
+                .frame(height: 36)
+                .background(self.palette.invBackground)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
-            .fluidButton(self.shouldEmphasizeTrainedReplacementButton ? .accent : .compact, size: .small)
+            .buttonStyle(.plain)
             .disabled(!self.canAddTrainedReplacement)
             .opacity(self.canAddTrainedReplacement ? 1 : 0.62)
             .overlay(self.trainedReplacementButtonReadyOutline)
-            .shadow(
-                color: self.shouldEmphasizeTrainedReplacementButton
-                    ? self.theme.palette.accent.opacity(self.isTrainedReplacementGlowExpanded ? 0.34 : 0.14)
-                    : .clear,
-                radius: self.shouldEmphasizeTrainedReplacementButton
-                    ? (self.isTrainedReplacementGlowExpanded ? 18 : 8)
-                    : 0,
-                x: 0,
-                y: 4
-            )
             .onHover { self.isTrainedReplacementButtonHovered = $0 }
             .onAppear { self.updateTrainedReplacementGlow() }
             .onChange(of: self.shouldPulseTrainedReplacementButton) { _, _ in
@@ -552,11 +520,8 @@ struct CustomDictionaryView: View {
     }
 
     private var trainedReplacementButtonReadyOutline: some View {
-        RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-            .stroke(
-                self.shouldEmphasizeTrainedReplacementButton ? self.theme.palette.success.opacity(0.72) : .clear,
-                lineWidth: 1.5
-            )
+        Rectangle()
+            .strokeBorder(self.shouldEmphasizeTrainedReplacementButton ? self.palette.edge : .clear, lineWidth: 1)
             .padding(-3)
             .allowsHitTesting(false)
     }
@@ -576,9 +541,12 @@ struct CustomDictionaryView: View {
             }
 
             if !self.manualDuplicateTriggers.isEmpty {
-                Label("Already used: \(self.manualDuplicateTriggers.joined(separator: ", "))", systemImage: "exclamationmark.triangle.fill")
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.warning)
+                HStack(spacing: 7) {
+                    DatasheetStatusSquare(kind: .orange)
+                    Text("Already used: \(self.manualDuplicateTriggers.joined(separator: ", "))")
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(self.palette.text2)
             }
 
             if !self.manualTriggers.isEmpty || !self.manualReplacement.isEmpty {
@@ -589,11 +557,11 @@ struct CustomDictionaryView: View {
 
                     Image(systemName: "arrow.right")
                         .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.tertiaryText)
+                        .foregroundStyle(self.palette.text2)
 
                     Text(CustomDictionaryManualEntry.replacementDisplayText(self.sanitizedManualReplacement))
                         .font(self.theme.typography.captionStrong)
-                        .foregroundStyle(self.theme.palette.accent)
+                        .foregroundStyle(self.palette.text)
                 }
             }
 
@@ -602,11 +570,16 @@ struct CustomDictionaryView: View {
             Button {
                 self.addManualReplacementIfValid()
             } label: {
-                Label("Add Replacement", systemImage: "plus")
+                Label("ADD REPLACEMENT", systemImage: "plus")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.4)
+                    .foregroundStyle(self.palette.invForeground)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 38)
+                    .frame(height: 36)
+                    .background(self.palette.invBackground)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
-            .fluidButton(.accent, size: .small)
+            .buttonStyle(.plain)
             .disabled(!self.canAddManualReplacement)
             .opacity(self.canAddManualReplacement ? 1 : 0.45)
         }
@@ -623,7 +596,7 @@ struct CustomDictionaryView: View {
 
             Text("Separate different versions with commas. Enter only commas to replace comma punctuation.")
                 .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .foregroundStyle(self.palette.text2)
         }
     }
 
@@ -636,7 +609,7 @@ struct CustomDictionaryView: View {
                 .onSubmit { self.addManualReplacementIfValid() }
             Text("This is what appears in your transcription.")
                 .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .foregroundStyle(self.palette.text2)
         }
     }
 
@@ -650,47 +623,60 @@ struct CustomDictionaryView: View {
     }
 
     private var trainingRecorderPanel: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.md) {
-            Text("Teach MouthKeys your pronunciation")
-                .font(self.theme.typography.bodySmallStrong)
+        HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("TRAINING STEPS")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundStyle(self.palette.text2)
 
-            if self.trainingAlreadyCorrectWithoutReplacement {
-                Label("\(self.trainingTargetReference) is already recognized correctly.", systemImage: "checkmark.circle.fill")
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(self.theme.palette.accent)
-            } else if self.trainingFinalOutputIsReady {
-                Label(
-                    self.activePronunciationMatching
-                        ? "Voice profile for \(self.trainingTargetReference) captured 3 times."
-                        : "MouthKeys recognized \(self.trainingTargetReference) 3 times in a row.",
-                    systemImage: "checkmark.circle.fill"
+                if self.trainingAlreadyCorrectWithoutReplacement {
+                    Text("\(self.trainingTargetReference) is already recognized correctly.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                } else if self.trainingFinalOutputIsReady {
+                    Text(
+                        self.activePronunciationMatching
+                            ? "Voice profile for \(self.trainingTargetReference) captured 3 times."
+                            : "MouthKeys recognized \(self.trainingTargetReference) 3 times in a row."
+                    )
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        self.trainingInstruction(number: 1, text: "Type the correct word you want to teach in the box above.")
+                        self.trainingInstruction(number: 2, text: "Press Start once.")
+                        self.trainingInstruction(
+                            number: 3,
+                            text: "Say \(self.trainingTargetReference) naturally, then pause. MouthKeys records and listens again automatically."
+                        )
+                self.trainingInstruction(
+                    number: 4,
+                    text: self.activePronunciationMatching
+                        ? "Repeat 3 times to teach MouthKeys how your voice sounds."
+                        : "Keep repeating it until the meter reaches 3/3."
                 )
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(self.theme.palette.accent)
-            } else {
-                VStack(alignment: .leading, spacing: 7) {
-                    self.trainingInstruction(
-                        number: 1,
-                        text: "Type the correct word you want to teach in the box above."
-                    )
-                    self.trainingInstruction(
-                        number: 2,
-                        text: "Press Start once."
-                    )
-                    self.trainingInstruction(
-                        number: 3,
-                        text: "Say \(self.trainingTargetReference) naturally, then pause. MouthKeys records and listens again automatically."
-                    )
-                    self.trainingInstruction(
-                        number: 4,
-                        text: self.activePronunciationMatching
-                            ? "Repeat 3 times to teach MouthKeys how your voice sounds."
-                            : "Keep repeating it until the circle reaches 3/3."
-                    )
+                    }
+                }
+
+                if !self.trainingVariants.isEmpty {
+                    self.trainingHeardSection
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: self.theme.metrics.spacing.md) {
+            Rectangle()
+                .fill(self.palette.ruleSoft)
+                .frame(width: 1)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("READINESS")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundStyle(self.palette.text2)
+                }
+
                 DictionaryTrainingReadinessRing(
                     progress: self.trainingReadinessProgress,
                     total: CustomDictionaryTrainingMerge.readyCoveredCount,
@@ -698,43 +684,36 @@ struct CustomDictionaryView: View {
                 )
 
                 Text(self.trainingReadinessCaption)
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(
-                        self.trainingFinalOutputIsReady
-                            ? self.theme.palette.accent
-                            : self.theme.palette.secondaryText
-                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text2)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
+                self.trainingFinalOutputPanel
 
                 Button {
                     Task { await self.toggleAutomaticTraining() }
                 } label: {
-                    Label(
-                        self.trainingRecorderButtonTitle,
-                        systemImage: self.trainingRecorderIsStop ? "stop.fill" : "mic.fill"
-                    )
+                    HStack(spacing: 6) {
+                        Image(systemName: self.trainingRecorderIsStop ? "stop.fill" : "mic.fill")
+                        Text(self.trainingRecorderButtonTitle.uppercased())
+                    }
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.4)
+                    .foregroundStyle(self.palette.invForeground)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 34)
+                    .background(self.palette.accent)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .fluidButton(self.trainingRecorderIsStop ? .destructive : .accent, size: .small)
+                .buttonStyle(.plain)
                 .disabled(!self.canUseTrainingRecorderButton)
                 .opacity(self.canUseTrainingRecorderButton ? 1 : 0.45)
             }
+            .frame(width: 248, alignment: .topLeading)
         }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(
-                            self.trainingFinalOutputIsReady
-                                ? self.theme.palette.accent.opacity(0.26)
-                                : self.theme.palette.cardBorder.opacity(0.25),
-                            lineWidth: 1
-                        )
-                )
-        )
+        .padding(14)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var trainingReadinessCaption: String {
@@ -747,12 +726,15 @@ struct CustomDictionaryView: View {
     }
 
     private var trainingHeardSection: some View {
-        HStack(spacing: self.theme.metrics.spacing.sm) {
-            Text("Captured")
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(self.theme.palette.secondaryText)
+        HStack(alignment: .top, spacing: 8) {
+            Text("HEARD")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .tracking(0.4)
+                .foregroundStyle(self.palette.text2)
+                .frame(width: 42, alignment: .leading)
 
-            HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
                 ForEach(Array(self.trainingVariants.prefix(5).enumerated()), id: \.element) { index, variant in
                     TrainingVariantChip(number: index + 1, variant: variant) {
                         self.removeTrainingVariant(variant)
@@ -761,66 +743,41 @@ struct CustomDictionaryView: View {
 
                 if self.trainingVariants.count > 5 {
                     Text("+\(self.trainingVariants.count - 5)")
-                        .font(self.theme.typography.captionStrong)
-                        .foregroundStyle(self.theme.palette.tertiaryText)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(self.theme.palette.cardBackground.opacity(0.65))
-                        )
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(self.palette.text2)
+                }
                 }
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, self.theme.metrics.spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .padding(.top, 8)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 
     private var trainingFinalOutputPanel: some View {
         HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Final output")
-                    .font(self.theme.typography.captionStrong)
-                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
 
                 Text(self.trainingFinalOutputText)
-                    .font(self.theme.typography.bodySmallStrong)
-                    .foregroundStyle(self.lastTrainingOutput.isEmpty ? self.theme.palette.tertiaryText : self.theme.palette.primaryText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.lastTrainingOutput.isEmpty ? self.palette.text2 : self.palette.text)
                     .lineLimit(1)
 
                 if !self.lastTrainingOutput.isEmpty, self.lastTrainingOutput.caseInsensitiveCompare(self.trainingFinalOutputText) != .orderedSame {
                     Text("Heard: \(self.lastTrainingOutput)")
                         .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.tertiaryText)
+                        .foregroundStyle(self.palette.text2)
                         .lineLimit(1)
                 }
             }
 
             Spacer()
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, self.theme.metrics.spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.42))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(
-                            self.trainingFinalOutputIsReady ? self.theme.palette.success.opacity(0.28) : self.theme.palette.cardBorder.opacity(0.22),
-                            lineWidth: 1
-                        )
-                )
-        )
+        .padding(10)
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     @ViewBuilder
@@ -828,9 +785,12 @@ struct CustomDictionaryView: View {
         if self.trainingHasError || self.isTrainingActive || !self.trainingVariants.isEmpty {
             HStack(spacing: self.theme.metrics.spacing.sm) {
                 if self.trainingHasError {
-                    Label(self.trainingStatusMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.warning)
+                    HStack(spacing: 7) {
+                        DatasheetStatusSquare(kind: .orange)
+                        Text(self.trainingStatusMessage)
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(self.palette.text2)
                 }
 
                 if self.isTrainingActive || !self.trainingVariants.isEmpty || !self.normalizedTrainingReplacement.isEmpty {
@@ -839,7 +799,12 @@ struct CustomDictionaryView: View {
                     Button("Clear") {
                         self.resetTraining()
                     }
-                    .fluidButton(.compact, size: .compact)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(self.palette.text2)
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(self.palette.field)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                     .disabled(self.isTrainingRecording || self.isTrainingProcessing)
                     .opacity(self.isTrainingRecording || self.isTrainingProcessing ? 0.45 : 1)
                 } else {
@@ -852,312 +817,187 @@ struct CustomDictionaryView: View {
     // MARK: - Your Dictionary
 
     private var yourDictionarySection: some View {
-        ThemedCard(style: .standard, hoverEffect: false) {
-            HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-                self.settingsIconTile(systemName: "book.closed.fill")
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text("Your Dictionary")
-                            .font(self.theme.typography.sectionTitle)
-                        if !self.entries.isEmpty {
-                            Text("(\(self.entries.count))")
-                                .font(self.theme.typography.captionSmall)
-                                .foregroundStyle(self.theme.palette.tertiaryText)
-                        }
-                    }
-                    Text("Words and phrases MouthKeys will correct automatically.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                self.yourDictionaryControls
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var yourDictionaryControls: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-            Button {
-                self.presentYourDictionary()
-            } label: {
-                Label("Modify", systemImage: "slider.horizontal.3")
-                    .frame(width: Self.DictionaryHeaderControlLayout.actionButtonLabelWidth)
-            }
-            .frame(width: Self.DictionaryHeaderControlLayout.actionButtonWidth)
-            .fluidButton(.compact, size: .medium)
-            .help("Modify dictionary replacements")
-            .popover(isPresented: self.$isYourDictionaryPresented, arrowEdge: .top) {
-                self.yourDictionaryPopover
-            }
-
-            Color.clear
-                .frame(width: Self.DictionaryHeaderControlLayout.toggleColumnWidth)
-                .accessibilityHidden(true)
-        }
-        .frame(width: Self.DictionaryHeaderControlLayout.controlsWidth, height: Self.DictionaryHeaderControlLayout.controlHeight, alignment: .leading)
-    }
-
-    private var punctuationDictionarySection: some View {
-        ThemedCard(style: .standard, hoverEffect: false) {
-            HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-                self.settingsIconTile(systemName: "textformat")
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text("Spoken Formatting")
-                            .font(self.theme.typography.sectionTitle)
-                        Text("\(SettingsStore.SpokenFormattingAction.allCases.count) actions · \(self.punctuationRules.count) punctuation")
-                            .font(self.theme.typography.captionSmall)
-                            .foregroundStyle(self.theme.palette.tertiaryText)
-                    }
-                    Text("Use a start word to safely insert formatting actions, punctuation, and symbols.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                self.punctuationDictionaryControls
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var punctuationDictionaryControls: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-            Button {
-                self.presentPunctuationDictionary()
-            } label: {
-                Label("Modify", systemImage: "slider.horizontal.3")
-                    .frame(width: Self.DictionaryHeaderControlLayout.actionButtonLabelWidth)
-            }
-            .frame(width: Self.DictionaryHeaderControlLayout.actionButtonWidth)
-            .fluidButton(.compact, size: .medium)
-            .help("Modify spoken formatting")
-            .popover(isPresented: self.$isPunctuationDictionaryPresented, arrowEdge: .top) {
-                self.punctuationDictionaryPopover
-            }
-
-            self.punctuationDictionaryToggle
-        }
-        .frame(width: Self.DictionaryHeaderControlLayout.controlsWidth, height: Self.DictionaryHeaderControlLayout.controlHeight, alignment: .leading)
-    }
-
-    private var punctuationDictionaryToggle: some View {
-        Toggle("Spoken Formatting", isOn: self.$punctuationAutoConvertEnabled)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .onChange(of: self.punctuationAutoConvertEnabled) { _, newValue in
-                SettingsStore.shared.autoConvertPunctuationEnabled = newValue
-            }
-            .frame(width: Self.DictionaryHeaderControlLayout.toggleColumnWidth, alignment: .trailing)
-            .help("Turn Spoken Formatting on or off.")
-    }
-
-    private var entriesListView: some View {
-        VStack(spacing: self.theme.metrics.spacing.sm) {
-            ForEach(self.entries) { entry in
-                DictionaryEntryRow(
-                    entry: entry,
-                    onEdit: {
-                        self.closeYourDictionary()
-                        self.editingEntry = entry
-                    },
-                    onDelete: { self.deleteEntry(entry) }
-                )
-            }
-        }
-        .frame(maxWidth: 760)
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-
-    private var yourDictionaryPopover: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.lg) {
-            HStack(alignment: .top, spacing: self.theme.metrics.spacing.md) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Your Dictionary")
-                        .font(self.theme.typography.sectionTitle)
-
-                    Text("MouthKeys automatically corrects these words and phrases.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-
-                Spacer()
-
-                Button {
-                    self.closeYourDictionary()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(SquareIconButtonStyle())
-                .help("Close")
-            }
-
-            self.yourDictionaryHelpNote
-
-            VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Saved Replacements")
-                        .font(self.theme.typography.captionStrong)
-                    Text("These run automatically after dictation.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-
+        DatasheetSection(
+            letter: "B",
+            title: "Your Dictionary",
+            trailing: "\(self.entries.count) entries",
+            note: "Words and phrases MouthKeys will correct automatically."
+        ) {
+            VStack(spacing: 0) {
+                self.replacementTableHeader
                 if self.entries.isEmpty {
                     self.dictionaryEmptyState(
                         title: "No replacements yet",
                         detail: "Use Teach Words above to create your first one."
                     )
                 } else {
-                    ScrollView(.vertical, showsIndicators: true) {
-                        self.entriesListView
-                    }
-                    .frame(maxHeight: 235)
+                    self.entriesListView
                 }
             }
         }
-        .padding(self.theme.metrics.spacing.lg)
-        .frame(width: 640, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var yourDictionaryHelpNote: some View {
-        Label {
-            Text("Use the Teach Words area above to add dictionary entries by voice or manually.")
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
-        } icon: {
-            Image(systemName: "info.circle")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(self.theme.palette.accent)
+    private var replacementTableHeader: some View {
+        HStack(spacing: 10) {
+            self.tableHeading("Spoken As").frame(maxWidth: .infinity, alignment: .leading)
+            self.tableHeading("→").frame(width: 20, alignment: .center)
+            self.tableHeading("Replace With").frame(maxWidth: .infinity, alignment: .leading)
+            self.tableHeading("Actions").frame(width: 72, alignment: .trailing)
         }
-        .padding(self.theme.metrics.spacing.md)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
+    }
+
+    private func tableHeading(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .tracking(0.4)
+            .foregroundStyle(self.palette.text2)
+            .lineLimit(1)
+    }
+
+    private var punctuationDictionarySection: some View {
+        DatasheetSection(
+            letter: "C",
+            title: "Spoken Formatting",
+            trailing: "\(SettingsStore.SpokenFormattingAction.allCases.count) actions · \(self.punctuationRules.count) punctuation",
+            note: "Use a start word to safely insert formatting actions, punctuation, and symbols."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Button {
+                        withAnimation(self.reduceMotion ? nil : .easeOut(duration: 0.14)) {
+                            self.isPunctuationInfoExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "info.circle")
+                            Text(self.isPunctuationInfoExpanded ? "Hide information" : "About spoken formatting")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("About spoken formatting")
+                    Spacer()
+                }
+
+                if self.isPunctuationInfoExpanded {
+                    self.punctuationDictionaryInfoPanel
+                }
+
+                self.spokenFormattingStatusRow
+
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        self.tableHeading("Start Word")
+                        Text("Say this first so normal words do not change.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(self.palette.text2)
+                        TextField("literal", text: self.$punctuationPrefix)
+                            .dictionaryInputChrome()
+                            .onSubmit { self.savePunctuationDictionaryPrefix() }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        self.tableHeading("Try Saying")
+                        Text("Examples of what MouthKeys will type.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(self.palette.text2)
+                        self.punctuationTrySayingPreview
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+
+                self.formattingActionsSection
+                self.punctuationRulesSection
+
+                HStack {
+                    Spacer()
+                    Button("Reset All Defaults") {
+                        self.isFormattingResetAlertPresented = true
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text2)
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
+        .alert("Reset Spoken Formatting?", isPresented: self.$isFormattingResetAlertPresented) {
+            Button("Reset All Defaults", role: .destructive) { self.resetPunctuationDictionary() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This replaces the start word, formatting action phrases and enabled states, and every punctuation rule with their defaults.")
+        }
+    }
+
+    private var entriesListView: some View {
+        VStack(spacing: 0) {
+            ForEach(self.entries) { entry in
+                DictionaryEntryRow(
+                    entry: entry,
+                    onEdit: {
+                        self.editingEntry = entry
+                    },
+                    onDelete: { self.deleteEntry(entry) }
                 )
-        )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Custom Words
 
     private var aiPostProcessingSection: some View {
-        ThemedCard(style: .standard, hoverEffect: false) {
-            HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-                self.settingsIconTile(systemName: "character.book.closed")
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text("Custom Words")
-                            .font(self.theme.typography.sectionTitle)
-                        if !self.boostTerms.isEmpty {
-                            Text("(\(self.boostTerms.count))")
-                                .font(self.theme.typography.captionSmall)
-                                .foregroundStyle(self.theme.palette.tertiaryText)
-                        }
-                    }
-                    Text("Help the Parakeet voice engine recognize names, products, and uncommon terms.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                self.customWordsControls
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var customWordsControls: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
-            Button {
-                self.presentCustomWords()
-            } label: {
-                Label("Modify", systemImage: "slider.horizontal.3")
-                    .frame(width: Self.DictionaryHeaderControlLayout.actionButtonLabelWidth)
-            }
-            .frame(width: Self.DictionaryHeaderControlLayout.actionButtonWidth)
-            .fluidButton(.compact, size: .medium)
-            .disabled(!self.vocabBoostingEnabled)
-            .opacity(self.vocabBoostingEnabled ? 1 : 0.45)
-            .help(self.vocabBoostingEnabled ? "Modify custom words" : "Turn on Boosting to modify custom words.")
-            .popover(isPresented: self.$isCustomWordsPresented, arrowEdge: .top) {
-                self.customWordsPopover
-            }
-
-            self.customWordsBoostingToggle
-        }
-        .frame(width: Self.DictionaryHeaderControlLayout.controlsWidth, height: Self.DictionaryHeaderControlLayout.controlHeight, alignment: .leading)
-    }
-
-    private var customWordsBoostingToggle: some View {
-        Toggle("Custom Words Boosting", isOn: self.$vocabBoostingEnabled)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .onChange(of: self.vocabBoostingEnabled) { _, newValue in
-                SettingsStore.shared.vocabularyBoostingEnabled = newValue
-            }
-            .frame(width: Self.DictionaryHeaderControlLayout.toggleColumnWidth, alignment: .trailing)
-            .help("Improve recognition of your custom words when using Parakeet.")
-    }
-
-    private var customWordsPopover: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.lg) {
-            HStack(alignment: .top, spacing: self.theme.metrics.spacing.md) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom Words")
-                        .font(self.theme.typography.sectionTitle)
-
-                    Text("Add names, products, and uncommon terms for Parakeet to recognize.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
+        DatasheetSection(
+            letter: "D",
+            title: "Custom Words",
+            trailing: "\(self.boostTerms.count) terms",
+            note: "Help the Parakeet voice engine recognize names, products, and uncommon terms."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                DatasheetRow(
+                    label: "Vocabulary Boosting",
+                    help: "Improve recognition of your custom words when using Parakeet.",
+                    showsBottomRule: false
+                ) {
+                    self.customWordsBoostingToggle
                 }
 
-                Spacer()
-
-                Button {
-                    self.closeCustomWords()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 28, height: 28)
+                if self.isBoostWordEditorPresented {
+                    self.boostWordEditor
+                        .padding(12)
+                        .background(self.palette.surface)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle())
-                .help("Close")
-            }
 
-            if self.isBoostWordEditorPresented {
-                self.boostWordEditor
-            } else {
                 HStack {
+                    self.tableHeading("Saved Words · Boosted While Enabled")
+                    Spacer()
                     Button {
                         self.startAddingBoostTerm()
                     } label: {
                         Label("Add Word", systemImage: "plus")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(self.palette.text)
+                            .padding(.horizontal, 10)
+                            .frame(height: 30)
+                            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                     }
-                    .fluidButton(.accent, size: .small)
-
-                    Spacer()
+                    .buttonStyle(.plain)
+                    .disabled(!self.vocabBoostingEnabled || self.isBoostWordEditorPresented)
+                    .opacity(self.vocabBoostingEnabled && !self.isBoostWordEditorPresented ? 1 : 0.5)
                 }
-            }
 
-            VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Saved Words")
-                        .font(self.theme.typography.captionStrong)
-                    Text("These words get extra recognition help while Boosting is enabled.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
+                self.customWordsTableHeader
 
                 if self.boostTerms.isEmpty {
                     self.dictionaryEmptyState(
@@ -1165,36 +1005,51 @@ struct CustomDictionaryView: View {
                         detail: "Add a name or term that needs a little extra recognition help."
                     )
                 } else {
-                    ScrollView(.vertical, showsIndicators: true) {
-                        VStack(spacing: self.theme.metrics.spacing.sm) {
-                            ForEach(Array(self.boostTerms.enumerated()), id: \.offset) { index, term in
-                                BoostTermRow(
-                                    term: term,
-                                    onEdit: {
-                                        self.editBoostTerm(at: index)
-                                    },
-                                    onDelete: {
-                                        self.deleteBoostTerm(at: index)
-                                    }
-                                )
-                            }
+                    VStack(spacing: 0) {
+                        ForEach(Array(self.boostTerms.enumerated()), id: \.offset) { index, term in
+                            BoostTermRow(
+                                term: term,
+                                isEnabled: self.vocabBoostingEnabled,
+                                onEdit: { self.editBoostTerm(at: index) },
+                                onDelete: { self.deleteBoostTerm(at: index) }
+                            )
                         }
                     }
-                    .frame(maxHeight: 235)
+                }
+
+                if self.boostHasError {
+                    HStack(spacing: 8) {
+                        DatasheetStatusSquare(kind: .orange)
+                        Text(self.boostStatusMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(self.palette.text2)
+                    }
                 }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            if self.boostHasError {
-                Label(self.boostStatusMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.warning)
+    private var customWordsTableHeader: some View {
+        HStack(spacing: 10) {
+            self.tableHeading("Word or Phrase").frame(maxWidth: .infinity, alignment: .leading)
+            self.tableHeading("Priority").frame(width: 94, alignment: .trailing)
+            self.tableHeading("Actions").frame(width: 72, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
+    }
+
+    private var customWordsBoostingToggle: some View {
+        Toggle("Custom Words Boosting", isOn: self.$vocabBoostingEnabled)
+            .labelsHidden()
+            .toggleStyle(DatasheetToggleStyle())
+            .onChange(of: self.vocabBoostingEnabled) { _, newValue in
+                SettingsStore.shared.vocabularyBoostingEnabled = newValue
             }
-        }
-        .padding(self.theme.metrics.spacing.lg)
-        .frame(width: 640, alignment: .leading)
-        .onDisappear {
-            self.dismissBoostTermEditor()
-        }
+            .help("Improve recognition of your custom words when using Parakeet.")
     }
 
     private var boostWordEditor: some View {
@@ -1214,21 +1069,23 @@ struct CustomDictionaryView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Word Priority")
                     .font(self.theme.typography.captionStrong)
-                Picker("Word Priority", selection: self.$boostTermStrength) {
-                    ForEach(BoostStrengthPreset.allCases) { preset in
-                        Text(preset.rawValue).tag(preset)
-                    }
-                }
-                .pickerStyle(.segmented)
+                DatasheetSegmented(
+                    selection: self.$boostTermStrength,
+                    choices: BoostStrengthPreset.allCases.map { .init(value: $0, title: $0.rawValue) },
+                    cellWidth: 72
+                )
                 Text(self.boostTermStrength.hint)
                     .font(self.theme.typography.caption)
                     .foregroundStyle(self.theme.palette.secondaryText)
             }
 
             if self.isBoostTermDuplicate {
-                Text("This word already exists.")
+                HStack(spacing: 7) {
+                    DatasheetStatusSquare(kind: .orange)
+                    Text("This word already exists.")
+                }
                     .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.warning)
+                    .foregroundStyle(self.palette.text2)
             }
 
             HStack {
@@ -1237,196 +1094,85 @@ struct CustomDictionaryView: View {
                 Button("Clear") {
                     self.clearBoostTermFields()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                 Spacer()
 
                 Button("Cancel") {
                     self.dismissBoostTermEditor()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                 Button("Save Word") {
                     self.saveBoostTermIfValid()
                 }
-                .fluidButton(.accent, size: .small)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.invForeground)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(self.palette.accent)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 .disabled(!self.canSaveBoostTerm)
                 .opacity(self.canSaveBoostTerm ? 1 : 0.45)
             }
         }
         .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
-    }
-
-    private var punctuationDictionaryPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: self.theme.metrics.spacing.md) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text("Spoken Formatting")
-                            .font(self.theme.typography.sectionTitle)
-
-                        Button {
-                            withAnimation(self.reduceMotion ? nil : .easeOut(duration: 0.14)) {
-                                self.isPunctuationInfoExpanded.toggle()
-                            }
-                        } label: {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(width: 28, height: 28)
-                        }
-                        .buttonStyle(SquareIconButtonStyle())
-                        .help("About spoken formatting")
-                        .accessibilityLabel("About spoken formatting")
-                    }
-
-                    Text("Use one start word for formatting actions, punctuation, and symbols.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
-                }
-
-                Spacer()
-
-                Button {
-                    self.closePunctuationDictionary()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 28, height: 28)
-                }
-                .buttonStyle(SquareIconButtonStyle())
-                .help("Close")
-            }
-            .padding(.horizontal, self.theme.metrics.spacing.lg)
-            .padding(.top, self.theme.metrics.spacing.lg)
-            .padding(.bottom, self.theme.metrics.spacing.md)
-
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: self.theme.metrics.spacing.lg) {
-                    self.spokenFormattingStatusRow
-
-                    if self.isPunctuationInfoExpanded {
-                        self.punctuationDictionaryInfoPanel
-                    }
-
-                    HStack(alignment: .top, spacing: self.theme.metrics.spacing.md) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Start Word")
-                                .font(self.theme.typography.captionStrong)
-                            Text("Say this first so normal words do not change.")
-                                .font(self.theme.typography.caption)
-                                .foregroundStyle(self.theme.palette.secondaryText)
-                            TextField("literal", text: self.$punctuationPrefix)
-                                .dictionaryInputChrome()
-                                .onSubmit { self.savePunctuationDictionaryPrefix() }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Try Saying")
-                                .font(self.theme.typography.captionStrong)
-                            Text("Examples of what MouthKeys will type.")
-                                .font(self.theme.typography.caption)
-                                .foregroundStyle(self.theme.palette.secondaryText)
-                            self.punctuationTrySayingPreview
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-
-                    self.formattingActionsSection
-                    self.punctuationRulesSection
-
-                    HStack {
-                        Spacer()
-                        Button("Reset All Defaults") {
-                            self.isFormattingResetAlertPresented = true
-                        }
-                        .fluidButton(.compact, size: .compact)
-                    }
-                }
-                .padding(.horizontal, self.theme.metrics.spacing.lg)
-                .padding(.bottom, self.theme.metrics.spacing.lg)
-            }
-            .frame(maxHeight: 650)
-        }
-        .frame(width: 680, alignment: .leading)
-        .onDisappear {
-            self.savePunctuationDictionaryPrefix()
-        }
-        .alert(
-            "Reset Spoken Formatting?",
-            isPresented: self.$isFormattingResetAlertPresented
-        ) {
-            Button("Reset All Defaults", role: .destructive) {
-                self.resetPunctuationDictionary()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This replaces the start word, formatting action phrases and enabled states, and every punctuation rule with their defaults.")
-        }
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var spokenFormattingStatusRow: some View {
         HStack(spacing: self.theme.metrics.spacing.md) {
-            Image(systemName: self.punctuationAutoConvertEnabled ? "checkmark.circle.fill" : "pause.circle.fill")
-                .foregroundStyle(
-                    self.punctuationAutoConvertEnabled
-                        ? self.theme.palette.accent
-                        : self.theme.palette.secondaryText
-                )
+            DatasheetStatusSquare(kind: self.punctuationAutoConvertEnabled ? .ink : .outline)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(self.punctuationAutoConvertEnabled ? "Spoken Formatting is On" : "Spoken Formatting is Off")
-                    .font(self.theme.typography.bodySmallStrong)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
                 Text(
                     self.punctuationAutoConvertEnabled
                         ? "Formatting actions and punctuation will run after the start word."
                         : "Your rules stay saved, but they will not change dictated text."
                 )
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .font(.system(size: 12))
+                .foregroundStyle(self.palette.text2)
             }
 
             Spacer()
 
             Toggle("Spoken Formatting", isOn: self.$punctuationAutoConvertEnabled)
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(self.theme.palette.accent)
+                .toggleStyle(DatasheetToggleStyle())
                 .accessibilityLabel("Spoken Formatting")
                 .onChange(of: self.punctuationAutoConvertEnabled) { _, newValue in
                     SettingsStore.shared.autoConvertPunctuationEnabled = newValue
                 }
         }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .padding(12)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var formattingActionsSection: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Formatting Actions")
-                    .font(self.theme.typography.bodySmallStrong)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                self.tableHeading("Formatting Actions")
                 Text("Fixed invisible actions with spoken phrases you can personalize.")
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(self.palette.text2)
             }
 
-            VStack(spacing: self.theme.metrics.spacing.sm) {
+            VStack(spacing: 0) {
                 ForEach(SettingsStore.SpokenFormattingAction.allCases) { action in
                     self.formattingActionRow(action)
                 }
@@ -1439,25 +1185,27 @@ struct CustomDictionaryView: View {
     }
 
     private var punctuationRulesSection: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Punctuation")
-                        .font(self.theme.typography.bodySmallStrong)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    self.tableHeading("Punctuation")
                     Text("Spoken names that type punctuation or symbols after the start word.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(self.palette.text2)
                 }
-
                 Spacer()
-
                 if !self.isPunctuationRuleEditorPresented {
                     Button {
                         self.startAddingPunctuationRule()
                     } label: {
                         Label("Add Rule", systemImage: "plus")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(self.palette.text)
+                            .padding(.horizontal, 10)
+                            .frame(height: 30)
+                            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                     }
-                    .fluidButton(.accent, size: .small)
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -1465,13 +1213,15 @@ struct CustomDictionaryView: View {
                 self.punctuationRuleEditor
             }
 
+            self.punctuationTableHeader
+
             if self.punctuationRules.isEmpty {
                 self.dictionaryEmptyState(
                     title: "No punctuation rules",
                     detail: "Add what you say and what MouthKeys should type."
                 )
             } else {
-                LazyVStack(spacing: self.theme.metrics.spacing.sm) {
+                VStack(spacing: 0) {
                     ForEach(self.punctuationRules) { rule in
                         PunctuationDictionaryRuleRow(
                             rule: rule,
@@ -1484,51 +1234,58 @@ struct CustomDictionaryView: View {
         }
     }
 
+    private var punctuationTableHeader: some View {
+        HStack(spacing: 10) {
+            self.tableHeading("Spoken As").frame(maxWidth: .infinity, alignment: .leading)
+            self.tableHeading("→").frame(width: 20, alignment: .center)
+            self.tableHeading("Types").frame(width: 60, alignment: .leading)
+            self.tableHeading("Actions").frame(width: 72, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
+    }
+
     private func formattingActionRow(_ action: SettingsStore.SpokenFormattingAction) -> some View {
         let rule = self.formattingActionRule(for: action)
-        return HStack(spacing: self.theme.metrics.spacing.md) {
+        return HStack(spacing: 12) {
             Text(action.displaySymbol)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundStyle(self.theme.palette.accent)
+                .font(.system(size: 16, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.palette.text)
                 .frame(width: 32, height: 32)
-                .background(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-                        .fill(self.theme.palette.contentBackground.opacity(0.7))
-                )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(action.title)
-                    .font(self.theme.typography.bodySmallStrong)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
                 Text(rule.aliases.isEmpty ? "No spoken phrases set" : rule.aliases.joined(separator: ", "))
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
                     .lineLimit(1)
             }
 
-            Spacer(minLength: self.theme.metrics.spacing.md)
+            Spacer(minLength: 12)
 
             Button("Edit") {
                 self.startEditingFormattingAction(action)
             }
-            .fluidButton(.compact, size: .compact)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(self.palette.text2)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            .buttonStyle(.plain)
 
             Toggle(action.title, isOn: self.formattingActionEnabledBinding(for: action))
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(self.theme.palette.accent)
+                .toggleStyle(DatasheetToggleStyle())
                 .disabled(rule.aliases.isEmpty)
                 .help(rule.aliases.isEmpty ? "Add a spoken phrase before enabling this action." : "Enable \(action.title)")
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .padding(.horizontal, 12)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 
     private func formattingActionEditor(_ action: SettingsStore.SpokenFormattingAction) -> some View {
@@ -1537,7 +1294,7 @@ struct CustomDictionaryView: View {
                 .font(self.theme.typography.captionStrong)
             Text("Enter one phrase per line. Clearing every phrase disables this action.")
                 .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .foregroundStyle(self.palette.text2)
 
             TextEditor(text: self.$formattingActionAliasesText)
                 .font(self.theme.typography.bodySmall)
@@ -1551,23 +1308,27 @@ struct CustomDictionaryView: View {
                 Button("Cancel") {
                     self.dismissFormattingActionEditor()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                 Button("Save Phrases") {
                     self.saveFormattingActionAliases(action)
                 }
-                .fluidButton(.accent, size: .small)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.invForeground)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(self.palette.accent)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
         }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.35), lineWidth: 1)
-                )
-        )
+        .padding(12)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var punctuationDictionaryInfoPanel: some View {
@@ -1577,19 +1338,13 @@ struct CustomDictionaryView: View {
             Text("When you say \"\(self.punctuationPreviewPrefix) comma\", it types \",\".")
             Text("Add one spoken phrase per line. Formatting actions always keep their fixed output.")
         }
-        .font(self.theme.typography.caption)
-        .foregroundStyle(self.theme.palette.secondaryText)
+        .font(.system(size: 12))
+        .foregroundStyle(self.palette.text2)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(self.theme.metrics.spacing.md)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var punctuationTrySayingPreview: some View {
@@ -1603,30 +1358,24 @@ struct CustomDictionaryView: View {
                 typed: "New Line"
             )
         }
-        .font(self.theme.typography.caption)
+        .font(.system(size: 12))
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, self.theme.metrics.spacing.md)
+        .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private func punctuationExampleText(spoken: String, typed: String) -> Text {
         Text("When you say ")
-            .foregroundStyle(self.theme.palette.secondaryText) +
+            .foregroundStyle(self.palette.text2) +
             Text("\"\(spoken)\"")
-            .foregroundStyle(self.theme.palette.accent) +
+            .foregroundStyle(self.palette.accent) +
             Text(", it types ")
-            .foregroundStyle(self.theme.palette.secondaryText) +
+            .foregroundStyle(self.palette.text2) +
             Text("\"\(typed)\"")
-            .foregroundStyle(self.theme.palette.accent)
+            .foregroundStyle(self.palette.text)
     }
 
     private var punctuationRuleEditor: some View {
@@ -1652,32 +1401,41 @@ struct CustomDictionaryView: View {
                 Button("Clear") {
                     self.clearPunctuationRuleFields()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                 Spacer()
 
                 Button("Cancel") {
                     self.dismissPunctuationRuleEditor()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                 Button("Save Rule") {
                     self.savePunctuationRuleIfValid()
                 }
-                .fluidButton(.accent, size: .small)
+                .buttonStyle(.plain)
+                .foregroundStyle(self.palette.invForeground)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(self.palette.accent)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 .disabled(!self.canSavePunctuationRule)
                 .opacity(self.canSavePunctuationRule ? 1 : 0.45)
             }
         }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
-        )
+        .padding(12)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var punctuationAliasesEditor: some View {
@@ -1686,7 +1444,7 @@ struct CustomDictionaryView: View {
                 .font(self.theme.typography.captionStrong)
             Text("One way per line, like comma or full stop.")
                 .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .foregroundStyle(self.palette.text2)
             TextEditor(text: self.$punctuationAliasesText)
                 .font(self.theme.typography.bodySmall)
                 .frame(minHeight: 64, maxHeight: 86)
@@ -1706,7 +1464,7 @@ struct CustomDictionaryView: View {
                 .frame(width: 92)
             Text("One punctuation symbol, like , or ?.")
                 .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .foregroundStyle(self.palette.text2)
         }
     }
 
@@ -1715,34 +1473,12 @@ struct CustomDictionaryView: View {
         detail: String,
         action: (() -> Void)? = nil
     ) -> some View {
-        HStack(spacing: self.theme.metrics.spacing.sm) {
-            Image(systemName: "plus.circle")
-                .font(.title3)
-                .foregroundStyle(self.theme.palette.tertiaryText)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(self.theme.typography.bodySmallStrong)
-                Text(detail)
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-            }
-
-            if let action {
-                Spacer()
-
-                Button("Add", action: action)
-                    .fluidButton(.compact, size: .compact)
-            }
-        }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                )
+        DatasheetEmptyState(
+            placard: "00 ENTRIES",
+            title: title,
+            message: detail,
+            actionTitle: action == nil ? nil : "Add",
+            action: action
         )
     }
 
@@ -1792,31 +1528,6 @@ struct CustomDictionaryView: View {
         self.addReplacementEntry(entry)
         self.manualTriggerDraft = ""
         self.manualReplacement = ""
-    }
-
-    private func presentYourDictionary() {
-        self.entries = SettingsStore.shared.customDictionaryEntries
-        self.isYourDictionaryPresented = true
-    }
-
-    private func closeYourDictionary() {
-        self.isYourDictionaryPresented = false
-    }
-
-    private func presentPunctuationDictionary() {
-        self.punctuationPrefix = SettingsStore.shared.punctuationDictionaryPrefix
-        self.punctuationRules = SettingsStore.shared.punctuationDictionaryRules
-        self.formattingActionRules = SettingsStore.shared.spokenFormattingActionRules
-        self.isPunctuationInfoExpanded = false
-        self.dismissFormattingActionEditor()
-        self.dismissPunctuationRuleEditor()
-        self.isPunctuationDictionaryPresented = true
-    }
-
-    private func closePunctuationDictionary() {
-        self.savePunctuationDictionaryPrefix()
-        self.isPunctuationInfoExpanded = false
-        self.isPunctuationDictionaryPresented = false
     }
 
     private func savePunctuationDictionaryPrefix() {
@@ -1940,17 +1651,6 @@ struct CustomDictionaryView: View {
         self.editingPunctuationRuleID = nil
         self.clearPunctuationRuleFields()
         self.isPunctuationRuleEditorPresented = false
-    }
-
-    private func presentCustomWords() {
-        self.loadBoostTerms()
-        self.dismissBoostTermEditor()
-        self.isCustomWordsPresented = true
-    }
-
-    private func closeCustomWords() {
-        self.dismissBoostTermEditor()
-        self.isCustomWordsPresented = false
     }
 
     private func startAddingBoostTerm() {
@@ -2507,14 +2207,19 @@ private extension CustomDictionaryView {
     func trainingInstruction(number: Int, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("\(number)")
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(self.theme.palette.accent)
-                .frame(width: 16, alignment: .center)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.invForeground)
+                .frame(width: 20, height: 20, alignment: .center)
+                .background(self.palette.invBackground)
 
             Text(text)
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .font(.system(size: 12))
+                .lineSpacing(1)
+                .foregroundStyle(self.palette.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 
     func handlePronunciationMatchingChange(enabled: Bool) {
@@ -2537,48 +2242,35 @@ private struct VoiceMatchingSettingsRow: View {
     let isAdvancedAvailable: Bool
     let onChange: (Bool) -> Void
 
-    @Environment(\.theme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.datasheetPalette) private var palette
     @State private var hoveredMethod: Bool?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
-            HStack(spacing: self.theme.metrics.spacing.sm) {
-                self.methodButton(title: "Basic", systemImage: "checkmark", enabledValue: false)
-                self.methodButton(title: "Advanced", systemImage: "waveform", enabledValue: true, isResearchPreview: true)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 0) {
+                self.methodButton(title: "Basic", enabledValue: false)
+                self.methodButton(title: "Advanced", enabledValue: true, isResearchPreview: true)
             }
 
             if self.isEnabled {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "flask.fill")
-                        .foregroundStyle(self.theme.palette.accent)
+                    DatasheetStatusSquare(kind: .outline)
+                        .padding(.top, 4)
                     Text("Research Preview: Compares how your voice sounds instead of only the words MouthKeys hears. Results may vary.")
-                        .font(self.theme.typography.caption)
-                        .foregroundStyle(self.theme.palette.secondaryText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(self.palette.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 2)
             } else if !self.isAdvancedAvailable {
                 Text("Advanced voice matching requires Parakeet TDT on Apple Silicon.")
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                    .padding(.horizontal, 2)
+                    .font(.system(size: 11))
+                    .foregroundStyle(self.palette.text2)
             }
         }
-        .padding(self.theme.metrics.spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.42))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.md, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.24), lineWidth: 1)
-                )
-        )
     }
 
     private func methodButton(
         title: String,
-        systemImage: String,
         enabledValue: Bool,
         isResearchPreview: Bool = false
     ) -> some View {
@@ -2589,60 +2281,30 @@ private struct VoiceMatchingSettingsRow: View {
             self.isEnabled = enabledValue
             self.onChange(enabledValue)
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                Text(title)
-                if isResearchPreview {
-                    Text("Research Preview")
-                        .font(self.theme.typography.captionSmall)
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.86) : self.theme.palette.accent)
-                }
+            HStack(spacing: 6) {
+                Text(title.uppercased())
+                if isResearchPreview { Text("PREVIEW") }
             }
-            .font(self.theme.typography.captionStrong)
-            .foregroundStyle(isSelected ? Color.white : self.theme.palette.primaryText)
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .tracking(0.4)
+            .foregroundStyle(isSelected ? self.palette.invForeground : self.palette.text2)
             .frame(maxWidth: .infinity, minHeight: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(
-                        isSelected
-                            ? self.theme.palette.accent
-                            : (isHovered
-                                ? self.theme.palette.accent.opacity(0.1)
-                                : self.theme.palette.cardBackground.opacity(0.5))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(
-                                isSelected || isHovered
-                                    ? self.theme.palette.accent
-                                    : self.theme.palette.primaryText.opacity(0.22),
-                                lineWidth: isSelected || isHovered ? 1.25 : 1
-                            )
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(isSelected ? self.palette.invBackground : (isHovered ? self.palette.field : self.palette.surface))
+            .overlay { Rectangle().strokeBorder(isSelected ? self.palette.invBackground : self.palette.edge, lineWidth: 1) }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(self.isDisabled || (enabledValue && !self.isAdvancedAvailable))
         .opacity(self.isDisabled || (enabledValue && !self.isAdvancedAvailable) ? 0.55 : 1)
-        .onHover { hovering in
-            let update = { self.hoveredMethod = hovering ? enabledValue : nil }
-            if self.reduceMotion {
-                update()
-            } else {
-                withAnimation(.easeOut(duration: 0.14), update)
-            }
-        }
+        .onHover { self.hoveredMethod = $0 ? enabledValue : nil }
     }
 }
 
 private struct DictionaryInputChrome: ViewModifier {
     let minHeight: CGFloat
 
-    @Environment(\.theme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.datasheetPalette) private var palette
     @FocusState private var isFocused: Bool
-    @State private var isHovered = false
 
     func body(content: Content) -> some View {
         content
@@ -2651,39 +2313,14 @@ private struct DictionaryInputChrome: ViewModifier {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(minHeight: self.minHeight)
-            .background(self.background)
-            .contentShape(RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous))
-            .shadow(
-                color: self.isFocused ? self.theme.palette.accent.opacity(0.16) : .clear,
-                radius: 7
-            )
-            .onHover { hovering in
-                if self.reduceMotion {
-                    self.isHovered = hovering
-                } else {
-                    withAnimation(.easeOut(duration: 0.14)) {
-                        self.isHovered = hovering
-                    }
-                }
+            .background(self.palette.field)
+            .overlay {
+                Rectangle().strokeBorder(
+                    self.isFocused ? self.palette.accent : self.palette.edge,
+                    lineWidth: self.isFocused ? 2 : 1
+                )
             }
-    }
-
-    private var background: some View {
-        RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-            .fill(
-                self.isFocused
-                    ? self.theme.palette.accent.opacity(0.08)
-                    : self.theme.palette.primaryText.opacity(self.isHovered ? 0.075 : 0.055)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-                    .stroke(
-                        self.isFocused
-                            ? self.theme.palette.accent
-                            : self.theme.palette.primaryText.opacity(self.isHovered ? 0.38 : 0.26),
-                        lineWidth: self.isFocused ? 1.5 : 1
-                    )
-            )
+            .contentShape(Rectangle())
     }
 }
 
@@ -2807,71 +2444,6 @@ private enum DictionaryComposerMode: CaseIterable, Identifiable {
         case .manual:
             return "Type the misheard text and the spelling you want."
         }
-    }
-}
-
-private struct DictionaryComposerModeTab: View {
-    let mode: DictionaryComposerMode
-    let isSelected: Bool
-    let isDisabled: Bool
-    let action: () -> Void
-
-    @Environment(\.theme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: self.action) {
-            HStack(spacing: self.theme.metrics.spacing.sm) {
-                Image(systemName: self.mode.systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(self.mode.title)
-                    .font(self.theme.typography.bodySmallStrong)
-            }
-            .foregroundStyle(self.foreground)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 30)
-            .padding(.horizontal, self.theme.metrics.spacing.md)
-            .background(self.background)
-            .contentShape(RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(self.isDisabled)
-        .opacity(self.isDisabled ? 0.55 : 1)
-        .onHover { hovering in
-            guard !self.reduceMotion else {
-                self.isHovered = hovering
-                return
-            }
-            withAnimation(.easeOut(duration: 0.14)) {
-                self.isHovered = hovering
-            }
-        }
-        .accessibilityAddTraits(self.isSelected ? .isSelected : [])
-    }
-
-    private var foreground: Color {
-        self.isSelected ? Color.white : self.theme.palette.primaryText
-    }
-
-    private var background: some View {
-        RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-            .fill(
-                self.isSelected
-                    ? self.theme.palette.accent
-                    : (self.isHovered
-                        ? self.theme.palette.accent.opacity(0.1)
-                        : self.theme.palette.cardBackground.opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: self.theme.metrics.corners.sm, style: .continuous)
-                    .stroke(
-                        self.isSelected || self.isHovered
-                            ? self.theme.palette.accent
-                            : self.theme.palette.primaryText.opacity(0.22),
-                        lineWidth: self.isSelected || self.isHovered ? 1.25 : 1
-                    )
-            )
     }
 }
 
@@ -3053,57 +2625,33 @@ private struct ReplacementConfirmation: Identifiable, Equatable {
 private struct ReplacementConfirmationToast: View {
     let confirmation: ReplacementConfirmation
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        VStack(spacing: self.theme.metrics.spacing.sm) {
+        HStack(alignment: .top, spacing: 12) {
             ZStack {
-                Circle()
-                    .fill(self.theme.palette.accent.opacity(0.14))
-                    .frame(width: 58, height: 58)
-
-                Circle()
-                    .stroke(self.theme.palette.accent.opacity(0.24), lineWidth: 1)
-                    .frame(width: 58, height: 58)
-
+                Rectangle()
+                    .fill(self.palette.invBackground)
+                    .frame(width: 30, height: 30)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 25, weight: .bold))
-                    .foregroundStyle(self.theme.palette.accent)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.invForeground)
             }
 
-            VStack(spacing: 3) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(self.confirmation.title)
-                    .font(self.theme.typography.sectionTitle)
-                    .foregroundStyle(self.theme.palette.primaryText)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
                 Text(self.confirmation.detail)
-                    .font(self.theme.typography.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                    .multilineTextAlignment(.center)
+                    .font(.system(size: 12))
+                    .foregroundStyle(self.palette.text2)
+                    .multilineTextAlignment(.leading)
             }
         }
-        .frame(minWidth: 220)
-        .padding(.horizontal, self.theme.metrics.spacing.xl)
-        .padding(.vertical, self.theme.metrics.spacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: self.theme.metrics.corners.lg, style: .continuous)
-                .fill(self.theme.palette.cardBackground.opacity(0.96))
-                .overlay(
-                    RoundedRectangle(cornerRadius: self.theme.metrics.corners.lg, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
-                )
-                .shadow(
-                    color: self.theme.palette.accent.opacity(0.24),
-                    radius: 24,
-                    x: 0,
-                    y: 10
-                )
-                .shadow(
-                    color: Color.black.opacity(0.16),
-                    radius: 18,
-                    x: 0,
-                    y: 8
-                )
-        )
+        .frame(minWidth: 260, alignment: .leading)
+        .padding(14)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         .accessibilityElement(children: .combine)
     }
 }
@@ -3113,40 +2661,22 @@ private struct DictionaryTrainingReadinessRing: View {
     let total: Int
     let isReady: Bool
 
-    @Environment(\.theme) private var theme
-
-    private var fraction: Double {
-        guard self.total > 0 else { return 0 }
-        return min(max(Double(self.progress) / Double(self.total), 0), 1)
-    }
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(self.theme.palette.cardBorder.opacity(0.62), lineWidth: 8)
-
-            Circle()
-                .trim(from: 0, to: self.fraction)
-                .stroke(
-                    self.theme.palette.accent,
-                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-
-            VStack(spacing: 1) {
-                Text("\(self.progress)/\(self.total)")
-                    .font(self.theme.typography.sectionTitle)
-                    .foregroundStyle(self.isReady ? self.theme.palette.accent : self.theme.palette.primaryText)
+        VStack(alignment: .leading, spacing: 5) {
+            DatasheetMeter(value: self.progress, count: self.total, segmentWidth: 30, segmentHeight: 12)
+            HStack(spacing: 7) {
+                Text("\(min(self.progress, self.total))/\(self.total)")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.isReady ? self.palette.text : self.palette.text2)
                     .monospacedDigit()
-
-                Text(self.isReady ? "Ready" : "correct")
-                    .font(self.theme.typography.captionSmall)
-                    .foregroundStyle(self.theme.palette.secondaryText)
+                Text(self.isReady ? "READY" : "CORRECT")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
             }
         }
-        .frame(width: 92, height: 92)
-        .shadow(color: self.isReady ? self.theme.palette.accent.opacity(0.2) : .clear, radius: 10)
-        .animation(.easeOut(duration: 0.24), value: self.progress)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Training progress")
         .accessibilityValue("\(self.progress) of \(self.total) correct")
@@ -3158,60 +2688,50 @@ private struct TrainingVariantChip: View {
     let variant: String
     let onDelete: () -> Void
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
         HStack(spacing: 4) {
             Text("\(self.number)")
-                .font(self.theme.typography.captionSmall)
-                .foregroundStyle(self.theme.palette.accent)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.text2)
                 .frame(minWidth: 11)
 
             Text(self.variant)
-                .font(self.theme.typography.caption)
+                .font(.system(size: 11))
+                .foregroundStyle(self.palette.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             Button(action: self.onDelete) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.tertiaryText)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
             .help("Remove \(self.variant)")
         }
         .frame(maxWidth: 165)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(self.theme.palette.cardBackground.opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.35), lineWidth: 1)
-                )
-        )
+        .padding(.leading, 6)
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 }
 
 private struct DictionaryPreviewChip: View {
     let text: String
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
         Text(self.text)
-            .font(self.theme.typography.caption)
+            .font(.system(size: 11))
+            .foregroundStyle(self.palette.text)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(self.theme.palette.cardBackground.opacity(0.85))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.35), lineWidth: 1)
-                    )
-            )
+            .background(self.palette.field)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 }
 
@@ -3238,14 +2758,6 @@ private enum BoostStrengthPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    var badgeColor: Color {
-        switch self {
-        case .mild: return .blue
-        case .balanced: return Color.fluidGreen
-        case .strong: return .orange
-        }
-    }
-
     static func nearest(for weight: Float) -> Self {
         if weight < 8.5 { return .mild }
         if weight > 11.5 { return .strong }
@@ -3257,26 +2769,31 @@ private enum BoostStrengthPreset: String, CaseIterable, Identifiable {
 
 struct BoostTermRow: View {
     let term: ParakeetVocabularyStore.VocabularyConfig.Term
+    var isEnabled = true
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        HStack(spacing: self.theme.metrics.spacing.sm) {
+        HStack(spacing: 10) {
             Text(self.term.text)
-                .font(self.theme.typography.bodySmallStrong)
-
-            Spacer()
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if let weight = self.term.weight {
                 let strength = BoostStrengthPreset.nearest(for: weight)
                 Text(strength.rawValue)
-                    .font(self.theme.typography.bodySmallStrong)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(strength.badgeColor.opacity(0.25)))
-                    .foregroundStyle(strength.badgeColor)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 94, alignment: .trailing)
+            } else {
+                Text("Default")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 94, alignment: .trailing)
             }
 
             HStack(spacing: 2) {
@@ -3284,33 +2801,33 @@ struct BoostTermRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle())
+                .buttonStyle(.plain)
+                .disabled(!self.isEnabled)
                 .help("Configure \(self.term.text)")
 
                 Button(role: .destructive) {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle(foreground: .red, borderColor: .red))
+                .buttonStyle(.plain)
+                .disabled(!self.isEnabled)
                 .help("Delete \(self.term.text)")
             }
+            .frame(width: 72, alignment: .trailing)
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.52))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.28), lineWidth: 1)
-                )
-        )
+        .padding(.horizontal, 12)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 }
 
@@ -3321,28 +2838,25 @@ struct DictionaryEntryRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.sm) {
-            FlowLayout(spacing: 4) {
-                ForEach(self.entry.triggers, id: \.self) { trigger in
-                    Text(trigger)
-                        .font(self.theme.typography.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .center, spacing: 10) {
+            Text(self.entry.triggers.joined(separator: ", "))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "arrow.right")
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.tertiaryText)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(self.palette.text2)
+                .frame(width: 20)
 
             Text(CustomDictionaryManualEntry.replacementDisplayText(self.entry.replacement))
-                .font(self.theme.typography.bodySmallStrong)
-                .foregroundStyle(self.theme.palette.accent)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 2) {
@@ -3350,33 +2864,31 @@ struct DictionaryEntryRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle())
+                .buttonStyle(.plain)
                 .help("Configure replacement")
 
                 Button(role: .destructive) {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle(foreground: .red, borderColor: .red))
+                .buttonStyle(.plain)
                 .help("Delete replacement")
             }
+            .frame(width: 72, alignment: .trailing)
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.52))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.28), lineWidth: 1)
-                )
-        )
+        .padding(.horizontal, 12)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 }
 
@@ -3385,24 +2897,25 @@ private struct PunctuationDictionaryRuleRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        HStack(alignment: .center, spacing: self.theme.metrics.spacing.sm) {
+        HStack(alignment: .center, spacing: 10) {
             Text(self.rule.aliases.joined(separator: ", "))
-                .font(self.theme.typography.captionStrong)
-                .foregroundStyle(self.theme.palette.primaryText)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(self.palette.text2)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "arrow.right")
-                .font(self.theme.typography.caption)
-                .foregroundStyle(self.theme.palette.tertiaryText)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(self.palette.text2)
+                .frame(width: 20)
 
             Text(self.rule.symbol)
-                .font(self.theme.typography.bodySmallStrong)
-                .foregroundStyle(self.theme.palette.accent)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(self.palette.text)
                 .frame(width: 60, alignment: .leading)
                 .lineLimit(1)
 
@@ -3411,184 +2924,31 @@ private struct PunctuationDictionaryRuleRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle())
+                .buttonStyle(.plain)
                 .help("Edit punctuation rule")
 
                 Button(role: .destructive) {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 32, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
-                .buttonStyle(SquareIconButtonStyle(foreground: .red, borderColor: .red))
+                .buttonStyle(.plain)
                 .help("Delete punctuation rule")
             }
+            .frame(width: 72, alignment: .trailing)
         }
-        .padding(.horizontal, self.theme.metrics.spacing.md)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.52))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.28), lineWidth: 1)
-                )
-        )
-    }
-}
-
-// MARK: - Add Entry Sheet
-
-struct AddDictionaryEntrySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.theme) private var theme
-
-    let existingTriggers: Set<String>
-    let onSave: (SettingsStore.CustomDictionaryEntry) -> Void
-
-    @State private var triggersText = ""
-    @State private var replacement = ""
-
-    private var duplicateTriggers: [String] {
-        self.parseTriggers().filter { self.existingTriggers.contains($0) }
-    }
-
-    private var canSave: Bool {
-        !self.parseTriggers().isEmpty &&
-            !self.replacement.trimmingCharacters(in: .whitespaces).isEmpty &&
-            self.duplicateTriggers.isEmpty
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header
-            HStack {
-                Text("Add Dictionary Entry")
-                    .font(.headline)
-                Spacer()
-                Button("Cancel") { self.dismiss() }
-                    .buttonStyle(.bordered)
-            }
-
-            Divider()
-
-            // Triggers input
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Misheard Words (triggers)")
-                    .font(.subheadline.weight(.medium))
-                Text("Add one version per line. Commas can be saved too.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: self.$triggersText)
-                    .font(.body)
-                    .frame(minHeight: 54, maxHeight: 76)
-                    .scrollContentBackground(.hidden)
-                    .dictionaryInputChrome(minHeight: 54)
-
-                // Duplicate warning
-                if !self.duplicateTriggers.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text("Duplicate triggers: \(self.duplicateTriggers.joined(separator: ", "))")
-                            .foregroundStyle(.orange)
-                    }
-                    .font(.caption)
-                }
-            }
-
-            // Replacement input
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Correct Spelling (replacement)")
-                    .font(.subheadline.weight(.medium))
-                Text("This is what will appear in the final transcription.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("MouthKeys", text: self.$replacement)
-                    .dictionaryInputChrome()
-                    .onSubmit { self.saveIfValid() }
-            }
-
-            Spacer()
-
-            // Preview
-            if !self.triggersText.isEmpty && !self.replacement.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Preview")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    FlowLayout(spacing: 6) {
-                        ForEach(self.parseTriggers(), id: \.self) { trigger in
-                            Text(trigger)
-                                .font(.caption)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4).fill(
-                                        self.duplicateTriggers.contains(trigger)
-                                            ? AnyShapeStyle(Color.orange.opacity(0.3))
-                                            : AnyShapeStyle(.quaternary)
-                                    )
-                                )
-                        }
-
-                        Image(systemName: "arrow.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-
-                        Text(self.replacement)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(self.theme.palette.accent)
-                    }
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
-                        )
-                )
-            }
-
-            // Save button
-            HStack {
-                Spacer()
-                Button("Add Replacement") { self.saveIfValid() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(self.theme.palette.accent)
-                    .disabled(!self.canSave)
-                    .keyboardShortcut(.return, modifiers: [])
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 400, idealWidth: 450, maxWidth: 500)
-        .frame(minHeight: 350, idealHeight: 400, maxHeight: 450)
-        .dismissTextFocusOnBackgroundTap()
-    }
-
-    private func parseTriggers() -> [String] {
-        CustomDictionaryManualEntry.normalizedTriggers(
-            self.triggersText.components(separatedBy: .newlines)
-        )
-    }
-
-    private func saveIfValid() {
-        guard self.canSave else { return }
-
-        let entry = SettingsStore.CustomDictionaryEntry(
-            triggers: self.parseTriggers(),
-            replacement: self.replacement.trimmingCharacters(in: .whitespaces)
-        )
-        self.onSave(entry)
-        self.dismiss()
+        .padding(.horizontal, 12)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 }
 
@@ -3597,6 +2957,7 @@ struct AddDictionaryEntrySheet: View {
 struct EditDictionaryEntrySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     let entry: SettingsStore.CustomDictionaryEntry
     let existingTriggers: Set<String>
@@ -3619,14 +2980,27 @@ struct EditDictionaryEntrySheet: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
-                Text("Edit Dictionary Entry")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("03 / CUSTOM DICTIONARY")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundStyle(self.palette.text2)
+                    Text("Edit Dictionary Entry")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(self.palette.text)
+                }
                 Spacer()
                 Button("Cancel") { self.dismiss() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background(self.palette.field)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
 
-            Divider()
+            Rectangle().fill(self.palette.rule).frame(height: 1)
 
             // Triggers input
             VStack(alignment: .leading, spacing: 6) {
@@ -3634,7 +3008,7 @@ struct EditDictionaryEntrySheet: View {
                     .font(.subheadline.weight(.medium))
                 Text("Add one version per line. Commas can be saved too.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(self.palette.text2)
                 TextEditor(text: self.$triggersText)
                     .font(.body)
                     .frame(minHeight: 54, maxHeight: 76)
@@ -3643,11 +3017,11 @@ struct EditDictionaryEntrySheet: View {
 
                 // Duplicate warning
                 if !self.duplicateTriggers.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                    HStack(alignment: .top, spacing: 7) {
+                        DatasheetStatusSquare(kind: .orange)
+                            .padding(.top, 4)
                         Text("Duplicate triggers: \(self.duplicateTriggers.joined(separator: ", "))")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(self.palette.text2)
                     }
                     .font(.caption)
                 }
@@ -3659,7 +3033,7 @@ struct EditDictionaryEntrySheet: View {
                     .font(.subheadline.weight(.medium))
                 Text("This is what will appear in the final transcription.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(self.palette.text2)
                 TextField("MouthKeys", text: self.$replacement)
                     .dictionaryInputChrome()
                     .onSubmit { self.saveIfValid() }
@@ -3670,9 +3044,9 @@ struct EditDictionaryEntrySheet: View {
             // Preview
             if !self.triggersText.isEmpty && !self.replacement.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Preview")
+                    Text("PREVIEW")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(self.palette.text2)
 
                     FlowLayout(spacing: 6) {
                         ForEach(self.parseTriggers(), id: \.self) { trigger in
@@ -3680,13 +3054,9 @@ struct EditDictionaryEntrySheet: View {
                                 .font(.caption)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4).fill(
-                                        self.duplicateTriggers.contains(trigger)
-                                            ? AnyShapeStyle(Color.orange.opacity(0.3))
-                                            : AnyShapeStyle(.quaternary)
-                                    )
-                                )
+                                .foregroundStyle(self.palette.text)
+                                .background(self.duplicateTriggers.contains(trigger) ? self.palette.accent.opacity(0.16) : self.palette.field)
+                                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                         }
 
                         Image(systemName: "arrow.right")
@@ -3697,27 +3067,26 @@ struct EditDictionaryEntrySheet: View {
                             CustomDictionaryManualEntry.sanitizedReplacement(self.replacement)
                         ))
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(self.theme.palette.accent)
+                        .foregroundStyle(self.palette.text)
                     }
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(self.theme.palette.cardBackground)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(self.theme.palette.cardBorder.opacity(0.5), lineWidth: 1)
-                        )
-                )
+                .background(self.palette.surface)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
 
             // Save button
             HStack {
                 Spacer()
                 Button("Save Changes") { self.saveIfValid() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(self.theme.palette.accent)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.palette.invForeground)
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(self.palette.accent)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                     .disabled(!self.canSave)
                     .keyboardShortcut(.return, modifiers: [])
             }

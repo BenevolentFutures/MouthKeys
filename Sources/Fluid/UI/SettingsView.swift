@@ -2496,10 +2496,27 @@ struct FillerWordsEditor: View {
     @State private var fillerWords: [String] = SettingsStore.shared.fillerWords
     @State private var newWord: String = ""
     @State private var regionalOfferAnswered: Bool = SettingsStore.shared.regionalFillerOfferAnswered
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
+    private let renderingRegionalOffer: Bool
+
+    init(renderingRegionalOffer: Bool = false) {
+        self.renderingRegionalOffer = renderingRegionalOffer
+        guard renderingRegionalOffer else { return }
+        self._fillerWords = State(initialValue: ["um", "uh", "eh"])
+        self._regionalOfferAnswered = State(initialValue: false)
+    }
 
     private var regionalOffer: RegionalFillerOffer? {
-        RegionalFillerOffer.offer(fillerWords: self.fillerWords, answered: self.regionalOfferAnswered)
+        let locale = self.renderingRegionalOffer ? Locale(identifier: "en_CA") : .current
+        let timeZone = self.renderingRegionalOffer
+            ? TimeZone(identifier: "America/Toronto") ?? .current
+            : .current
+        return RegionalFillerOffer.offer(
+            fillerWords: self.fillerWords,
+            answered: self.regionalOfferAnswered,
+            locale: locale,
+            timeZone: timeZone
+        )
     }
 
     var body: some View {
@@ -2508,44 +2525,55 @@ struct FillerWordsEditor: View {
                 self.regionalOfferBanner(offer)
             }
 
-            Text("Filler words to remove:")
-                .font(self.theme.typography.bodySmall)
-                .foregroundStyle(.secondary)
+            Text("WORDS TO REMOVE")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.55)
+                .foregroundStyle(self.palette.text2)
 
-            // Word chips
             FlowLayout(spacing: 6) {
                 ForEach(self.fillerWords, id: \.self) { word in
                     HStack(spacing: 4) {
                         Text(word)
-                            .font(.caption)
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(self.palette.text)
                         Button {
                             self.removeWord(word)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.caption2)
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(self.palette.text2)
+                                .frame(width: 18, height: 22)
                         }
                         .buttonStyle(.plain)
+                        .help("Remove \(word)")
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(.quaternary)
-                    )
+                    .padding(.leading, 9)
+                    .padding(.trailing, 2)
+                    .frame(height: 28)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
             }
 
-            // Add new word
             HStack(spacing: 8) {
                 TextField("Add word", text: self.$newWord)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
+                    .padding(.horizontal, 9)
+                    .frame(width: 132, height: 30)
+                    .background(self.palette.field)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                     .onSubmit { self.addWord() }
 
                 Button("Add") { self.addWord() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+                    .buttonStyle(.plain)
                     .disabled(self.newWord.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .opacity(self.newWord.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
 
                 Spacer()
 
@@ -2553,10 +2581,17 @@ struct FillerWordsEditor: View {
                     self.fillerWords = SettingsStore.defaultFillerWords
                     SettingsStore.shared.fillerWords = self.fillerWords
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(self.palette.text2)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+                .buttonStyle(.plain)
             }
         }
+        .padding(12)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private func addWord() {
@@ -2573,23 +2608,42 @@ struct FillerWordsEditor: View {
     }
 
     private func regionalOfferBanner(_ offer: RegionalFillerOffer) -> some View {
-        HStack(spacing: 8) {
-            Text(offer.emoji)
-            Text(offer.message)
-                .font(self.theme.typography.bodySmall)
-            Spacer()
-            Button(offer.keepTitle) { self.answerRegionalOffer(offer, keep: true) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            Button("No thanks") { self.answerRegionalOffer(offer, keep: false) }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+        HStack(alignment: .top, spacing: 10) {
+            DatasheetStatusSquare(kind: .orange)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(offer.emoji)
+                    Text(offer.message)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    Button(offer.keepTitle) { self.answerRegionalOffer(offer, keep: true) }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(self.palette.invForeground)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 28)
+                        .background(self.palette.invBackground)
+                        .buttonStyle(.plain)
+
+                    Button("No thanks") { self.answerRegionalOffer(offer, keep: false) }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.palette.text2)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 28)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+                        .buttonStyle(.plain)
+                }
+            }
+            Spacer(minLength: 0)
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(.quaternary)
-        )
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.accent, lineWidth: 1) }
     }
 
     private func answerRegionalOffer(_ offer: RegionalFillerOffer, keep: Bool) {

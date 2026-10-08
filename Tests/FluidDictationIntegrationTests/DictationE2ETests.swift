@@ -5436,3 +5436,125 @@ private struct DatasheetWindowFoundationGallery: View {
         .frame(width: width + 24)
     }
 }
+
+/// Lane C screen renders for comparison with the binding prototype in both appearances.
+/// These use synthetic dictionary and regional-offer fixtures; provider keys and user prompt
+/// contents are never loaded or written. AppKit-backed controls still need the normal Debug
+/// walkthrough because ImageRenderer may not paint their native surfaces.
+@MainActor
+final class DatasheetContentLaneCRenderTests: XCTestCase {
+    private var outputFolder: URL? {
+        ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+    }
+
+    func testRendersLaneCScreensInBothThemes() throws {
+        let settings = SettingsStore.shared
+        let appServices = AppServices.shared
+        let voiceViewModel = VoiceEngineSettingsViewModel(settings: settings, appServices: appServices)
+        let menuBarManager = MenuBarManager()
+        let promptTest = DictationPromptTestCoordinator.shared
+        let aiViewModel = AIEnhancementSettingsViewModel(
+            settings: settings,
+            menuBarManager: menuBarManager,
+            promptTest: promptTest
+        )
+        aiViewModel.refreshProviderItems()
+        XCTAssertTrue(aiViewModel.providerAPIKeys.isEmpty, "The render fixture must not load provider credentials")
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let themeName = appearance == .darkAqua ? "dark" : "light"
+            let appTheme = appearance == .darkAqua ? AppTheme.dark : AppTheme.light
+
+            let voiceEngine = VoiceEngineSettingsView(
+                viewModel: voiceViewModel,
+                settings: settings,
+                theme: appTheme
+            )
+            .speechRecognitionCard
+            .padding(14)
+            .frame(width: 960, height: 720, alignment: .topLeading)
+            .appTheme(appTheme)
+            .datasheetPalette()
+            try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
+
+            let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
+                .datasheetScreenContent
+                .environmentObject(appServices)
+                .frame(width: 960, height: 720, alignment: .topLeading)
+                .appTheme(appTheme)
+                .datasheetPalette()
+            try self.render(dictionary, name: "\(themeName)-custom-dictionary.png", appearance: appearance)
+
+            let providers = self.aiScreen(
+                viewModel: aiViewModel,
+                settings: settings,
+                promptTest: promptTest,
+                theme: appTheme,
+                section: .providers
+            )
+            try self.render(providers, name: "\(themeName)-ai-providers.png", appearance: appearance)
+
+            let advancedPrompts = self.aiScreen(
+                viewModel: aiViewModel,
+                settings: settings,
+                promptTest: promptTest,
+                theme: appTheme,
+                section: .advancedPrompts
+            )
+            try self.render(advancedPrompts, name: "\(themeName)-ai-advanced-prompts.png", appearance: appearance)
+
+            let feedback = FeedbackView()
+                .frame(width: 960, height: 720, alignment: .topLeading)
+                .appTheme(appTheme)
+                .datasheetPalette()
+            try self.render(feedback, name: "\(themeName)-feedback.png", appearance: appearance)
+
+            let regionalOffer = FillerWordsEditor(renderingRegionalOffer: true)
+                .frame(width: 840, alignment: .topLeading)
+                .padding(20)
+                .appTheme(appTheme)
+                .datasheetPalette()
+            try self.render(regionalOffer, name: "\(themeName)-regional-filler-offer.png", appearance: appearance)
+        }
+    }
+
+    private func aiScreen(
+        viewModel: AIEnhancementSettingsViewModel,
+        settings: SettingsStore,
+        promptTest: DictationPromptTestCoordinator,
+        theme: AppTheme,
+        section: AIEnhancementConfigurationSection
+    ) -> some View {
+        let view = AIEnhancementSettingsView(
+            viewModel: viewModel,
+            settings: settings,
+            promptTest: promptTest,
+            theme: theme,
+            activeShortcutRecordingTarget: .constant(nil),
+            shortcutRecordingMessage: .constant(nil),
+            initialConfigurationSection: section
+        )
+        return view.aiConfigurationCard
+            .padding(14)
+            .frame(width: 960, height: 720, alignment: .topLeading)
+            .appTheme(theme)
+            .datasheetPalette()
+    }
+
+    private func render<V: View>(_ view: V, name: String, appearance: NSAppearance.Name) throws {
+        let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+        XCTAssertGreaterThan(rep.pixelsWide, 0, name)
+        XCTAssertGreaterThan(rep.pixelsHigh, 0, name)
+
+        let attachment = XCTAttachment(data: try XCTUnwrap(rep.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+
+        if let outputFolder = self.outputFolder {
+            try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent(name))
+        }
+    }
+}

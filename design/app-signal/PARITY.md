@@ -168,56 +168,53 @@ Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/
 
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
-| Voice Engine: primary language menu | `selectedAppleSpeechLocale` / current engine language model | Voice Engine language control | Restyle |
-| Voice Engine: provider filter menu | `viewModel.providerFilter` | Voice Engine table controls | Restyle |
-| Voice Engine: model sort menu | `viewModel.modelSortOption` | Voice Engine table controls | Restyle |
-| Voice Engine: model selection row | `SettingsStore.selectedSpeechModel` | Voice Engine model table | Restyle; preserve selected engine |
-| Voice Engine: Activate | Existing activation action | Model table row action | Restyle |
-| Voice Engine: Download / Cancel | Existing model download and cancellation state | Model table row action and progress states | Restyle; preserve errors/progress |
-| Voice Engine: Delete models | Existing model deletion action | Model row/management action | Preserve; do not run during QA |
-| Voice Engine: language menu per model | `selectedNemotronLanguage`, `selectedCohereLanguage`, and per-model language binding | Model row language control | Restyle |
-| Voice Engine: Open Custom Dictionary | Sidebar route to `.customDictionary` | Voice Engine custom words link | Preserve |
-| Voice Engine: remove filler words toggle/list | `viewModel.removeFillerWordsEnabled` and filler-word settings | Filler-word tags/list | Restyle |
-| Voice Engine: regional filler-word offer | Existing offer preference and answer callbacks | Filler-word offer | Preserve offer and both choices |
-| Custom Dictionary: Import / Export | `importDictionary()` / `exportDictionary()` | Dictionary header actions | Restyle |
-| Custom Dictionary: Auto-learn words while typing | `automaticDictionaryLearningEnabled` | Teach Words | Restyle |
-| Teach Words: replacement field | `trainingReplacement` | Teach Words form | Restyle |
-| Teach Words: training recorder / test action | Existing training recorder state and service | Teach Words form | Preserve recording action |
-| Replacement table: add trigger(s) and replacement | `manualTriggerDraft`, `manualReplacement` | First inline table | Move from popover to inline editor |
-| Replacement table: add, edit, delete, clear | Existing replacement store and row callbacks | First inline table | Move/restyle; preserve mutation effects |
-| Custom Words table: add/edit/delete | Existing vocabulary store and row callbacks | Second inline table | Move/restyle; preserve mutation effects |
-| Custom Words Boosting | `vocabBoostingEnabled` | Custom Words section | Restyle |
-| Boost term field and priority picker | `boostTermText`, `boostTermStrength` | Custom Words inline table | Restyle |
-| Spoken Formatting toggle and start word | `punctuationAutoConvertEnabled`, `punctuationPrefix` | Third inline table | Restyle |
-| Formatting action toggles and edit | `formattingActionEnabledBinding(for:)` and action rules | Third inline table | Restyle |
-| Formatting phrases/symbol fields, add/save/clear | `punctuationSymbolText` and existing phrase/rule stores | Third inline table | Restyle; preserve rule semantics |
-| Formatting reset defaults | Existing reset confirmation and default rules | Third inline table | Preserve confirmation/effect |
-| AI Enhancement tabs | Existing provider/advanced-prompt section selection | Providers / Advanced Prompts tabs | Restyle |
-| Provider search | `providerSearchText` | Providers tab | Restyle |
-| Provider list expand/collapse | `toggleProviderExpansion(item.id)` | Providers table | Restyle |
-| Provider/model selection | Existing selected-provider/model bindings and `SearchableModelPicker` | Providers table | Restyle |
-| Provider reasoning control | Existing reasoning configuration view model | Provider row action/editor | Restyle |
-| Add provider: name, base URL, API key | `newProviderName`, `newProviderBaseURL`, `newProviderApiKey` | Add Provider form | Restyle; preserve keychain write path |
-| Provider: test connection, save, cancel | Existing `testAPIConnection`, `saveNewProvider`, cancel callbacks | Provider editor | Restyle |
-| Edit provider: name, URL, API key, save/cancel | `editProviderName`, `editProviderBaseURL`, API key editor bindings | Provider editor | Restyle |
-| API-key reveal / clear / edit | Existing keychain service and `handleAPIKeyButtonTapped()` | Provider row action/editor | Preserve keychain service; no key edits during QA |
-| Provider delete | Existing provider delete confirmation and view-model mutation | Provider row action | Restyle; preserve confirmation |
-| Advanced Prompts: add/edit/delete prompt | Existing prompt profile and prompt editor bindings | Advanced Prompts tab | Restyle |
-| Advanced Prompts: prompt name/body/model | `draftPromptName`, prompt content and prompt-model picker bindings | Prompt editor | Restyle |
-| Advanced Prompts: Reset to Built-in | `resetDefaultPromptOverride(for:)`; available when a default prompt override exists | Prompt editor | Preserve reset and viewer-opening effects |
-| Advanced Prompts: mode tabs | `selectedPromptMode` and `SettingsStore.PromptMode.visiblePromptModes` | Advanced Prompts | Preserve per-mode configuration |
-| Advanced Prompts: routing scope | `viewModel.promptRoutingScope(for:)` and existing per-mode scope store | Advanced Prompts | Preserve app routing |
-| Dictation: Send Custom Prompt Only | `customPromptOnlyToggleRow` and existing custom-prompt selection behavior | Advanced Prompts / Dictate | Preserve routing effect |
-| Prompt editor: custom shortcut capture / clear | `promptEditorShortcutDraft` and existing hotkey recorder callbacks | Prompt editor | Preserve capture behavior |
-| Prompt editor: provider selection | `promptEditorProviderIDDraft` and prompt configuration callbacks | Prompt editor | Preserve per-prompt provider |
-| Prompt Test Mode | `promptTest.isActive`; runs only the draft-prompt preview path | Prompt editor test panel | Preserve; never types into another app |
-| Prompt test progress, error and raw/output results | `promptTest.isProcessing`, `lastError`, `lastTranscriptionText`, `lastOutputText` | Prompt editor test panel | Preserve every result state |
-| Advanced Prompts: per-app overrides and sync | Existing app prompt binding and linked-mode bindings | Advanced Prompts table | Restyle; preserve routing |
-| Feedback: message editor | `feedbackText` | Feedback form | Restyle; preserve editable text |
-| Feedback: Include app and macOS version | `includeSystemInfo` | Feedback form | Restyle |
-| Feedback: open issue | `openFeedbackIssue` and `MouthKeysLinks.newIssue` | Feedback action | Preserve destination; do not submit during QA |
-| About: Fig. 1 and GitHub link | Static grin drawing; GitHub URL | About section | Add per approved design |
-| About: FluidVoice credit and support links | `MouthKeysLinks.upstreamRepository`, `MouthKeysLinks.upstreamSponsor`; static attribution text | About section | Preserve both links and attribution |
+| Voice Engine: preview model selection | `viewModel.previewSpeechModel` | Preview panel and model table | Wired; row selection still only previews until Activate |
+| Voice Engine: preview description, size, languages, speed, accuracy, runtime | `SettingsStore.SpeechModel` metadata | Preview spec strip | Wired; preserve model-specific values |
+| Voice Engine: provider filter / model sort | `viewModel.providerFilter`, `viewModel.modelSortOption` | Header menus | Wired; preserve sorting/filtering |
+| Voice Engine: active and other model tables | `SettingsStore.selectedSpeechModel`, installed-model state | Active Model / Other Models | Wired; selected engine and row order unchanged |
+| Voice Engine: Activate | `viewModel.activateSpeechModel(model)` | Model row and preview action | Wired; preserve load/activation side effects |
+| Voice Engine: Download / Cancel / progress | `downloadSpeechModel`, `cancelSpeechModelDownload`, ASR preparation progress/status | Model row progress state | Wired; preserve cancellation, phase text, percentage and errors |
+| Voice Engine: model preparation state/error | `asr.modelPreparationPhase`, `modelPreparationStatusText`, existing `asr.showError` alert | Row / shared alert | Retained; progress, error and shared-alert states remain wired; no model download run during QA |
+| Voice Engine: Delete downloaded model | `viewModel.deleteSpeechModel(model)` | Selected model row action | Retained; deletion not exercised per scope |
+| Voice Engine: per-model language selection | `selectedAppleSpeechLocale`, `selectedNemotronLanguage`, `selectedCohereLanguage`, existing model language bindings | Active model row control | Wired; keep each model's existing language binding |
+| Voice Engine: Open Custom Dictionary | `.openCustomDictionaryFromVoiceEngine` notification routes to `.customDictionary` | Preview custom words link | Retained; route unchanged |
+| Voice Engine: remove filler words toggle and tags | `removeFillerWordsEnabled`, existing filler-word setting and edit callbacks | Remove Filler Words section | Wired; preserve add/remove/reset and saved list |
+| Voice Engine: regional filler-word offer | Existing offer preference, exact message, Keep / No thanks callbacks | FillerWordsEditor banner | Wired; preserve exact text and both answers |
+| Voice Engine: active recording guard | `asr.isRunning` | Whole Voice Engine content | Retained; controls remain disabled during recording |
+| Custom Dictionary: Import / Export | `importDictionary()` / `exportDictionary()` | Header actions | Wired; preserve file panels and transfer behavior |
+| Custom Dictionary: Auto-learn | `automaticDictionaryLearningEnabled`; disabling cancels correction tracker | Header toggle | Wired; preserve saved value and cancellation side effect |
+| Teach Words: composer mode | `composerMode` | Fixed Train by Voice / Add Manually segments | Wired; preserve disabled state during recording/processing |
+| Teach Words: target text and voice matching | `trainingReplacement`, `pronunciationMatchingEnabled`, `handlePronunciationMatchingChange` | Form and Basic / Advanced controls | Wired; preserve model availability and research-preview copy |
+| Teach Words: training steps, readiness, final output, heard variants | Existing training state, ASR endpoint and variant callbacks | 3-cell readiness / training panel | Wired; preserve 3/3 logic, remove-variant action, output and progress |
+| Teach Words: Start / Stop / Clear / Add Replacement | `toggleAutomaticTraining`, `resetTraining`, `addTrainedReplacement` | Training panel actions | Wired; preserve recorder, clear and save effects |
+| Teach Words: duplicate/error states | Existing training status and duplicate-trigger validation | Inline status rows | Retained; error copy and recovery paths remain wired |
+| Your Dictionary: replacement table | `SettingsStore.customDictionaryEntries` | Inline table | Moved inline; sort/order and replacement semantics retained |
+| Your Dictionary: Add / Edit / Delete / confirmation | `manualTriggerDraft`, `manualReplacement`, `editingEntry`, `deleteEntry`, replacement confirmation | Teach Words / inline table / edit sheet | Moved inline; normalization, whitespace payloads, confirmation, cache invalidation and notifications retained |
+| Spoken Formatting: enabled and start word | `punctuationAutoConvertEnabled`, `punctuationPrefix` | Inline Spoken Formatting section | Wired; preserve saved settings and prefix persistence |
+| Spoken Formatting: information and examples | `isPunctuationInfoExpanded`, `punctuationPreviewPrefix` | Inline info and Try Saying panels | Wired; preserve copy and state |
+| Spoken Formatting: action enable/edit/phrases | `formattingActionEnabledBinding(for:)`, action alias rules, `formattingActionEditor` | Inline action table and editor | Wired; preserve fixed outputs and empty-phrase disabled state |
+| Spoken Formatting: punctuation add/edit/delete/clear | `punctuationRules`, `punctuationAliasesText`, `punctuationSymbolText` | Third inline table/editor | Wired; preserve validation and rule meaning |
+| Spoken Formatting: Reset All Defaults | Existing reset alert and `resetPunctuationDictionary()` | Inline section | Retained; confirmation and full reset effect unchanged |
+| Custom Words: boost enable and rows | `vocabBoostingEnabled`, Parakeet vocabulary store | Inline Custom Words table | Wired; keep rows visible/read-only while boosting is off |
+| Custom Words: Add / Edit / Delete / priority | `boostTermText`, `boostTermStrength`, existing term callbacks | Inline editor and table | Retained; weights, duplicate check, mutations and error state unchanged |
+| AI Enhancement: Providers / Advanced Prompts tabs | `selectedConfigurationSection` | AI Enhancement header | Wired; preserve tab state and content |
+| AI Enhancement: unsupported note | Static unsupported notice and straight-voice-to-text explanation | Under page header | Retained verbatim |
+| Providers: help, search, verified / all-provider status | `viewModel.showHelp`, `providerSearchText`, provider connection state | Providers tables | Wired; preserve filtering/status and expansion |
+| Provider: select, expand/collapse, model picker/refresh, reasoning | Existing provider/model bindings and reasoning view model | Provider rows/details | Wired; preserve provider selection and fetch/configuration actions |
+| Provider: name, URL, API key, reveal/clear/edit | Existing provider draft state and keychain service | Expanded provider details | Wired; preserve keychain behavior; no key read/write during QA |
+| Provider: verify connection and result/error | `testAPIConnection`, connection status/error and progress | Provider details | Wired; preserve test path; no credentials or external requests during QA |
+| Provider: Add Custom / Save / Cancel / Delete | Existing draft callbacks and delete confirmation | Provider editor | Wired; preserve creation, validation and confirmation |
+| Advanced Prompts: built-in/custom prompt rows | Prompt selection, `dictationPromptProfiles`, `openDefaultPromptViewer`, `openEditor`, delete confirmation | Advanced Prompts / prompt editor | Wired; preserve selection, add/edit/delete and default viewer |
+| Advanced Prompts: All Apps / Selected Apps and App Overrides | `promptRoutingScope(for:)`, app binding store, file picker and linked-mode bindings | Prompt Routing / App Overrides table | Wired; preserve per-mode routing, add/remove and sync behavior |
+| Dictation: Send Custom Prompt Only | `viewModel.sendCustomPromptOnly` and setter | Advanced Prompts / Dictate | Retained; routing effect unchanged |
+| Prompt editor: name, body, provider, model, shortcut, Reset to Built-in | Existing draft fields, provider/model bindings, shortcut recorder, `resetDefaultPromptOverride` | Prompt editor | Wired; preserve capture, reset and save semantics |
+| Prompt editor: Test Mode / progress / error / raw and processed output | `promptTest.isActive`, `isProcessing`, `lastError`, transcript and output | Prompt editor test panel | Retained; all states stay in the editor and output never types into another app |
+| Feedback: message and diagnostic metadata toggle | `feedbackText`, `includeSystemInfo`, `systemInfo()` | Feedback form | Wired; preserve exact diagnostic payload and toggle state |
+| Feedback: Open GitHub Issue | `openFeedbackIssue` and prefilled `MouthKeysLinks` URL | Feedback action | Retained; destination unchanged; browser handoff and submission not exercised per scope |
+| About: Fig. 1 grin, repository link and revision | `DatasheetGrin`, `MouthKeysLinks` repository URL, bundle version | About drawing | Added and wired; actual shared grin primitive and GitHub target |
+| About: FluidVoice credit and sponsor links | `MouthKeysLinks.upstreamRepository`, `MouthKeysLinks.upstreamSponsor`; static attribution | About section | Retained; both destinations and credit text unchanged |
+
+Checkpoint: Lane C controls are wired as listed. Debug app and test-bundle builds pass. Both-theme offscreen renders and the normal Debug walkthrough remain pending until the screen lease; provider keys, model downloads/deletions, and browser submission were not exercised.
 
 ## D — History, Stats, Command Mode, File Transcription
 
