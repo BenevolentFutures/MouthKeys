@@ -91,11 +91,13 @@ struct DatasheetSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 12) {
-                Text(self.letter.uppercased())
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .frame(width: 20, height: 20)
-                    .foregroundStyle(self.palette.invForeground)
-                    .background(self.palette.invBackground)
+                if !self.letter.isEmpty {
+                    Text(self.letter.uppercased())
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .frame(width: 20, height: 20)
+                        .foregroundStyle(self.palette.invForeground)
+                        .background(self.palette.invBackground)
+                }
 
                 Text(self.title.uppercased())
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
