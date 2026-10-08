@@ -1,11 +1,97 @@
 import AppKit
+import Combine
 import SwiftUI
 
-struct DatasheetSidebarWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 250
+struct DatasheetSidebarColumnWidthReader: NSViewRepresentable {
+    let onChange: (CGFloat) -> Void
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+    func makeNSView(context _: Context) -> NSView {
+        let view = DatasheetSidebarColumnWidthView()
+        view.onChange = self.onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context _: Context) {
+        guard let view = nsView as? DatasheetSidebarColumnWidthView else { return }
+        view.onChange = self.onChange
+        view.reportColumnWidth()
+    }
+}
+
+private final class DatasheetSidebarColumnWidthView: NSView {
+    var onChange: ((CGFloat) -> Void)?
+
+    private var lastReportedWidth: CGFloat?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        self.reportColumnWidth()
+    }
+
+    override func layout() {
+        super.layout()
+        self.reportColumnWidth()
+    }
+
+    func reportColumnWidth() {
+        guard let splitView = self.enclosingSidebarSplitView,
+              let sidebarColumn = splitView.subviews.first
+        else { return }
+
+        let width = sidebarColumn.frame.width
+        guard width >= 220, width <= 300,
+              self.lastReportedWidth.map({ abs($0 - width) > 0.5 }) ?? true
+        else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil,
+                  self.lastReportedWidth.map({ abs($0 - width) > 0.5 }) ?? true
+            else { return }
+
+            self.lastReportedWidth = width
+            self.onChange?(width)
+        }
+    }
+
+    private var enclosingSidebarSplitView: NSSplitView? {
+        var ancestor = self.superview
+        while let view = ancestor {
+            if let splitView = view as? NSSplitView,
+               splitView.isVertical,
+               splitView.subviews.count >= 2,
+               let sidebarColumn = splitView.subviews.first,
+               self.isDescendant(of: sidebarColumn)
+            {
+                return splitView
+            }
+            ancestor = view.superview
+        }
+        return nil
+    }
+}
+
+enum DatasheetInputReadout {
+    static func selectedInputUIDChanges(
+        settings: SettingsStore,
+        notificationCenter: NotificationCenter = .default
+    ) -> AnyPublisher<String, Never> {
+        notificationCenter.publisher(for: .microphonePickDidChange)
+            .map { _ in settings.preferredInputDeviceUID ?? "" }
+            .eraseToAnyPublisher()
+    }
+
+    static func name(
+        selectedInputUID: String,
+        connectedInputs: [AudioDevice.Device],
+        savedPriority: [SettingsStore.MicrophonePriorityEntry]
+    ) -> String {
+        if let selectedInput = connectedInputs.first(where: { $0.uid == selectedInputUID }) {
+            return selectedInput.name
+        }
+        if let savedInput = savedPriority.first(where: { $0.uid == selectedInputUID }) {
+            return savedInput.name
+        }
+        return selectedInputUID.isEmpty ? "System Default" : selectedInputUID
     }
 }
 
@@ -78,12 +164,14 @@ struct DatasheetSidebarSectionHeader: View {
 
 struct DatasheetWindowTitleStrip: View {
     let sidebarWidth: CGFloat
+    let sidebarIsVisible: Bool
     let section: String
     let index: String
     let title: String
     let typingWPM: Int
     let theme: String
     let themeAccessibilityLabel: String
+    let sidebarToggleAction: () -> Void
     let todayAction: () -> Void
     let themeAction: () -> Void
     let reportAction: () -> Void
@@ -92,13 +180,23 @@ struct DatasheetWindowTitleStrip: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let availableDetailWidth = geometry.size.width - self.sidebarWidth
+            let leadingChromeWidth = max(self.sidebarWidth, 112)
+            let availableDetailWidth = geometry.size.width - leadingChromeWidth
 
             HStack(spacing: 0) {
                 Color.clear
-                    .frame(width: self.sidebarWidth, height: 40)
+                    .frame(width: leadingChromeWidth, height: 40)
+                    .overlay(alignment: .leading) {
+                        DatasheetSidebarToggleButton(
+                            isVisible: self.sidebarIsVisible,
+                            action: self.sidebarToggleAction
+                        )
+                        .padding(.leading, 72)
+                    }
                     .overlay(alignment: .trailing) {
-                        Rectangle().fill(self.palette.rule).frame(width: 1)
+                        if self.sidebarIsVisible {
+                            Rectangle().fill(self.palette.rule).frame(width: 1)
+                        }
                     }
 
                 if availableDetailWidth >= 700 {
@@ -183,6 +281,29 @@ struct DatasheetWindowTitleStrip: View {
 
     private var separator: some View {
         Text("/").foregroundStyle(self.palette.graticule)
+    }
+}
+
+private struct DatasheetSidebarToggleButton: View {
+    let isVisible: Bool
+    let action: () -> Void
+
+    @Environment(\.datasheetPalette) private var palette
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: self.action) {
+            Image(systemName: self.isVisible ? "sidebar.left" : "sidebar.right")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(self.isHovered ? self.palette.invForeground : self.palette.text2)
+                .frame(width: 28, height: 28)
+                .background(self.isHovered ? self.palette.invBackground : self.palette.surface)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { self.isHovered = $0 }
+        .help(self.isVisible ? "Hide Sidebar" : "Show Sidebar")
+        .accessibilityLabel(self.isVisible ? "Hide Sidebar" : "Show Sidebar")
     }
 }
 

@@ -352,17 +352,16 @@ struct ContentView: View {
                         NavigationSplitView(columnVisibility: self.$columnVisibility) {
                             self.sidebarView
                                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
+                                .toolbar(removing: .sidebarToggle)
                         } detail: {
                             self.detailView
                         }
                         .navigationSplitViewStyle(.balanced)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.container)
                     .background(self.datasheetPalette.surface)
-                    .onPreferenceChange(DatasheetSidebarWidthPreferenceKey.self) { width in
-                        guard width > 0 else { return }
-                        self.datasheetSidebarWidth = min(300, max(220, width))
-                    }
                 }
             }
         )
@@ -408,7 +407,9 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .settingsBackupDidRestore)) { _ in
                 self.reloadSettingsStateAfterBackupRestore()
             }
-            .toolbar(removing: .sidebarToggle)
+            .onReceive(DatasheetInputReadout.selectedInputUIDChanges(settings: self.settings)) { inputUID in
+                self.selectedInputUID = inputUID
+            }
             .overlay(alignment: .center) {}
             .alert(
                 self.asr.errorTitle,
@@ -1288,8 +1289,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(self.datasheetPalette.sidebar)
         .background {
-            GeometryReader { geometry in
-                Color.clear.preference(key: DatasheetSidebarWidthPreferenceKey.self, value: geometry.size.width)
+            DatasheetSidebarColumnWidthReader { width in
+                self.datasheetSidebarWidth = min(300, max(220, width))
             }
         }
     }
@@ -1324,12 +1325,16 @@ struct ContentView: View {
 
         return DatasheetWindowTitleStrip(
             sidebarWidth: self.columnVisibility == .detailOnly ? 0 : self.datasheetSidebarWidth,
+            sidebarIsVisible: self.columnVisibility != .detailOnly,
             section: route.section,
             index: route.index,
             title: route.title,
             typingWPM: self.settings.userTypingWPM,
             theme: themeName,
             themeAccessibilityLabel: themeAccessibilityLabel,
+            sidebarToggleAction: {
+                self.columnVisibility = self.columnVisibility == .detailOnly ? .all : .detailOnly
+            },
             todayAction: { self.selectedSidebarItem = .stats },
             themeAction: {
                 self.settings.themePreference = self.nextThemePreference(after: self.settings.themePreference)
@@ -1373,13 +1378,11 @@ struct ContentView: View {
     }
 
     private var selectedInputName: String {
-        if let selectedInput = self.inputDevices.first(where: { $0.uid == self.selectedInputUID }) {
-            return selectedInput.name
-        }
-        if let savedInput = self.settings.microphonePriority.first(where: { $0.uid == self.selectedInputUID }) {
-            return savedInput.name
-        }
-        return self.selectedInputUID.isEmpty ? "System Default" : self.selectedInputUID
+        DatasheetInputReadout.name(
+            selectedInputUID: self.selectedInputUID,
+            connectedInputs: self.inputDevices,
+            savedPriority: self.settings.microphonePriority
+        )
     }
 
     private func nextThemePreference(after preference: SettingsStore.ThemePreference) -> SettingsStore.ThemePreference {

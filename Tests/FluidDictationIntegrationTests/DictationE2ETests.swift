@@ -4990,12 +4990,14 @@ private struct DatasheetWindowChromeGallery: View {
         VStack(spacing: 0) {
             DatasheetWindowTitleStrip(
                 sidebarWidth: 250,
+                sidebarIsVisible: true,
                 section: "Configure",
                 index: "02",
                 title: "Voice Engine",
                 typingWPM: SettingsStore.shared.userTypingWPM,
                 theme: self.theme,
                 themeAccessibilityLabel: self.themeAccessibilityLabel,
+                sidebarToggleAction: {},
                 todayAction: {},
                 themeAction: {},
                 reportAction: {}
