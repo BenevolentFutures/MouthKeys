@@ -5628,3 +5628,61 @@ final class DatasheetLaneDNativeLayoutTests: XCTestCase {
         return host.fittingSize
     }
 }
+
+/// Diagnostic-only branch: inspect real native scroll extents without ordering a window.
+@MainActor
+final class DatasheetLaneDCommandScrollDiagnosisTests: XCTestCase {
+    func testActualCommandOuterScrollReachesComposerAndComparesBaseline() throws {
+        let current = try self.inspect(CommandModeView(service: CommandModeService()), label: "current")
+        let baseline = try self.inspect(LegacyCommandModeScrollProbe(service: CommandModeService()), label: "baseline")
+        print("D_SCROLL_COMPARISON current=\(current) baseline=\(baseline)")
+        XCTAssertGreaterThanOrEqual(current, 2, "Current page must have outer and chat scroll views")
+    }
+
+    private func inspect<V: View>(_ view: V, label: String) throws -> Int {
+        let root = view
+            .environmentObject(AppServices.shared)
+            .environmentObject(MenuBarManager())
+            .datasheetPalette()
+            .environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: root)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 549, height: 460), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if descendants(host).contains(where: { $0 is NSScrollView }) { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        } while Date() < deadline
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let views = descendants(host)
+        let scrolls = views.compactMap { $0 as? NSScrollView }
+        print("D_SCROLL label=\(label) count=\(scrolls.count) host=\(host.bounds)")
+        for v in views where v is NSTextField || v is NSTextView { print("D_FIELD label=\(label) class=\(type(of:v)) frame=\(v.frame)") }
+        for (index, scroll) in scrolls.enumerated() {
+            let clip = scroll.contentView
+            let doc = try XCTUnwrap(scroll.documentView)
+            print("D_SCROLL_BEFORE label=\(label) index=\(index) frame=\(scroll.frame) clip=\(clip.bounds) doc=\(doc.frame) flipped=\(doc.isFlipped) vertical=\(scroll.hasVerticalScroller) scroller=\(String(describing: scroll.verticalScroller?.floatValue)) knob=\(String(describing: scroll.verticalScroller?.knobProportion))")
+            let extent = max(0, doc.bounds.height - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: extent))
+            scroll.reflectScrolledClipView(clip)
+            host.layoutSubtreeIfNeeded()
+            print("D_SCROLL_AFTER label=\(label) index=\(index) extent=\(extent) clip=\(clip.bounds)")
+            if label == "current", index == 0 {
+                XCTAssertGreaterThan(extent, 200, "Outer native document must exceed minimum viewport")
+                XCTAssertEqual(clip.bounds.minY, extent, accuracy: 1)
+                for field in views.compactMap({ $0 as? NSTextField }) {
+                    let rect = field.convert(field.bounds, to: doc)
+                    print("D_COMPOSER label=\(label) value=\(field.stringValue) placeholder=\(String(describing:field.placeholderString)) docRect=\(rect) intersectsVisible=\(rect.intersects(clip.bounds))")
+                    XCTAssertTrue(rect.intersects(clip.bounds), "Composer must be visible after scrolling outer document")
+                }
+            }
+        }
+        XCTAssertFalse(window.isVisible); XCTAssertFalse(window.isKeyWindow); XCTAssertFalse(window.isMainWindow)
+        return scrolls.count
+    }
+}
