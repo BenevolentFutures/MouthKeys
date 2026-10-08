@@ -15,33 +15,31 @@ struct CommandModeView: View {
     // UI State
     @State private var showingClearConfirmation = false
     @State private var showHowTo = false
-    @State private var isHoveringHowTo = false
 
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            self.headerView
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                self.pageHeader
 
-            // How To (collapsible)
-            self.howToSection
+                self.readinessBanner
+                self.howToSection
+                self.chatArea
+                    .frame(height: 240)
 
-            Divider()
+                if let pending = self.service.pendingCommand {
+                    self.pendingCommandView(pending)
+                }
 
-            // Chat Area
-            self.chatArea
-
-            // Pending Command Confirmation (if any)
-            if let pending = service.pendingCommand {
-                self.pendingCommandView(pending)
+                self.inputArea
             }
-
-            Divider()
-
-            // Input Area
-            self.inputArea
+            .padding(.horizontal, 28)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(self.palette.surface)
         .onAppear {
             self.updateAvailableModels()
             // Disable notch output when using in-app UI (conversation is shared but notch shouldn't show)
@@ -72,59 +70,62 @@ struct CommandModeView: View {
 
     // MARK: - Header
 
-    private var headerView: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Text("Command Mode")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Text("Alpha")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color(red: 1.0, green: 0.35, blue: 0.35)) // Command mode red
-                    .cornerRadius(4)
+    private var pageHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            DatasheetSheetHeader(
+                placard: "EXEC / 04",
+                title: "Command Mode",
+                lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
+            ) {
+                self.headerView.fixedSize()
             }
+            .frame(minWidth: 650)
+            .fixedSize(horizontal: false, vertical: true)
 
-            Spacer()
+            VStack(alignment: .leading, spacing: 0) {
+                DatasheetSheetHeader(
+                    placard: "EXEC / 04",
+                    title: "Command Mode",
+                    lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
+                )
+                self.headerView.fixedSize()
+                    .padding(.bottom, 20)
+            }
+        }
+    }
 
-            // Chat management buttons
-            HStack(spacing: 4) {
-                // New Chat Button
-                Button(action: { self.service.createNewChat() }) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.bordered)
-                .help("New chat")
-                .disabled(self.service.isProcessing)
+    private var headerView: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                DatasheetMonoLabel(text: "CONFIRM", color: self.palette.text2)
+                Toggle("Confirm before running commands", isOn: self.$settings.commandModeConfirmBeforeExecute)
+                    .labelsHidden()
+                    .toggleStyle(DatasheetToggleStyle())
+                    .help("Ask for confirmation before running commands")
+            }
+            .fixedSize()
 
-                // Recent Chats Menu
+            Rectangle().fill(self.palette.rule).frame(width: 1, height: 22).padding(.horizontal, 4)
+
+            DatasheetBracketed(rest: false) {
                 Menu {
                     let recentChats = self.service.getRecentChats()
                     if recentChats.isEmpty {
                         Text("No recent chats")
-                            .foregroundStyle(.secondary)
                     } else {
                         ForEach(recentChats) { chat in
-                            Button(action: {
+                            Button {
                                 if chat.id != self.service.currentChatID {
                                     self.service.switchToChat(id: chat.id)
                                 }
-                            }) {
+                            } label: {
                                 HStack {
                                     if chat.id == self.service.currentChatID {
                                         Image(systemName: "checkmark")
-                                            .font(.caption)
                                     }
-                                    Text(chat.title)
-                                        .lineLimit(1)
+                                    Text(chat.title).lineLimit(1)
                                     Spacer()
-                                    Text(chat.relativeTimeString)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text(chat.relativeTimeString).foregroundStyle(self.palette.text2)
                                 }
                             }
                             .disabled(self.service.isProcessing)
@@ -132,34 +133,42 @@ struct CommandModeView: View {
                     }
                 } label: {
                     Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .frame(width: 30, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 32, height: 24)
                 .help("Recent chats")
+            }
 
-                // Delete Chat Button - deletes the current chat entirely
-                Button(action: { self.showingClearConfirmation = true }) {
-                    Image(systemName: "trash")
+            DatasheetBracketed(rest: false) {
+                Button(action: { self.service.createNewChat() }) {
+                    Label("New chat", systemImage: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .padding(.horizontal, 9)
+                        .frame(height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
                 }
-                .buttonStyle(.bordered)
-                .help("Delete chat")
+                .buttonStyle(.plain)
+                .help("New chat")
                 .disabled(self.service.isProcessing)
             }
 
-            Divider()
-                .frame(height: 20)
-                .padding(.horizontal, 8)
-
-            // Confirm Before Execute Toggle
-            Toggle(isOn: self.$settings.commandModeConfirmBeforeExecute) {
-                Label("Confirm", systemImage: "checkmark.shield")
-                    .font(.caption)
+            DatasheetBracketed(rest: false) {
+                Button { self.showingClearConfirmation = true } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .frame(width: 30, height: 30)
+                        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .help("Delete chat")
+                .disabled(self.service.isProcessing)
             }
-            .toggleStyle(.checkbox)
-            .help("Ask for confirmation before running commands")
         }
-        .padding()
-        .background(self.theme.palette.windowBackground)
         .confirmationDialog(
             "Delete this chat?",
             isPresented: self.$showingClearConfirmation,
@@ -172,6 +181,46 @@ struct CommandModeView: View {
         }
     }
 
+    private var readinessBanner: some View {
+        let issue = self.settings.commandModeReadinessIssue
+
+        return HStack(alignment: .top, spacing: 10) {
+            DatasheetStatusSquare(kind: issue == nil ? .ink : .orange, size: 8)
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 3) {
+                DatasheetMonoLabel(
+                    text: issue == nil ? "COMMAND MODE READY" : "COMMAND MODE NOT READY",
+                    color: self.palette.text
+                )
+                Text(issue ?? "Ready for a question or command.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(self.palette.text2)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Group {
+                if issue != nil {
+                    DatasheetBracketed(rest: false) {
+                        Button("AI Settings") {
+                            AppNavigationRouter.shared.request(.aiEnhancements)
+                        }
+                        .buttonStyle(DatasheetTextButtonStyle())
+                    }
+                } else {
+                    Text("AI Settings")
+                        .frame(width: 86, height: 30)
+                        .hidden()
+                }
+            }
+            .frame(width: 86, height: 30)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 54)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.field)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
     // MARK: - How To Section
 
     private var shortcutDisplay: String {
@@ -180,60 +229,42 @@ struct CommandModeView: View {
 
     private var howToSection: some View {
         VStack(spacing: 0) {
-            // Toggle button with hover effect
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { self.showHowTo.toggle() } }) {
-                HStack {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption)
-                    Text("How to use")
-                        .font(.caption)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { self.showHowTo.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    DatasheetMonoLabel(text: "HOW TO USE", color: self.palette.text2)
                     Spacer()
                     Image(systemName: self.showHowTo ? "chevron.up" : "chevron.down")
-                        .font(.caption2)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(self.palette.text2)
                 }
-                .foregroundStyle(self.isHoveringHowTo ? .primary : .secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(self.isHoveringHowTo ? self.theme.palette.cardBackground.opacity(0.6) : Color.clear)
-                .cornerRadius(4)
+                .frame(height: 34)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.15)) { self.isHoveringHowTo = hovering }
-            }
+            .datasheetHoverBracket()
+            .padding(.horizontal, 8)
+            .overlay(alignment: .top) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
 
             if self.showHowTo {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Start section
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Getting Started")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 4) {
-                            Text("Press")
-                                .font(.caption)
-                            Text(self.shortcutDisplay)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(self.theme.palette.cardBackground.opacity(0.8))
-                                .cornerRadius(4)
-                            Text("to open Command Mode, speak your command, then press again to send.")
-                                .font(.caption)
-                        }
-                        .foregroundStyle(.primary.opacity(0.8))
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        DatasheetMonoLabel(text: "SHORTCUT", color: self.palette.text2)
+                        Text(self.shortcutDisplay.uppercased())
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(self.palette.text)
+                            .padding(.horizontal, 7)
+                            .frame(height: 24)
+                            .background(self.palette.field)
+                            .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+                        Text("Opens Command Mode. Speak, then press again to send.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(self.palette.text2)
                     }
 
-                    // Examples
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Examples")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-
+                        DatasheetMonoLabel(text: "EXAMPLES", color: self.palette.text2)
                         VStack(alignment: .leading, spacing: 4) {
                             self.howToItem("\"List files in my Downloads folder\"")
                             self.howToItem("\"Create a folder called Projects on Desktop\"")
@@ -242,36 +273,29 @@ struct CommandModeView: View {
                         }
                     }
 
-                    // Caution note
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text("Caution")
-                                .fontWeight(.semibold)
-                        }
-                        .font(.caption)
-
-                        Text("AI can make mistakes. Avoid dangerous commands like deleting important files. Destructive actions will ask for confirmation.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 8) {
+                        DatasheetStatusSquare(kind: .orange)
+                            .padding(.top, 4)
+                        Text("AI can make mistakes. Avoid dangerous commands. Destructive actions ask for confirmation when that setting is enabled.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(self.palette.text2)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay { Rectangle().strokeBorder(self.palette.ruleSoft, lineWidth: 1) }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(self.theme.palette.contentBackground)
+        .padding(.bottom, 8)
     }
 
     private func howToItem(_ text: String) -> some View {
         HStack(spacing: 6) {
-            Text("•")
-                .foregroundStyle(.secondary)
+            DatasheetStatusSquare(kind: .outline, size: 4)
             Text(text)
-                .font(.caption)
-                .foregroundStyle(.primary.opacity(0.8))
+                .font(.system(size: 12))
+                .foregroundStyle(self.palette.text)
         }
     }
 
@@ -295,18 +319,10 @@ struct CommandModeView: View {
 
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding()
+                .padding(14)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(self.theme.palette.cardBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.45), lineWidth: 1)
-                    )
-            )
+            .background(self.palette.surface)
+            .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
             .onChange(of: self.service.conversationHistory.count) { _, _ in
                 self.scrollToBottom(proxy)
             }
@@ -328,25 +344,22 @@ struct CommandModeView: View {
 
     private var processingIndicator: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CommandShimmerText(text: "Thinking")
-                .padding(.horizontal, 12)
+            CommandShimmerText(text: self.currentStepLabel)
 
             if self.settings.showThinkingTokens && !self.service.streamingThinkingText.isEmpty {
                 ScrollView(.vertical, showsIndicators: true) {
                     Text(self.service.streamingThinkingText)
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(self.palette.text2)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 140)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
             }
         }
         .frame(maxWidth: 520, minHeight: 72, alignment: .leading)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(10)
+        .overlay { Rectangle().strokeBorder(self.palette.ruleSoft, lineWidth: 1) }
     }
 
     private var currentStepLabel: String {
@@ -378,194 +391,182 @@ struct CommandModeView: View {
     // MARK: - Pending Command
 
     private func pendingCommandView(_ pending: CommandModeService.PendingCommand) -> some View {
-        VStack(spacing: 10) {
-            Divider()
-
-            HStack {
-                Image(systemName: "exclamationmark.shield.fill")
-                    .foregroundStyle(.orange)
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Confirm Execution")
-                        .fontWeight(.semibold)
-                    if let purpose = pending.purpose {
-                        Text(purpose)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                DatasheetStatusSquare(kind: .orange, size: 8)
+                DatasheetMonoLabel(text: "CONFIRM EXECUTION", color: self.palette.text)
+                Spacer(minLength: 8)
+                if let purpose = pending.purpose {
+                    Text(purpose)
+                        .font(.system(size: 11))
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
                 }
-                Spacer()
             }
 
-            // Command preview
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Image(systemName: "terminal.fill")
-                        .font(.caption)
-                    Text("Command")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    Spacer()
+                HStack(spacing: 8) {
+                    Image(systemName: "terminal")
+                    DatasheetMonoLabel(text: "COMMAND", color: self.palette.text2)
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(self.theme.palette.cardBackground)
-
-                Divider()
+                .frame(height: 30)
+                .overlay(alignment: .bottom) { Rectangle().fill(self.palette.rule).frame(height: 1) }
 
                 Text(pending.command)
                     .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
                     .textSelection(.enabled)
                     .padding(10)
             }
-            .background(self.theme.palette.contentBackground)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay { Rectangle().strokeBorder(self.palette.accent, lineWidth: 1) }
 
-            HStack(spacing: 12) {
-                Button(action: { self.service.cancelPendingCommand() }) {
-                    Label("Cancel", systemImage: "xmark")
+            HStack(spacing: 10) {
+                DatasheetBracketed(rest: false) {
+                    Button {
+                        self.service.cancelPendingCommand()
+                    } label: {
+                        Text("Cancel")
+                            .padding(.horizontal, 10)
+                    }
+                    .buttonStyle(DatasheetTextButtonStyle())
+                    .keyboardShortcut(.escape, modifiers: [])
                 }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.escape, modifiers: [])
 
-                Button(action: {
-                    Task { await self.service.confirmAndExecute() }
-                }) {
-                    Label("Run Command", systemImage: "play.fill")
+                DatasheetBracketed(rest: true) {
+                    Button {
+                        Task { await self.service.confirmAndExecute() }
+                    } label: {
+                        Label("Run Command", systemImage: "play.fill")
+                    }
+                    .buttonStyle(DatasheetPrimaryButtonStyle())
+                    .keyboardShortcut(.return, modifiers: [])
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .keyboardShortcut(.return, modifiers: [])
             }
         }
-        .padding()
-        .background(Color.orange.opacity(0.08))
+        .padding(12)
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
     }
 
     // MARK: - Input Area
 
     private var inputArea: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let issue = self.settings.commandModeReadinessIssue {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Text(issue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-
-                    Spacer(minLength: 8)
-
-                    Button("AI Settings") {
-                        AppNavigationRouter.shared.request(.aiEnhancements)
-                    }
-                    .font(.caption)
-                    .buttonStyle(.plain)
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 10)
-                .padding(.top, 2)
-            }
-
-            VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 TextField("Type a command or ask a question...", text: self.$inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
+                    .foregroundStyle(self.palette.text)
                     .lineLimit(1...4)
                     .onSubmit {
                         self.submitCommand()
                     }
 
-                HStack(spacing: 10) {
-                    Toggle("Sync", isOn: self.$settings.commandModeLinkedToGlobal)
-                        .toggleStyle(.checkbox)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            self.syncControl
+                            self.providerControl
+                            self.modelControl
+                        }
                         .fixedSize(horizontal: true, vertical: false)
-                        .help("Use the same provider and model selected in AI Enhancement.")
 
-                    SearchableProviderPicker(
-                        builtInProviders: self.verifiedBuiltInProvidersList,
-                        savedProviders: self.verifiedSavedProviders,
-                        selectedProviderID: Binding(
-                            get: { self.settings.effectiveCommandModeProviderID },
-                            set: { newValue in
-                                guard !self.settings.commandModeLinkedToGlobal else { return }
-                                self.settings.commandModeSelectedProviderID = newValue
-                                self.updateAvailableModels()
+                        VStack(alignment: .leading, spacing: 8) {
+                            self.syncControl
+                            HStack(spacing: 8) {
+                                self.providerControl
+                                self.modelControl
                             }
-                        ),
-                        controlWidth: 140,
-                        controlHeight: 30
-                    )
-                    .disabled(self.settings.commandModeLinkedToGlobal)
-                    .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
+                        }
+                    }
 
-                    SearchableModelPicker(
-                        models: self.availableModels,
-                        selectedModel: Binding(
-                            get: { self.settings.effectiveCommandModeSelectedModel },
-                            set: { newValue in
-                                guard !self.settings.commandModeLinkedToGlobal else { return }
-                                self.settings.commandModeSelectedModel = newValue
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+
+                        DatasheetBracketed(rest: false) {
+                            Button(action: self.toggleRecording) {
+                                Image(systemName: self.asr.isRunning ? "stop.fill" : "mic")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(self.asr.isRunning ? self.palette.onAccent : self.palette.text)
+                                    .frame(width: 34, height: 34)
+                                    .background(self.asr.isRunning ? self.palette.accent : self.palette.surface)
+                                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
                             }
-                        ),
-                        onRefresh: nil,
-                        isRefreshing: false,
-                        selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
-                        controlWidth: 180,
-                        controlHeight: 30
-                    )
-                    .disabled(self.settings.commandModeLinkedToGlobal)
+                            .buttonStyle(.plain)
+                            .disabled(self.service.isProcessing)
+                            .help(self.asr.isRunning ? "Stop voice command" : "Start voice command")
+                        }
 
-                    Spacer(minLength: 12)
-
-                    Button(action: self.toggleRecording) {
-                        Image(systemName: self.asr.isRunning ? "stop.fill" : "mic")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundStyle(self.asr.isRunning ? Color.red : .secondary)
-                            .contentShape(Circle())
+                        DatasheetBracketed(rest: true) {
+                            Button(action: self.submitCommand) {
+                                Label("Run", systemImage: "arrow.up")
+                            }
+                            .buttonStyle(DatasheetPrimaryButtonStyle())
+                            .disabled(!self.canSubmitCommand)
+                            .opacity(self.canSubmitCommand ? 1 : 0.42)
+                            .help("Run command")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(self.service.isProcessing)
-                    .help(self.asr.isRunning ? "Stop voice command" : "Start voice command")
-
-                    Button(action: self.submitCommand) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .foregroundStyle(self.canSubmitCommand ? Color.white : .secondary)
-                            .background(
-                                Circle()
-                                    .fill(self.canSubmitCommand ? self.theme.palette.accent : self.theme.palette.cardBackground)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!self.canSubmitCommand)
-                    .help("Run command")
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(self.theme.palette.contentBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.55), lineWidth: 1)
-                    )
-            )
+            .padding(12)
+            .background(self.palette.field)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(self.theme.palette.windowBackground)
+        .padding(.top, 12)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
+    private var syncControl: some View {
+        HStack(spacing: 7) {
+            DatasheetMonoLabel(text: "SYNC", color: self.palette.text2)
+            Toggle("Sync", isOn: self.$settings.commandModeLinkedToGlobal)
+                .labelsHidden()
+                .toggleStyle(DatasheetToggleStyle())
+                .fixedSize()
+                .help("Use the same provider and model selected in AI Enhancement.")
+        }
+        .fixedSize()
+    }
+
+    private var providerControl: some View {
+        SearchableProviderPicker(
+            builtInProviders: self.verifiedBuiltInProvidersList,
+            savedProviders: self.verifiedSavedProviders,
+            selectedProviderID: Binding(
+                get: { self.settings.effectiveCommandModeProviderID },
+                set: { newValue in
+                    guard !self.settings.commandModeLinkedToGlobal else { return }
+                    self.settings.commandModeSelectedProviderID = newValue
+                    self.updateAvailableModels()
+                }
+            ),
+            controlWidth: 140,
+            controlHeight: 30
+        )
+        .disabled(self.settings.commandModeLinkedToGlobal)
+        .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
+    }
+
+    private var modelControl: some View {
+        SearchableModelPicker(
+            models: self.availableModels,
+            selectedModel: Binding(
+                get: { self.settings.effectiveCommandModeSelectedModel },
+                set: { newValue in
+                    guard !self.settings.commandModeLinkedToGlobal else { return }
+                    self.settings.commandModeSelectedModel = newValue
+                }
+            ),
+            onRefresh: nil,
+            isRefreshing: false,
+            selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
+            controlWidth: 180,
+            controlHeight: 30
+        )
+        .disabled(self.settings.commandModeLinkedToGlobal)
     }
 
     // MARK: - Actions
@@ -638,32 +639,13 @@ struct CommandModeView: View {
 
 struct CommandShimmerText: View {
     let text: String
+    @Environment(\.datasheetPalette) private var palette
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let duration = 1.15
-            let progress = timeline.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: duration) / duration
-            let center = CGFloat(progress)
-            let leadingEdge = max(0, center - 0.18)
-            let trailingEdge = min(1, center + 0.18)
-
-            Text(self.text)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color.secondary.opacity(0.42), location: 0),
-                            .init(color: Color.secondary.opacity(0.42), location: leadingEdge),
-                            .init(color: Color.primary.opacity(0.98), location: center),
-                            .init(color: Color.secondary.opacity(0.42), location: trailingEdge),
-                            .init(color: Color.secondary.opacity(0.42), location: 1),
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-        }
+        Text(self.text.uppercased())
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .tracking(0.4)
+            .foregroundStyle(self.palette.text2)
         .accessibilityLabel(Text(self.text))
     }
 }
@@ -672,7 +654,7 @@ struct CommandShimmerText: View {
 
 struct MessageBubble: View {
     let message: CommandModeService.Message
-    @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var palette
     @State private var isThinkingExpanded: Bool = false
 
     var body: some View {
@@ -692,10 +674,10 @@ struct MessageBubble: View {
     private var userMessageView: some View {
         Text(self.message.content)
             .font(.system(size: 13))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(self.theme.palette.accent.opacity(0.15))
-            .cornerRadius(10)
+            .foregroundStyle(self.palette.text)
+            .padding(10)
+            .background(self.palette.field)
+            .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
             .frame(maxWidth: 380, alignment: .trailing)
     }
 
@@ -712,7 +694,7 @@ struct MessageBubble: View {
             if let tc = message.toolCall, let purpose = tc.purpose {
                 Text(purpose)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(self.palette.text2)
             }
 
             // Main content
@@ -735,17 +717,17 @@ struct MessageBubble: View {
                 HStack(spacing: 6) {
                     Text("Thinking")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(self.palette.text2)
 
                     if self.isThinkingExpanded {
                         Text("\(thinking.count) chars")
                             .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(self.palette.text2.opacity(0.72))
                     }
 
                     Image(systemName: self.isThinkingExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(self.palette.text2)
 
                     Spacer(minLength: 0)
                 }
@@ -759,7 +741,7 @@ struct MessageBubble: View {
                 ScrollView(.vertical, showsIndicators: true) {
                     Text(thinking)
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(self.palette.text2)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
@@ -768,8 +750,8 @@ struct MessageBubble: View {
                 .frame(maxHeight: 150)
             }
         }
-        .background(self.theme.palette.cardBackground.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.ruleSoft, lineWidth: 1) }
     }
 
     // MARK: - Command Call View (Minimal)
@@ -784,18 +766,17 @@ struct MessageBubble: View {
             {
                 Text(self.message.content)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(self.palette.text2)
             }
 
             // Command block - clean and simple
             Text(tc.command)
                 .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.primary)
+                .foregroundStyle(self.palette.text)
                 .textSelection(.enabled)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(self.theme.palette.contentBackground)
-                .cornerRadius(6)
+                .padding(10)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
         }
     }
 
@@ -807,16 +788,18 @@ struct MessageBubble: View {
         return VStack(alignment: .leading, spacing: 0) {
             // Minimal header - just status and time
             HStack(spacing: 6) {
-                Text(parsed.success ? "Success" : "Error")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(parsed.success ? .primary : .secondary)
+                DatasheetStatusSquare(kind: parsed.success ? .ink : .outline)
+                DatasheetMonoLabel(
+                    text: parsed.success ? "SUCCESS" : "ERROR",
+                    color: self.palette.text2
+                )
 
                 Spacer()
 
                 if parsed.executionTime > 0 {
                     Text("\(parsed.executionTime)ms")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(self.palette.text2)
                 }
             }
             .padding(.horizontal, 10)
@@ -824,7 +807,7 @@ struct MessageBubble: View {
 
             // Output content (if any)
             if !parsed.output.isEmpty || parsed.error != nil {
-                Divider()
+                Rectangle().fill(self.palette.rule).frame(height: 1)
                     .padding(.horizontal, 10)
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -832,14 +815,14 @@ struct MessageBubble: View {
                         if !parsed.output.isEmpty {
                             Text(self.markdownAttributedString(from: parsed.output))
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(self.palette.text)
                                 .textSelection(.enabled)
                         }
 
                         if let error = parsed.error, !error.isEmpty {
                             Text(error)
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(self.palette.text2)
                                 .textSelection(.enabled)
                         }
                     }
@@ -850,8 +833,8 @@ struct MessageBubble: View {
                 .frame(maxHeight: 120)
             }
         }
-        .background(self.theme.palette.cardBackground.opacity(0.85))
-        .cornerRadius(6)
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
     }
 
     // MARK: - Text Content View (Minimal)
@@ -859,6 +842,7 @@ struct MessageBubble: View {
     private var textContentView: some View {
         Text(self.markdownAttributedString(from: self.message.content))
             .font(.system(size: 13))
+            .foregroundStyle(self.palette.text)
             .textSelection(.enabled)
     }
 

@@ -3,57 +3,67 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct TranscriptionHistoryView: View {
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
-    @Environment(\.theme) private var theme
+    var onOpenPlayground: (() -> Void)?
 
-    @State private var searchQuery: String = ""
-    @State private var showClearConfirmation: Bool = false
+    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
+    @Environment(\.datasheetPalette) private var palette
+
+    @State private var searchQuery = ""
+    @State private var showClearConfirmation = false
     @State private var selectedEntryID: UUID?
+
+    init(onOpenPlayground: (() -> Void)? = nil) {
+        self.onOpenPlayground = onOpenPlayground
+    }
+
+    private static let rowTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
 
     private var filteredEntries: [TranscriptionHistoryEntry] {
         self.historyStore.search(query: self.searchQuery)
     }
 
     private var selectedEntry: TranscriptionHistoryEntry? {
-        guard let id = selectedEntryID else { return self.filteredEntries.first }
+        guard let id = self.selectedEntryID else { return self.filteredEntries.first }
         return self.filteredEntries.first(where: { $0.id == id })
     }
 
     var body: some View {
-        HSplitView {
-            // MARK: - Left Panel: Entry List
-
-            VStack(spacing: 0) {
-                // Search Bar
-                self.searchBar
-                    .padding(12)
-
-                Divider()
-                    .opacity(0.3)
-
-                // Entry List
-                if self.filteredEntries.isEmpty {
-                    self.emptyStateView
-                } else {
-                    self.entryListView
-                }
-
-                // Footer with stats and clear button
-                self.footerView
-            }
-            .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
-            .background(self.theme.palette.contentBackground)
-
-            // MARK: - Right Panel: Entry Detail
-
-            if let entry = selectedEntry {
-                self.entryDetailView(entry)
-                    .frame(minWidth: 400)
+        Group {
+            if self.historyStore.entries.isEmpty, self.searchQuery.isEmpty {
+                DatasheetEmptyState(
+                    placard: "00 ENTRIES",
+                    title: "No History Yet",
+                    message: "Your transcriptions will appear here. Start dictating to begin.",
+                    actionTitle: "Open Playground",
+                    action: { self.onOpenPlayground?() }
+                )
             } else {
-                self.noSelectionView
-                    .frame(minWidth: 400)
+                HSplitView {
+                    self.indexPanel
+                        .frame(minWidth: 200, idealWidth: 300, maxWidth: 360)
+
+                    if let entry = self.selectedEntry {
+                        self.entryDetailView(entry)
+                            .frame(minWidth: 320)
+                    } else {
+                        self.noSelectionView
+                            .frame(minWidth: 320)
+                    }
+                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(self.palette.surface)
         .onAppear {
             if self.selectedEntryID == nil {
                 self.selectedEntryID = self.filteredEntries.first?.id
@@ -72,117 +82,161 @@ struct TranscriptionHistoryView: View {
         }
     }
 
-    // MARK: - Search Bar
+    // MARK: - Index panel
+
+    private var indexPanel: some View {
+        VStack(spacing: 0) {
+            self.searchBar
+                .padding(12)
+
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(height: 1)
+
+            if self.filteredEntries.isEmpty {
+                self.noSearchResults
+            } else {
+                self.entryListView
+            }
+
+            self.footerView
+        }
+        .background(self.palette.surface)
+    }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(self.palette.text2)
+                .accessibilityHidden(true)
 
             TextField("Search transcriptions...", text: self.$searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
+                .foregroundStyle(self.palette.text)
+                .accessibilityLabel("Search transcriptions")
 
-            if !self.searchQuery.isEmpty {
+            DatasheetBracketed(rest: false) {
                 Button {
                     self.searchQuery = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(self.palette.text2)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Clear search")
             }
+            .opacity(self.searchQuery.isEmpty ? 0 : 1)
+            .disabled(self.searchQuery.isEmpty)
+            .accessibilityHidden(self.searchQuery.isEmpty)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(self.theme.palette.cardBackground)
-            .overlay(RoundedRectangle(cornerRadius: 8)
-                .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)))
+        .frame(height: 34)
+        .background(self.palette.field)
+        .overlay {
+            Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+        }
     }
-
-    // MARK: - Entry List
 
     private var entryListView: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(self.filteredEntries) { entry in
-                    self.entryRow(entry)
+            LazyVStack(spacing: 0) {
+                ForEach(Array(self.filteredEntries.enumerated()), id: \.element.id) { offset, entry in
+                    if self.startsNewDay(at: offset) {
+                        self.dayHeading(for: entry.timestamp)
+                    }
+
+                    self.entryRow(entry, index: offset + 1)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
         }
+        .accessibilityLabel("Transcription history")
     }
 
-    private func entryRow(_ entry: TranscriptionHistoryEntry) -> some View {
+    private func startsNewDay(at index: Int) -> Bool {
+        guard index > 0, index < self.filteredEntries.count else { return true }
+        return !Calendar.current.isDate(
+            self.filteredEntries[index - 1].timestamp,
+            inSameDayAs: self.filteredEntries[index].timestamp
+        )
+    }
+
+    private func dayHeading(for date: Date) -> some View {
+        HStack(spacing: 10) {
+            DatasheetMonoLabel(
+                text: self.dayTitle(for: date),
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+            .fixedSize()
+            Rectangle()
+                .fill(self.palette.ruleSoft)
+                .frame(height: 1)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 30, alignment: .bottom)
+        .background(self.palette.surface)
+    }
+
+    private func dayTitle(for date: Date) -> String {
+        let day = Self.dayFormatter.string(from: date).uppercased()
+        if Calendar.current.isDateInToday(date) { return "TODAY · \(day)" }
+        if Calendar.current.isDateInYesterday(date) { return "YESTERDAY · \(day)" }
+        return day
+    }
+
+    private func entryRow(_ entry: TranscriptionHistoryEntry, index: Int) -> some View {
         let isSelected = self.selectedEntryID == entry.id
 
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                self.selectedEntryID = entry.id
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                // Top row: App name and time
-                HStack(spacing: 6) {
-                    Text(entry.appName.isEmpty ? "Unknown App" : entry.appName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isSelected ? .white : .secondary)
-                        .lineLimit(1)
+        return HistoryIndexRow(isSelected: isSelected, action: {
+            self.selectedEntryID = entry.id
+        }) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(format: "%02d", index))
+                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
 
-                    if entry.wasAIProcessed {
-                        Text("AI")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(isSelected ? .white.opacity(0.8) : self.theme.palette.accent)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(isSelected ? .white.opacity(0.2) : self.theme.palette.accent.opacity(0.15))
-                            )
-                    }
-
-                    if self.hasAudio(entry) {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(isSelected ? .white.opacity(0.8) : self.theme.palette.accent)
-                            .help("Saved local dictation audio")
-                    }
-
-                    if entry.aiProcessingError != nil {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(isSelected ? .white : Color.orange)
-                            .help(entry.aiProcessingError ?? "")
-                    }
-
-                    Spacer()
-
-                    Text(entry.relativeTimeString)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isSelected ? .white.opacity(0.7) : Color.secondary.opacity(0.6))
+                    Text(Self.rowTimeFormatter.string(from: entry.timestamp).uppercased())
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .tracking(0.3)
+                        .opacity(0.72)
                 }
+                .frame(width: 48, alignment: .leading)
 
-                // Preview text
-                Text(entry.previewText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(isSelected ? .white.opacity(0.9) : .primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(entry.previewText)
+                        .font(.system(size: 13, weight: .regular))
+                        .lineSpacing(2)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(self.durationText(for: entry)) · \(self.wordCount(entry.processedText)) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 4) {
+                            Rectangle()
+                                .strokeBorder(isSelected ? self.palette.invForeground : self.palette.text2, lineWidth: 1)
+                                .frame(width: 6, height: 6)
+                            Text("UNKNOWN")
+                        }
+                        .help("Delivery outcome was not recorded for this entry.")
+                        .accessibilityLabel("Delivery outcome not recorded")
+                        .fixedSize()
+                    }
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .tracking(0.35)
+                    .opacity(0.74)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? self.theme.palette.accent : Color.clear)
-            )
-            .contentShape(Rectangle())
+            .padding(.vertical, 10)
         }
-        .buttonStyle(.plain)
         .contextMenu {
             Button {
                 self.copyToClipboard(entry.processedText)
@@ -235,297 +289,322 @@ struct TranscriptionHistoryView: View {
         }
     }
 
-    // MARK: - Empty State
-
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-
-            Image(systemName: self.searchQuery.isEmpty ? "clock.arrow.circlepath" : "magnifyingglass")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.tertiary)
-
-            VStack(spacing: 4) {
-                Text(self.searchQuery.isEmpty ? "No History Yet" : "No Results")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Text(self.searchQuery.isEmpty
-                    ? "Your transcriptions will appear here"
-                    : "Try a different search term")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
+    private var noSearchResults: some View {
+        VStack(spacing: 10) {
+            Spacer(minLength: 16)
+            DatasheetMonoLabel(text: "NO MATCHES", color: self.palette.text2)
+            Text("Try a different search term.")
+                .font(.system(size: 13))
+                .foregroundStyle(self.palette.text2)
+                .multilineTextAlignment(.center)
+            DatasheetBracketed(rest: false) {
+                Button("Clear Search") {
+                    self.searchQuery = ""
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(self.palette.text)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+                .buttonStyle(.plain)
             }
-
-            Spacer()
+            Spacer(minLength: 16)
         }
-        .frame(maxWidth: .infinity)
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(12)
     }
-
-    // MARK: - Footer
 
     private var footerView: some View {
         VStack(spacing: 0) {
-            Divider()
-                .opacity(0.3)
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(height: 1)
 
-            HStack {
-                // Stats
-                Text("\(self.historyStore.entries.count) entries")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
+            HStack(spacing: 8) {
+                Text("\(self.filteredEntries.count) ENTRIES · NEWEST FIRST")
+                    .font(DatasheetTheme.Typography.tableLabel.font)
+                    .tracking(DatasheetTheme.Typography.tableLabel.tracking)
+                    .foregroundStyle(self.palette.text2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                Spacer()
+                Spacer(minLength: 4)
 
-                // Clear All Button
                 if !self.historyStore.entries.isEmpty {
-                    Button {
-                        self.showClearConfirmation = true
-                    } label: {
-                        Text("Clear All")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                    DatasheetBracketed(rest: false) {
+                        Button("Clear All") {
+                            self.showClearConfirmation = true
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .buttonStyle(.plain)
+                        .fixedSize()
                     }
-                    .buttonStyle(.plain)
-                    .opacity(0.8)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .frame(height: 58)
         }
+        .background(self.palette.surface)
     }
 
-    // MARK: - Entry Detail View
+    // MARK: - Detail
 
     private func entryDetailView(_ entry: TranscriptionHistoryEntry) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("Transcription Details")
-                            .font(.system(size: 18, weight: .semibold))
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    self.titleBlock(entry)
 
-                        Spacer()
+                    if let aiError = entry.aiProcessingError {
+                        self.aiErrorBanner(aiError)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 16)
+                    }
 
-                        Button {
-                            self.copyToClipboard(entry.processedText)
-                        } label: {
-                            Label(entry.wasAIProcessed ? "Copy AI" : "Copy", systemImage: "doc.on.doc")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 10) {
+                        DatasheetMonoLabel(
+                            text: "ENTRY \(self.entryNumber(for: entry)) · FINAL TEXT · \(self.windowLabel(entry)) · \(entry.fullDateString.uppercased())",
+                            role: DatasheetTheme.Typography.tableLabel,
+                            color: self.palette.text2
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
 
-                        if self.hasAudio(entry) {
-                            Button {
-                                self.exportPair(entry)
-                            } label: {
-                                Label("Export Pair", systemImage: "square.and.arrow.up")
-                                    .font(.system(size: 12, weight: .medium))
+                        Text(entry.processedText)
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(self.palette.text)
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .contextMenu {
+                                Button {
+                                    self.copyToClipboard(entry.processedText)
+                                } label: {
+                                    Label(entry.wasAIProcessed ? "Copy AI Text" : "Copy Text", systemImage: "doc.on.doc")
+                                }
+
+                                if entry.wasAIProcessed {
+                                    Button {
+                                        self.copyToClipboard(entry.rawText)
+                                    } label: {
+                                        Label("Copy Raw Text", systemImage: "doc.on.doc.fill")
+                                    }
+
+                                    Button {
+                                        self.copyToClipboard(self.combinedText(for: entry))
+                                    } label: {
+                                        Label("Copy Both", systemImage: "doc.on.doc")
+                                    }
+                                }
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Button {
-                                self.revealAudio(entry)
-                            } label: {
-                                Label("Audio", systemImage: "waveform")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
 
                         if entry.wasAIProcessed {
-                            Button {
-                                self.copyToClipboard(entry.rawText)
-                            } label: {
-                                Label("Raw", systemImage: "doc.on.doc.fill")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            Rectangle()
+                                .fill(self.palette.ruleSoft)
+                                .frame(height: 1)
+                                .padding(.top, 8)
 
-                            Button {
-                                self.copyToClipboard(self.combinedText(for: entry))
-                            } label: {
-                                Label("Both", systemImage: "doc.on.doc")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-
-                    Text(entry.fullDateString)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-
-                Divider()
-                    .opacity(0.3)
-
-                if let aiError = entry.aiProcessingError {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.orange)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("AI Enhancement failed - raw transcription was typed instead")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(aiError)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.orange.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                            DatasheetMonoLabel(
+                                text: "ORIGINAL TRANSCRIPTION",
+                                role: DatasheetTheme.Typography.tableLabel,
+                                color: self.palette.text2
                             )
-                    )
-                }
+                            .padding(.top, 8)
 
-                // Final Text Section
-                self.detailSection(
-                    title: "Final Text",
-                    content: entry.processedText,
-                    badge: entry.wasAIProcessed ? "AI Enhanced" : nil
-                )
-
-                // Raw Text Section (only if different)
-                if entry.wasAIProcessed {
-                    self.detailSection(
-                        title: "Original Transcription",
-                        content: entry.rawText,
-                        badge: nil,
-                        isSecondary: true
-                    )
-                }
-
-                Divider()
-                    .opacity(0.3)
-
-                // Metadata Grid
-                self.metadataGrid(entry)
-
-                Spacer(minLength: 20)
-
-                // Delete Button
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
-                            self.historyStore.deleteEntry(id: entry.id)
-                            self.selectedEntryID = nextEntry?.id
+                            Text(entry.rawText)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(self.palette.text2)
+                                .lineSpacing(3)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                    } label: {
-                        Label("Delete Entry", systemImage: "trash")
-                            .font(.system(size: 12, weight: .medium))
+
+                        self.secondaryDetails(entry)
+                            .padding(.top, 10)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .controlSize(.small)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+                    .padding(.bottom, 28)
                 }
-            }
-            .padding(24)
-        }
-        .background(self.theme.palette.contentBackground)
-    }
-
-    private func detailSection(
-        title: String,
-        content: String,
-        badge: String?,
-        isSecondary: Bool = false
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-
-                if let badge = badge {
-                    Text(badge)
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(self.theme.palette.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(self.theme.palette.accent.opacity(0.15))
-                        )
-                }
-            }
-
-            Text(content)
-                .font(.system(size: 14, design: .default))
-                .foregroundStyle(isSecondary ? .secondary : .primary)
-                .textSelection(.enabled)
-                .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10)
-                    .fill(self.theme.palette.cardBackground)
-                    .overlay(RoundedRectangle(cornerRadius: 10)
-                        .stroke(self.theme.palette.cardBorder.opacity(isSecondary ? 0.35 : 0.5), lineWidth: 1)))
-        }
-    }
-
-    private func metadataGrid(_ entry: TranscriptionHistoryEntry) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Details")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
-
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16),
-            ], spacing: 12) {
-                self.metadataItem(icon: "app.fill", label: "Application", value: entry.appName.isEmpty ? "Unknown" : entry.appName)
-                self.metadataItem(icon: "macwindow", label: "Window", value: entry.windowTitle.isEmpty ? "Unknown" : entry.windowTitle)
-                self.metadataItem(icon: "character.cursor.ibeam", label: "Characters", value: "\(entry.characterCount)")
-                self.metadataItem(icon: "sparkles", label: "AI Processed", value: entry.wasAIProcessed ? "Yes" : "No")
-                self.metadataItem(icon: "waveform", label: "Audio", value: self.audioMetadataText(for: entry))
-            }
-        }
-    }
-
-    private func metadataItem(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
-
-                Text(value)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
             }
 
-            Spacer()
+            self.detailActions(entry)
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8)
-            .fill(self.theme.palette.cardBackground.opacity(0.9)))
+        .background(self.palette.surface)
     }
+
+    private func titleBlock(_ entry: TranscriptionHistoryEntry) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                self.factCell(label: "APPLICATION", value: entry.appName.isEmpty ? "Unknown" : entry.appName)
+                self.factCell(label: "LENGTH", value: self.durationText(for: entry))
+                self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
+                self.deliveryFact
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    self.factCell(label: "APPLICATION", value: entry.appName.isEmpty ? "Unknown" : entry.appName)
+                    self.factCell(label: "LENGTH", value: self.durationText(for: entry))
+                }
+                HStack(spacing: 0) {
+                    self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                    self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
+                    self.deliveryFact
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(self.palette.rule)
+                .frame(height: 1)
+        }
+    }
+
+    private var deliveryFact: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            DatasheetMonoLabel(
+                text: "DELIVERY",
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+            HStack(spacing: 5) {
+                Rectangle()
+                    .strokeBorder(self.palette.text2, lineWidth: 1)
+                    .frame(width: 6, height: 6)
+                Text("UNKNOWN")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Delivery outcome not recorded for this entry")
+            .help("Delivery outcome was not recorded for this entry.")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+    }
+
+    private func factCell(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            DatasheetMonoLabel(
+                text: label,
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+            Text(value)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(self.palette.ruleSoft)
+                .frame(width: 1)
+        }
+    }
+
+    private func aiErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Rectangle()
+                .fill(self.palette.accent)
+                .frame(width: 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                DatasheetMonoLabel(text: "AI ENHANCEMENT FAILED", color: self.palette.accent)
+                Text("The original transcription is shown below.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(self.palette.text2)
+                    .textSelection(.enabled)
+            }
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(12)
+        .overlay {
+            Rectangle().strokeBorder(self.palette.rule, lineWidth: 1)
+        }
+    }
+
+    private func secondaryDetails(_ entry: TranscriptionHistoryEntry) -> some View {
+        VStack(spacing: 0) {
+            self.detailFact(label: "WINDOW", value: entry.windowTitle.isEmpty ? "Unknown" : entry.windowTitle)
+            self.detailFact(
+                label: "AI PROCESSED",
+                value: entry.wasAIProcessed ? (entry.processingModel ?? "Yes") : "No"
+            )
+            self.detailFact(label: "AUDIO", value: self.audioMetadataText(for: entry))
+        }
+        .overlay {
+            Rectangle().strokeBorder(self.palette.rule, lineWidth: 1)
+        }
+    }
+
+    private func detailFact(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            DatasheetMonoLabel(
+                text: label,
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+            .frame(width: 124, alignment: .leading)
+
+            Text(value)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(self.palette.text2)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+        }
+    }
+
+    private func detailActions(_ entry: TranscriptionHistoryEntry) -> some View {
+        HistoryEntryActionBar(
+            hasAudio: self.hasAudio(entry),
+            copyHelp: entry.wasAIProcessed ? "Copy AI text" : "Copy transcription",
+            copy: { self.copyToClipboard(entry.processedText) },
+            audio: { self.revealAudio(entry) },
+            export: { self.exportPair(entry) },
+            delete: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
+                    self.historyStore.deleteEntry(id: entry.id)
+                    self.selectedEntryID = nextEntry?.id
+                }
+            }
+        )
+    }
+
+    private var noSelectionView: some View {
+        VStack(spacing: 8) {
+            DatasheetMonoLabel(text: "NO ENTRY SELECTED", color: self.palette.text2)
+            Text("Choose a transcription from the index.")
+                .font(.system(size: 13))
+                .foregroundStyle(self.palette.text2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(self.palette.surface)
+    }
+
+    // MARK: - Existing history actions
 
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
@@ -544,7 +623,28 @@ struct TranscriptionHistoryView: View {
         guard let audio = entry.audio, self.hasAudio(entry) else { return "No" }
         let seconds = Double(audio.durationMilliseconds) / 1000.0
         let size = ByteCountFormatter.string(fromByteCount: Int64(audio.byteCount), countStyle: .file)
-        return "\(String(format: "%.1f", seconds))s, \(size)"
+        return "Saved · \(String(format: "%.1f", seconds))s · \(size)"
+    }
+
+    private func durationText(for entry: TranscriptionHistoryEntry) -> String {
+        guard let audio = entry.audio, self.hasAudio(entry) else { return "—" }
+        let seconds = max(0, Int((Double(audio.durationMilliseconds) / 1000).rounded()))
+        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
+    }
+
+    private func wordCount(_ text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
+    }
+
+    private func windowLabel(_ entry: TranscriptionHistoryEntry) -> String {
+        let app = entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased()
+        let window = entry.windowTitle.isEmpty ? "" : " — \(entry.windowTitle.uppercased())"
+        return "\(app)\(window)"
+    }
+
+    private func entryNumber(for entry: TranscriptionHistoryEntry) -> String {
+        let number = (self.filteredEntries.firstIndex(where: { $0.id == entry.id }) ?? 0) + 1
+        return String(format: "%03d", number)
     }
 
     private func revealAudio(_ entry: TranscriptionHistoryEntry) {
@@ -575,26 +675,144 @@ struct TranscriptionHistoryView: View {
             alert.runModal()
         }
     }
+}
 
-    // MARK: - No Selection View
+private struct HistoryIndexRow<Content: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    let content: Content
 
-    private var noSelectionView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "text.quote")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(.tertiary)
+    @Environment(\.datasheetPalette) private var palette
+    @State private var isHovered = false
 
-            Text("Select a transcription")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.secondary)
+    init(isSelected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.isSelected = isSelected
+        self.action = action
+        self.content = content()
+    }
+
+    private var isInverted: Bool { self.isSelected || self.isHovered }
+
+    var body: some View {
+        Button(action: self.action) {
+            self.content
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+                .padding(.horizontal, 16)
+                .foregroundStyle(self.isInverted ? self.palette.invForeground : self.palette.text)
+                .background(self.isInverted ? self.palette.invBackground : self.palette.surface)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+                }
+                .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(self.theme.palette.contentBackground)
+        .buttonStyle(.plain)
+        .onHover { self.isHovered = $0 }
+        .accessibilityAddTraits(self.isSelected ? .isSelected : [])
     }
 }
 
 #Preview {
     TranscriptionHistoryView()
         .frame(width: 800, height: 600)
-        .environment(\.theme, AppTheme.dark)
+        .datasheetPalette()
+}
+
+/// The same actions stay fully labelled when the split detail becomes narrow.
+struct HistoryEntryActionBar: View {
+    let hasAudio: Bool
+    let copyHelp: String
+    let copy: () -> Void
+    let audio: () -> Void
+    let export: () -> Void
+    let delete: () -> Void
+
+    @Environment(\.datasheetPalette) private var palette
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                self.copyButton
+                self.audioButton
+                self.exportButton
+                Spacer(minLength: 0)
+                self.deleteButton
+            }
+            .frame(minWidth: 366)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    self.copyButton
+                    self.audioButton
+                    Spacer(minLength: 0)
+                    self.deleteButton
+                }
+                self.exportButton
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.surface)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
+    private var copyButton: some View {
+        DatasheetBracketed(rest: true) {
+            Button(action: self.copy) {
+                Label("Copy", systemImage: "doc.on.doc")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.invForeground)
+                    .fixedSize()
+                    .frame(width: 100, height: 28)
+                    .background(self.palette.invBackground)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(self.copyHelp)
+            .accessibilityIdentifier("history-copy")
+        }
+    }
+
+    private var audioButton: some View {
+        self.secondaryButton("Audio", symbol: "waveform", width: 88, action: self.audio)
+            .disabled(!self.hasAudio)
+            .opacity(self.hasAudio ? 1 : 0.42)
+    }
+
+    private var exportButton: some View {
+        self.secondaryButton("Export Pair", symbol: "square.and.arrow.up", width: 120, action: self.export)
+            .disabled(!self.hasAudio)
+            .opacity(self.hasAudio ? 1 : 0.42)
+    }
+
+    private var deleteButton: some View {
+        DatasheetBracketed(rest: false) {
+            Button(role: .destructive, action: self.delete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .frame(width: 34, height: 28)
+                    .contentShape(Rectangle())
+                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+            .help("Delete entry")
+            .accessibilityLabel("Delete entry")
+        }
+    }
+
+    private func secondaryButton(_ title: String, symbol: String, width: CGFloat, action: @escaping () -> Void) -> some View {
+        DatasheetBracketed(rest: false) {
+            Button(action: action) {
+                Label(title, systemImage: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                    .fixedSize()
+                    .frame(width: width, height: 28)
+                    .contentShape(Rectangle())
+                    .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+        }
+    }
 }
