@@ -86,6 +86,7 @@ extension AIEnhancementSettingsView {
                     ],
                     cellWidth: 150
                 )
+                .frame(height: 30)
             }
 
             self.aiUnsupportedNotice
@@ -148,7 +149,7 @@ extension AIEnhancementSettingsView {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(self.palette.text)
                     Text("Configure local models and API providers.")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
                 }
 
@@ -159,7 +160,7 @@ extension AIEnhancementSettingsView {
                         Image(systemName: self.viewModel.showHelp ? "questionmark.circle.fill" : "questionmark.circle")
                             .font(.system(size: 14))
                         Text("Help")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .fontWeight(.medium)
                     }
                     .foregroundStyle(self.palette.text)
@@ -207,12 +208,12 @@ extension AIEnhancementSettingsView {
     private func aiSetupSummaryItem(icon: String, text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(self.palette.accent.opacity(0.95))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(self.palette.text2)
                 .frame(width: 14)
 
             Text(text)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(self.palette.text2)
                 .lineLimit(1)
         }
@@ -264,11 +265,11 @@ extension AIEnhancementSettingsView {
                 .frame(width: 20, height: 20)
                 .background(self.palette.invBackground)
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
                 .frame(width: 16)
             Text(text)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
         }
     }
@@ -296,15 +297,15 @@ extension AIEnhancementSettingsView {
                     $0.id.localizedCaseInsensitiveContains(query)
             }
         let count = filteredItems.count
-        return DatasheetSection(letter: "B", title: "All Providers", trailing: "\(count) providers") {
+        return DatasheetSection(letter: "", title: "All Providers", trailing: "\(count) providers") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
                     TextField("Search providers", text: self.$providerSearchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text)
                 }
                 .padding(.horizontal, 10)
@@ -325,7 +326,7 @@ extension AIEnhancementSettingsView {
                                 HStack(spacing: 8) {
                                     DatasheetStatusSquare(kind: .outline)
                                     Text("No providers match \"\(query)\"")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 13))
                                         .foregroundStyle(self.palette.text2)
                                     Spacer()
                                 }
@@ -365,7 +366,7 @@ extension AIEnhancementSettingsView {
 
     private func providerColumnHeading(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .tracking(0.4)
             .foregroundStyle(self.palette.text2)
             .lineLimit(1)
@@ -375,7 +376,7 @@ extension AIEnhancementSettingsView {
         let verified = self.verifiedProviderItems
         let count = verified.count
 
-        return DatasheetSection(letter: "A", title: "Verified Providers", trailing: "\(count) verified", topSpacing: 0) {
+        return DatasheetSection(letter: "", title: "Verified Providers", trailing: "\(count) verified", topSpacing: 0) {
             if verified.isEmpty {
                 HStack(spacing: 10) {
                     DatasheetStatusSquare(kind: .outline)
@@ -384,7 +385,7 @@ extension AIEnhancementSettingsView {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(self.palette.text)
                         Text("Set up a provider below and verify its connection")
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .foregroundStyle(self.palette.text2)
                     }
                     Spacer()
@@ -432,10 +433,10 @@ extension AIEnhancementSettingsView {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle())
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .help(help)
     }
 
@@ -456,12 +457,12 @@ extension AIEnhancementSettingsView {
                         .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
             }
             .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle())
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .disabled(disabled)
         .opacity(opacity)
         .help(help)
@@ -493,7 +494,7 @@ extension AIEnhancementSettingsView {
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(self.palette.text2)
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(self.palette.text2)
                     }
                     .frame(width: 70, alignment: .trailing)
@@ -585,10 +586,10 @@ extension AIEnhancementSettingsView {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "textformat")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                             Text("Provider Name")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                         TextField("Custom Provider", text: nameBinding)
@@ -599,10 +600,10 @@ extension AIEnhancementSettingsView {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "link")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                             Text("Base URL")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                         TextField("https://api.yourprovider.com/v1", text: baseURLBinding)
@@ -613,7 +614,7 @@ extension AIEnhancementSettingsView {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("API Key")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                     HStack(alignment: .center, spacing: 8) {
                         SecureField("Enter API key", text: apiKeyBinding)
@@ -631,7 +632,7 @@ extension AIEnhancementSettingsView {
                                     Image(systemName: websiteInfo.label.contains("Guide") ? "book.fill" : "key.fill")
                                         .font(.system(size: 10))
                                     Text(websiteInfo.label)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                 }
                                 .foregroundStyle(self.palette.text)
                                 .padding(.horizontal, 10)
@@ -646,7 +647,7 @@ extension AIEnhancementSettingsView {
 
                 HStack(spacing: 8) {
                     Text("Model")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 50, alignment: .leading)
 
@@ -709,7 +710,7 @@ extension AIEnhancementSettingsView {
                                     .fixedSize()
                             } else {
                                 Image(systemName: "checkmark.shield")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 13))
                             }
                             Text(self.viewModel.isTestingConnection ? "Verifying..." : "Verify Connection")
                                 .font(.system(size: 13, weight: .semibold))
@@ -720,9 +721,9 @@ extension AIEnhancementSettingsView {
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "info.circle")
-                            .font(.caption)
+                            .font(.system(size: 13))
                         Text(hasModels ? "Select a model to enable verification" : "Refresh models to enable verification")
-                            .font(.caption)
+                            .font(.system(size: 13))
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -739,7 +740,7 @@ extension AIEnhancementSettingsView {
                             Image(systemName: "trash")
                             Text("Delete Provider")
                         }
-                        .font(.caption)
+                        .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
                 }
@@ -783,14 +784,14 @@ extension AIEnhancementSettingsView {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(self.palette.text)
                     Text("OpenAI-compatible endpoint")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(self.palette.text2)
             }
             .padding(12)
@@ -848,7 +849,7 @@ extension AIEnhancementSettingsView {
 
                     if isSelected {
                         Text("Active")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .tracking(0.35)
                             .foregroundStyle(self.palette.text2)
                     }
@@ -891,10 +892,10 @@ extension AIEnhancementSettingsView {
                         }
                     }) {
                         Text("Edit")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     }
-                    .buttonStyle(SquareIconButtonStyle())
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                     .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     .help("Edit provider")
                 }
@@ -1040,19 +1041,16 @@ extension AIEnhancementSettingsView {
             self.viewModel.openReasoningConfig()
         }) {
             Image(systemName: hasEnabledConfig ? "brain.fill" : "brain")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(hasEnabledConfig ? self.palette.accent : self.palette.text)
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle(
-            foreground: hasEnabledConfig ? self.palette.accent : nil,
-            borderColor: hasEnabledConfig ? self.palette.accent.opacity(0.6) : nil
-        ))
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .help("Configure reasoning parameters")
     }
 
     var promptsStepContent: some View {
-        DatasheetSection(letter: "A", title: "Prompt Routing", trailing: "DICTATE") {
+        DatasheetSection(letter: "", title: "Prompt Routing", trailing: "DICTATE") {
             HStack(alignment: .top, spacing: 8) {
                 Text("Choose where prompts run, then assign a default, custom prompt, or app override.")
                     .font(.system(size: 13))
@@ -1107,10 +1105,10 @@ extension AIEnhancementSettingsView {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: "textformat")
-                                    .font(.caption)
+                                    .font(.system(size: 13))
                                     .foregroundStyle(.secondary)
                                 Text("Name")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             TextField("Provider name", text: self.$viewModel.editProviderName)
@@ -1122,10 +1120,10 @@ extension AIEnhancementSettingsView {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: "link")
-                                    .font(.caption)
+                                    .font(.system(size: 13))
                                     .foregroundStyle(.secondary)
                                 Text("Base URL")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             TextField("e.g., http://localhost:11434/v1", text: self.$viewModel.editProviderBaseURL)
@@ -1138,10 +1136,10 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "key")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("API Key")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     HStack(alignment: .center, spacing: 8) {
@@ -1160,7 +1158,7 @@ extension AIEnhancementSettingsView {
                                     Image(systemName: websiteInfo.label.contains("Guide") ? "book.fill" : "key.fill")
                                         .font(.system(size: 10))
                                     Text(websiteInfo.label)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                 }
                                 .foregroundStyle(self.palette.text)
                                 .padding(.horizontal, 10)
@@ -1185,7 +1183,7 @@ extension AIEnhancementSettingsView {
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                         Text("Save")
                     }
                 }
@@ -1219,7 +1217,7 @@ extension AIEnhancementSettingsView {
                             Image(systemName: "trash")
                             Text("Delete Provider")
                         }
-                        .font(.caption)
+                        .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1238,7 +1236,7 @@ extension AIEnhancementSettingsView {
             Image(systemName: "apple.logo").font(.system(size: 14))
             Text("On-Device").fontWeight(.medium)
             Text("•").foregroundStyle(.secondary)
-            Image(systemName: "lock.shield.fill").font(.system(size: 12))
+            Image(systemName: "lock.shield.fill").font(.system(size: 13))
             Text("Private").fontWeight(.medium)
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -1273,7 +1271,7 @@ extension AIEnhancementSettingsView {
 
             if !ModelRepository.shared.isBuiltIn(self.viewModel.selectedProviderID) {
                 Button(action: { self.viewModel.deleteSelectedModel() }) {
-                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption)
+                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.system(size: 13))
                 }
                 .buttonStyle(.plain)
                 .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
@@ -1293,7 +1291,7 @@ extension AIEnhancementSettingsView {
                     Image(systemName: self.viewModel.hasReasoningConfigForCurrentModel() ? "brain.fill" : "brain")
                     Text("Reasoning")
                 }
-                .font(.caption)
+                .font(.system(size: 13))
             }
             .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
             .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
@@ -1334,7 +1332,7 @@ extension AIEnhancementSettingsView {
                     .font(.system(size: 14))
                     .foregroundStyle(self.palette.accent)
                 Text("Reasoning for \(self.viewModel.selectedModel)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(self.palette.text)
                 Spacer()
                 Button(action: { self.viewModel.showingReasoningConfig = false }) {
@@ -1351,7 +1349,7 @@ extension AIEnhancementSettingsView {
                     .toggleStyle(.switch)
                     .controlSize(.small)
                 Text(self.viewModel.editingReasoningEnabled ? "Enabled" : "Disabled")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.viewModel.editingReasoningEnabled ? self.palette.accent : .secondary)
             }
 
@@ -1360,7 +1358,7 @@ extension AIEnhancementSettingsView {
                     // Parameter type picker
                     HStack(spacing: 12) {
                         Text("Parameter")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .frame(width: 70, alignment: .trailing)
 
@@ -1407,12 +1405,12 @@ extension AIEnhancementSettingsView {
                     {
                         HStack(spacing: 12) {
                             Text("Name")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
                             TextField("e.g., thinking_budget", text: self.$viewModel.editingReasoningParamName)
                                 .textFieldStyle(.plain).datasheetAIFieldChrome()
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .frame(width: 140)
                         }
                     }
@@ -1420,7 +1418,7 @@ extension AIEnhancementSettingsView {
                     // Value picker/field
                     HStack(spacing: 12) {
                         Text("Value")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .frame(width: 70, alignment: .trailing)
 
@@ -1446,7 +1444,7 @@ extension AIEnhancementSettingsView {
                         } else {
                             TextField("value", text: self.$viewModel.editingReasoningParamValue)
                                 .textFieldStyle(.plain).datasheetAIFieldChrome()
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .frame(width: 100)
                         }
                     }
@@ -1457,7 +1455,7 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Button(action: { self.saveReasoningConfig() }) {
                     Text("Save")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
                 .frame(minWidth: 60, minHeight: 26)
@@ -1485,7 +1483,7 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 12) {
                 Button(action: { Task { await self.viewModel.testAPIConnection() } }) {
                     Text(self.viewModel.isTestingConnection ? "Verifying..." : "Verify Connection")
-                        .font(.caption)
+                        .font(.system(size: 13))
                         .fontWeight(.semibold)
                 }
                 .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
@@ -1499,16 +1497,16 @@ extension AIEnhancementSettingsView {
             if self.viewModel.connectionStatus == .success {
                 HStack(spacing: 8) {
                     DatasheetStatusSquare(kind: .ink)
-                    Text("Connection verified").font(.caption).foregroundStyle(self.palette.text)
+                    Text("Connection verified").font(.system(size: 13)).foregroundStyle(self.palette.text)
                 }
             } else if self.viewModel.connectionStatus == .failed {
                 HStack(spacing: 8) {
                     DatasheetStatusSquare(kind: .orange)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Connection failed").font(.caption).foregroundStyle(self.palette.text)
+                        Text("Connection failed").font(.system(size: 13)).foregroundStyle(self.palette.text)
                         if !self.viewModel.connectionErrorMessage.isEmpty {
                             Text(self.viewModel.connectionErrorMessage)
-                                .font(.caption2)
+                                .font(.system(size: 13))
                                 .foregroundStyle(self.palette.text2)
                                 .lineLimit(1)
                         }
@@ -1517,7 +1515,7 @@ extension AIEnhancementSettingsView {
             } else if self.viewModel.connectionStatus == .testing {
                 HStack(spacing: 8) {
                     ProgressView().frame(width: 16, height: 16)
-                    Text("Verifying...").font(.caption).foregroundStyle(self.palette.accent)
+                    Text("Verifying...").font(.system(size: 13)).foregroundStyle(self.palette.accent)
                 }
             }
 
@@ -1533,7 +1531,7 @@ extension AIEnhancementSettingsView {
         HStack(spacing: 8) {
             Button(action: { self.viewModel.handleAPIKeyButtonTapped() }) {
                 Label("Add or Modify API Key", systemImage: "key.fill")
-                    .labelStyle(.titleAndIcon).font(.caption)
+                    .labelStyle(.titleAndIcon).font(.system(size: 13))
             }
             .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
             .frame(minWidth: AISettingsLayout.primaryActionMinWidth, minHeight: AISettingsLayout.controlHeight)
@@ -1543,7 +1541,7 @@ extension AIEnhancementSettingsView {
             {
                 Button(action: { NSWorkspace.shared.open(url) }) {
                     Label(websiteInfo.label, systemImage: websiteInfo.label.contains("Download") ? "arrow.down.circle.fill" : (websiteInfo.label.contains("Guide") ? "book.fill" : "link"))
-                        .labelStyle(.titleAndIcon).font(.caption)
+                        .labelStyle(.titleAndIcon).font(.system(size: 13))
                 }
                 .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
@@ -1598,10 +1596,10 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "link")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("OpenAI-compatible base URL")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     TextField("https://api.yourprovider.com/v1", text: self.$viewModel.newProviderBaseURL)
@@ -1612,10 +1610,10 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "key")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("API Key (optional for local endpoints)")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     SecureField("Enter API key", text: self.$viewModel.newProviderApiKey)
@@ -1631,7 +1629,7 @@ extension AIEnhancementSettingsView {
                 Button(action: { self.saveNewProvider() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                         Text("Save Provider")
                     }
                 }

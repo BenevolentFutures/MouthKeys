@@ -20,11 +20,32 @@ struct VoiceEngineSettingsView: View {
         self.colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.85) : self.theme.palette.secondaryText
     }
 
+    // A render fixture installs this actual View, without initiating model checks.
+    private let skipsLifecycleForRender: Bool
+
+    init(
+        viewModel: VoiceEngineSettingsViewModel,
+        settings: SettingsStore,
+        theme: AppTheme,
+        skipsLifecycleForRender: Bool = false
+    ) {
+        self.viewModel = viewModel
+        self.settings = settings
+        self.theme = theme
+        self.skipsLifecycleForRender = skipsLifecycleForRender
+    }
+
     var body: some View {
         self.speechRecognitionCard
-            .onAppear { self.viewModel.onAppear() }
+            .onAppear {
+                if !self.skipsLifecycleForRender {
+                    self.viewModel.onAppear()
+                }
+            }
             .onChange(of: self.settings.selectedSpeechModel) { _, newValue in
-                self.viewModel.handleSelectedSpeechModelChange(newValue)
+                if !self.skipsLifecycleForRender {
+                    self.viewModel.handleSelectedSpeechModelChange(newValue)
+                }
             }
     }
 }

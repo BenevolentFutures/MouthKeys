@@ -10,6 +10,13 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum DatasheetDictionaryRenderState {
+    case training
+    case manual
+    case empty
+    case trainingError
+}
+
 // This legacy screen still owns several dictionary editors; split them into standalone views incrementally.
 // swiftlint:disable:next type_body_length
 struct CustomDictionaryView: View {
@@ -67,7 +74,7 @@ struct CustomDictionaryView: View {
     @State private var punctuationSymbolText = ""
     private let datasheetRenderFixture: Bool
 
-    init(datasheetRenderFixture: Bool = false) {
+    init(datasheetRenderFixture: Bool = false, renderState: DatasheetDictionaryRenderState = .training) {
         self.datasheetRenderFixture = datasheetRenderFixture
         guard datasheetRenderFixture else { return }
 
@@ -94,6 +101,27 @@ struct CustomDictionaryView: View {
         self._punctuationPrefix = State(initialValue: SettingsStore.defaultPunctuationDictionaryPrefix)
         self._punctuationRules = State(initialValue: Array(SettingsStore.defaultPunctuationDictionaryRules.prefix(8)))
         self._formattingActionRules = State(initialValue: SettingsStore.defaultSpokenFormattingActionRules)
+
+        switch renderState {
+        case .training:
+            break
+        case .manual:
+            self._composerMode = State(initialValue: .manual)
+            self._manualTriggerDraft = State(initialValue: "sample term")
+            self._manualReplacement = State(initialValue: "SampleTerm")
+        case .empty:
+            self._entries = State(initialValue: [])
+            self._boostTerms = State(initialValue: [])
+            self._trainingReplacement = State(initialValue: "")
+            self._trainingVariants = State(initialValue: [])
+            self._trainingSampleCount = State(initialValue: 0)
+            self._consecutiveCoveredCaptures = State(initialValue: 0)
+            self._lastTrainingOutput = State(initialValue: "")
+            self._lastTrainingOutputIsCovered = State(initialValue: false)
+        case .trainingError:
+            self._trainingHasError = State(initialValue: true)
+            self._trainingStatusMessage = State(initialValue: "Could not record this sample. Try again.")
+        }
     }
 
     private var normalizedTrainingReplacement: String {
@@ -384,7 +412,7 @@ struct CustomDictionaryView: View {
                 Image(systemName: icon)
                 Text(title)
             }
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(self.palette.text)
             .padding(.horizontal, 10)
             .frame(height: 34)
@@ -433,12 +461,11 @@ struct CustomDictionaryView: View {
 
     private var trainReplacementSection: some View {
         DatasheetSection(
-            letter: "A",
+            letter: "",
             title: "Teach Words",
-            note: "Show MouthKeys the right spelling, by voice or by typing.",
             topSpacing: 0
         ) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
                 self.dictionaryComposerModePicker
 
                 Group {
@@ -451,19 +478,24 @@ struct CustomDictionaryView: View {
                 }
                 .frame(minHeight: 315, alignment: .topLeading)
             }
+            .background(self.palette.surface)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var dictionaryComposerModePicker: some View {
-        VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
+        HStack(spacing: 16) {
             self.dictionaryComposerModeSegmented
-
+            Spacer(minLength: 0)
             Text(self.composerModeDetail)
-                .font(.system(size: 12))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(self.palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 3)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
     }
 
     private var dictionaryComposerModeSegmented: some View {
@@ -479,6 +511,7 @@ struct CustomDictionaryView: View {
         .onChange(of: self.composerMode) { _, mode in
             self.selectComposerMode(mode)
         }
+        .frame(height: 30)
     }
 
     private var trainReplacementComposer: some View {
@@ -524,7 +557,9 @@ struct CustomDictionaryView: View {
                 self.updateTrainedReplacementGlow()
             }
         }
+        .padding(20)
         .task {
+            guard !self.datasheetRenderFixture else { return }
             await DictionaryTrainingEndpointMonitor.shared.prepare()
         }
     }
@@ -555,7 +590,7 @@ struct CustomDictionaryView: View {
                     DatasheetStatusSquare(kind: .orange)
                     Text("Already used: \(self.manualDuplicateTriggers.joined(separator: ", "))")
                 }
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
             }
 
@@ -566,11 +601,11 @@ struct CustomDictionaryView: View {
                     }
 
                     Image(systemName: "arrow.right")
-                        .font(self.theme.typography.caption)
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
 
                     Text(CustomDictionaryManualEntry.replacementDisplayText(self.sanitizedManualReplacement))
-                        .font(self.theme.typography.captionStrong)
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(self.palette.text)
                 }
             }
@@ -593,19 +628,20 @@ struct CustomDictionaryView: View {
             .disabled(!self.canAddManualReplacement)
             .opacity(self.canAddManualReplacement ? 1 : 0.45)
         }
+        .padding(20)
     }
 
     private var manualTriggerField: some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
             Text("When MouthKeys hears")
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
 
             TextField("fluid voice, fluid boys", text: self.$manualTriggerDraft)
                 .dictionaryInputChrome()
                 .onSubmit { self.addManualReplacementIfValid() }
 
             Text("Separate different versions with commas. Enter only commas to replace comma punctuation.")
-                .font(self.theme.typography.caption)
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
         }
     }
@@ -613,12 +649,12 @@ struct CustomDictionaryView: View {
     private var manualReplacementField: some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
             Text("Change it to")
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
             TextField("MouthKeys", text: self.$manualReplacement)
                 .dictionaryInputChrome()
                 .onSubmit { self.addManualReplacementIfValid() }
             Text("This is what appears in your transcription.")
-                .font(self.theme.typography.caption)
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
         }
     }
@@ -636,7 +672,7 @@ struct CustomDictionaryView: View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 9) {
                 Text("TRAINING STEPS")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .tracking(0.5)
                     .foregroundStyle(self.palette.text2)
 
@@ -682,7 +718,7 @@ struct CustomDictionaryView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("READINESS")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .tracking(0.5)
                         .foregroundStyle(self.palette.text2)
                 }
@@ -694,7 +730,7 @@ struct CustomDictionaryView: View {
                 )
 
                 Text(self.trainingReadinessCaption)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(self.palette.text2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -738,7 +774,7 @@ struct CustomDictionaryView: View {
     private var trainingHeardSection: some View {
         HStack(alignment: .top, spacing: 8) {
             Text("HEARD")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .tracking(0.4)
                 .foregroundStyle(self.palette.text2)
                 .frame(width: 42, alignment: .leading)
@@ -767,7 +803,7 @@ struct CustomDictionaryView: View {
         HStack(alignment: .center, spacing: self.theme.metrics.spacing.md) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Final output")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(self.palette.text2)
 
                 Text(self.trainingFinalOutputText)
@@ -777,7 +813,7 @@ struct CustomDictionaryView: View {
 
                 if !self.lastTrainingOutput.isEmpty, self.lastTrainingOutput.caseInsensitiveCompare(self.trainingFinalOutputText) != .orderedSame {
                     Text("Heard: \(self.lastTrainingOutput)")
-                        .font(self.theme.typography.caption)
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
                         .lineLimit(1)
                 }
@@ -799,7 +835,7 @@ struct CustomDictionaryView: View {
                         DatasheetStatusSquare(kind: .orange)
                         Text(self.trainingStatusMessage)
                     }
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
                 }
 
@@ -828,7 +864,7 @@ struct CustomDictionaryView: View {
 
     private var yourDictionarySection: some View {
         DatasheetSection(
-            letter: "B",
+            letter: "",
             title: "Your Dictionary",
             trailing: "\(self.entries.count) entries",
             note: "Words and phrases MouthKeys will correct automatically."
@@ -863,7 +899,7 @@ struct CustomDictionaryView: View {
 
     private func tableHeading(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .tracking(0.4)
             .foregroundStyle(self.palette.text2)
             .lineLimit(1)
@@ -871,7 +907,7 @@ struct CustomDictionaryView: View {
 
     private var punctuationDictionarySection: some View {
         DatasheetSection(
-            letter: "C",
+            letter: "",
             title: "Spoken Formatting",
             trailing: "\(SettingsStore.SpokenFormattingAction.allCases.count) actions · \(self.punctuationRules.count) punctuation",
             note: "Use a start word to safely insert formatting actions, punctuation, and symbols."
@@ -887,7 +923,7 @@ struct CustomDictionaryView: View {
                             Image(systemName: "info.circle")
                             Text(self.isPunctuationInfoExpanded ? "Hide information" : "About spoken formatting")
                         }
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                     }
                     .buttonStyle(.plain)
@@ -905,7 +941,7 @@ struct CustomDictionaryView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         self.tableHeading("Start Word")
                         Text("Say this first so normal words do not change.")
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .foregroundStyle(self.palette.text2)
                         TextField("literal", text: self.$punctuationPrefix)
                             .dictionaryInputChrome()
@@ -916,7 +952,7 @@ struct CustomDictionaryView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         self.tableHeading("Try Saying")
                         Text("Examples of what MouthKeys will type.")
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .foregroundStyle(self.palette.text2)
                         self.punctuationTrySayingPreview
                     }
@@ -931,7 +967,7 @@ struct CustomDictionaryView: View {
                     Button("Reset All Defaults") {
                         self.isFormattingResetAlertPresented = true
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(self.palette.text2)
                     .padding(.horizontal, 10)
                     .frame(height: 30)
@@ -968,7 +1004,7 @@ struct CustomDictionaryView: View {
 
     private var aiPostProcessingSection: some View {
         DatasheetSection(
-            letter: "D",
+            letter: "",
             title: "Custom Words",
             trailing: "\(self.boostTerms.count) terms",
             note: "Help the Parakeet voice engine recognize names, products, and uncommon terms."
@@ -996,7 +1032,7 @@ struct CustomDictionaryView: View {
                         self.startAddingBoostTerm()
                     } label: {
                         Label("Add Word", systemImage: "plus")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(self.palette.text)
                             .padding(.horizontal, 10)
                             .frame(height: 30)
@@ -1031,7 +1067,7 @@ struct CustomDictionaryView: View {
                     HStack(spacing: 8) {
                         DatasheetStatusSquare(kind: .orange)
                         Text(self.boostStatusMessage)
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .foregroundStyle(self.palette.text2)
                     }
                 }
@@ -1065,27 +1101,27 @@ struct CustomDictionaryView: View {
     private var boostWordEditor: some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.md) {
             Text(self.boostEditorTitle)
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Word or Phrase")
-                    .font(self.theme.typography.captionStrong)
+                    .font(.system(size: 13, weight: .semibold))
                 TextField("MouthKeys", text: self.$boostTermText)
-                    .font(self.theme.typography.bodySmall)
+                    .font(.system(size: 13))
                     .dictionaryInputChrome()
                     .onSubmit { self.saveBoostTermIfValid() }
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Word Priority")
-                    .font(self.theme.typography.captionStrong)
+                    .font(.system(size: 13, weight: .semibold))
                 DatasheetSegmented(
                     selection: self.$boostTermStrength,
                     choices: BoostStrengthPreset.allCases.map { .init(value: $0, title: $0.rawValue) },
                     cellWidth: 72
                 )
                 Text(self.boostTermStrength.hint)
-                    .font(self.theme.typography.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.theme.palette.secondaryText)
             }
 
@@ -1094,7 +1130,7 @@ struct CustomDictionaryView: View {
                     DatasheetStatusSquare(kind: .orange)
                     Text("This word already exists.")
                 }
-                    .font(self.theme.typography.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
             }
 
@@ -1154,7 +1190,7 @@ struct CustomDictionaryView: View {
                         ? "Formatting actions and punctuation will run after the start word."
                         : "Your rules stay saved, but they will not change dictated text."
                 )
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
             }
 
@@ -1178,7 +1214,7 @@ struct CustomDictionaryView: View {
             VStack(alignment: .leading, spacing: 3) {
                 self.tableHeading("Formatting Actions")
                 Text("Fixed invisible actions with spoken phrases you can personalize.")
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
             }
 
@@ -1200,7 +1236,7 @@ struct CustomDictionaryView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     self.tableHeading("Punctuation")
                     Text("Spoken names that type punctuation or symbols after the start word.")
-                        .font(.system(size: 12))
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
                 }
                 Spacer()
@@ -1209,7 +1245,7 @@ struct CustomDictionaryView: View {
                         self.startAddingPunctuationRule()
                     } label: {
                         Label("Add Rule", systemImage: "plus")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(self.palette.text)
                             .padding(.horizontal, 10)
                             .frame(height: 30)
@@ -1280,7 +1316,7 @@ struct CustomDictionaryView: View {
             Button("Edit") {
                 self.startEditingFormattingAction(action)
             }
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(self.palette.text2)
             .padding(.horizontal, 9)
             .frame(height: 28)
@@ -1301,13 +1337,13 @@ struct CustomDictionaryView: View {
     private func formattingActionEditor(_ action: SettingsStore.SpokenFormattingAction) -> some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.sm) {
             Text("Edit \(action.title) Phrases")
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
             Text("Enter one phrase per line. Clearing every phrase disables this action.")
-                .font(self.theme.typography.caption)
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
 
             TextEditor(text: self.$formattingActionAliasesText)
-                .font(self.theme.typography.bodySmall)
+                .font(.system(size: 13))
                 .frame(minHeight: 68, maxHeight: 92)
                 .scrollContentBackground(.hidden)
                 .dictionaryInputChrome(minHeight: 68)
@@ -1348,7 +1384,7 @@ struct CustomDictionaryView: View {
             Text("When you say \"\(self.punctuationPreviewPrefix) comma\", it types \",\".")
             Text("Add one spoken phrase per line. Formatting actions always keep their fixed output.")
         }
-        .font(.system(size: 12))
+        .font(.system(size: 13))
         .foregroundStyle(self.palette.text2)
         .fixedSize(horizontal: false, vertical: true)
         .padding(12)
@@ -1368,7 +1404,7 @@ struct CustomDictionaryView: View {
                 typed: "New Line"
             )
         }
-        .font(.system(size: 12))
+        .font(.system(size: 13))
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
@@ -1391,7 +1427,7 @@ struct CustomDictionaryView: View {
     private var punctuationRuleEditor: some View {
         VStack(alignment: .leading, spacing: self.theme.metrics.spacing.md) {
             Text(self.punctuationEditorTitle)
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
 
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: self.theme.metrics.spacing.md) {
@@ -1451,12 +1487,12 @@ struct CustomDictionaryView: View {
     private var punctuationAliasesEditor: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("What You Say")
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
             Text("One way per line, like comma or full stop.")
-                .font(self.theme.typography.caption)
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
             TextEditor(text: self.$punctuationAliasesText)
-                .font(self.theme.typography.bodySmall)
+                .font(.system(size: 13))
                 .frame(minHeight: 64, maxHeight: 86)
                 .scrollContentBackground(.hidden)
                 .dictionaryInputChrome(minHeight: 64)
@@ -1467,13 +1503,13 @@ struct CustomDictionaryView: View {
     private var punctuationSymbolEditor: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("What It Types")
-                .font(self.theme.typography.captionStrong)
+                .font(.system(size: 13, weight: .semibold))
             TextField(",", text: self.$punctuationSymbolText)
-                .font(self.theme.typography.bodySmallStrong)
+                .font(.system(size: 13, weight: .semibold))
                 .dictionaryInputChrome()
                 .frame(width: 92)
             Text("One punctuation symbol, like , or ?.")
-                .font(self.theme.typography.caption)
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text2)
         }
     }
@@ -2216,14 +2252,13 @@ private extension CustomDictionaryView {
 
     func trainingInstruction(number: Int, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(number)")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(self.palette.invForeground)
+            Text(String(format: "%02d", number))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.text)
                 .frame(width: 20, height: 20, alignment: .center)
-                .background(self.palette.invBackground)
 
             Text(text)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .lineSpacing(1)
                 .foregroundStyle(self.palette.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2267,13 +2302,13 @@ private struct VoiceMatchingSettingsRow: View {
                     DatasheetStatusSquare(kind: .outline)
                         .padding(.top, 4)
                     Text("Research Preview: Compares how your voice sounds instead of only the words MouthKeys hears. Results may vary.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(self.palette.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else if !self.isAdvancedAvailable {
                 Text("Advanced voice matching requires Parakeet TDT on Apple Silicon.")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
             }
         }
@@ -2295,7 +2330,7 @@ private struct VoiceMatchingSettingsRow: View {
                 Text(title.uppercased())
                 if isResearchPreview { Text("PREVIEW") }
             }
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .tracking(0.4)
             .foregroundStyle(isSelected ? self.palette.invForeground : self.palette.text2)
             .frame(maxWidth: .infinity, minHeight: 36)
@@ -2653,7 +2688,7 @@ private struct ReplacementConfirmationToast: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(self.palette.text)
                 Text(self.confirmation.detail)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
                     .multilineTextAlignment(.leading)
             }
@@ -2675,16 +2710,21 @@ private struct DictionaryTrainingReadinessRing: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            DatasheetMeter(value: self.progress, count: self.total, segmentWidth: 30, segmentHeight: 12)
-            HStack(spacing: 7) {
-                Text("\(min(self.progress, self.total))/\(self.total)")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(self.isReady ? self.palette.text : self.palette.text2)
+            DatasheetMeter(value: self.progress, count: self.total, segmentWidth: 76, segmentHeight: 14)
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("\(min(self.progress, self.total))")
+                    .font(.system(size: 40, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
                     .monospacedDigit()
+                Text("/\(self.total)")
+                    .font(.system(size: 20, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
+                Spacer(minLength: 0)
                 Text(self.isReady ? "READY" : "CORRECT")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(self.palette.text2)
             }
+            .frame(height: 50)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
@@ -2703,19 +2743,19 @@ private struct TrainingVariantChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Text("\(self.number)")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(self.palette.text2)
                 .frame(minWidth: 11)
 
             Text(self.variant)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(self.palette.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             Button(action: self.onDelete) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(self.palette.text2)
                     .frame(width: 20, height: 20)
             }
@@ -2736,7 +2776,7 @@ private struct DictionaryPreviewChip: View {
 
     var body: some View {
         Text(self.text)
-            .font(.system(size: 11))
+            .font(.system(size: 13))
             .foregroundStyle(self.palette.text)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
@@ -2811,7 +2851,7 @@ struct BoostTermRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2824,7 +2864,7 @@ struct BoostTermRow: View {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2859,7 +2899,7 @@ struct DictionaryEntryRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "arrow.right")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(self.palette.text2)
                 .frame(width: 20)
 
@@ -2874,7 +2914,7 @@ struct DictionaryEntryRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2886,7 +2926,7 @@ struct DictionaryEntryRow: View {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2919,7 +2959,7 @@ private struct PunctuationDictionaryRuleRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "arrow.right")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(self.palette.text2)
                 .frame(width: 20)
 
@@ -2934,7 +2974,7 @@ private struct PunctuationDictionaryRuleRow: View {
                     self.onEdit()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2946,7 +2986,7 @@ private struct PunctuationDictionaryRuleRow: View {
                     self.onDelete()
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
                         .frame(width: 32, height: 30)
                         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
@@ -2992,7 +3032,7 @@ struct EditDictionaryEntrySheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("03 / CUSTOM DICTIONARY")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .tracking(0.5)
                         .foregroundStyle(self.palette.text2)
                     Text("Edit Dictionary Entry")
@@ -3017,7 +3057,7 @@ struct EditDictionaryEntrySheet: View {
                 Text("Misheard Words (triggers)")
                     .font(.subheadline.weight(.medium))
                 Text("Add one version per line. Commas can be saved too.")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
                 TextEditor(text: self.$triggersText)
                     .font(.body)
@@ -3033,7 +3073,7 @@ struct EditDictionaryEntrySheet: View {
                         Text("Duplicate triggers: \(self.duplicateTriggers.joined(separator: ", "))")
                             .foregroundStyle(self.palette.text2)
                     }
-                    .font(.caption)
+                    .font(.system(size: 13))
                 }
             }
 
@@ -3042,7 +3082,7 @@ struct EditDictionaryEntrySheet: View {
                 Text("Correct Spelling (replacement)")
                     .font(.subheadline.weight(.medium))
                 Text("This is what will appear in the final transcription.")
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundStyle(self.palette.text2)
                 TextField("MouthKeys", text: self.$replacement)
                     .dictionaryInputChrome()
@@ -3055,13 +3095,13 @@ struct EditDictionaryEntrySheet: View {
             if !self.triggersText.isEmpty && !self.replacement.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("PREVIEW")
-                        .font(.caption.weight(.medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text2)
 
                     FlowLayout(spacing: 6) {
                         ForEach(self.parseTriggers(), id: \.self) { trigger in
                             Text(trigger)
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
                                 .foregroundStyle(self.palette.text)
@@ -3070,13 +3110,13 @@ struct EditDictionaryEntrySheet: View {
                         }
 
                         Image(systemName: "arrow.right")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.tertiary)
 
                         Text(CustomDictionaryManualEntry.replacementDisplayText(
                             CustomDictionaryManualEntry.sanitizedReplacement(self.replacement)
                         ))
-                        .font(.caption.weight(.medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(self.palette.text)
                     }
                 }

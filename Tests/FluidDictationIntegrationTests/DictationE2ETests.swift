@@ -5438,9 +5438,9 @@ private struct DatasheetWindowFoundationGallery: View {
 }
 
 /// Lane C screen renders for comparison with the binding prototype in both appearances.
-/// These use synthetic dictionary and regional-offer fixtures; provider keys and user prompt
-/// contents are never loaded or written. AppKit-backed controls still need the normal Debug
-/// walkthrough because ImageRenderer may not paint their native surfaces.
+/// These install the actual screen Views in an unordered native host. Explicit dictionary
+/// and regional-offer fixtures are synthetic; credential/model lifecycle loading is skipped.
+/// The normal Debug walkthrough is a separate gate, including real actions and persistence.
 @MainActor
 final class DatasheetContentLaneCRenderTests: XCTestCase {
     private var outputFolder: URL? {
@@ -5470,14 +5470,18 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
             let voiceEngine = VoiceEngineSettingsView(
                 viewModel: voiceViewModel,
                 settings: settings,
-                theme: appTheme
+                theme: appTheme,
+                skipsLifecycleForRender: true
             )
-            .speechRecognitionCard
             .padding(14)
             .frame(width: 960, height: 720, alignment: .topLeading)
             .appTheme(appTheme)
             .datasheetPalette()
             try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
+            try self.renderDownloadProgress(
+                viewModel: voiceViewModel, settings: settings, theme: appTheme,
+                appearance: appearance, name: "\(themeName)-voice-engine-download.png"
+            )
 
             let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
                 .environmentObject(appServices)
@@ -5485,6 +5489,25 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
                 .appTheme(appTheme)
                 .datasheetPalette()
             try self.render(dictionary, name: "\(themeName)-custom-dictionary.png", appearance: appearance)
+
+            for (stateName, state) in [
+                ("manual", DatasheetDictionaryRenderState.manual),
+                ("empty", .empty),
+                ("training-error", .trainingError),
+            ] {
+                let dictionaryState = CustomDictionaryView(datasheetRenderFixture: true, renderState: state)
+                    .environmentObject(appServices)
+                    .frame(width: 960, height: 2400, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(dictionaryState, name: "\(themeName)-dictionary-\(stateName)-full.png", appearance: appearance, height: 2400)
+            }
+            let fullDictionary = CustomDictionaryView(datasheetRenderFixture: true)
+                .environmentObject(appServices)
+                .frame(width: 960, height: 2400, alignment: .topLeading)
+                .appTheme(appTheme)
+                .datasheetPalette()
+            try self.render(fullDictionary, name: "\(themeName)-dictionary-training-full.png", appearance: appearance, height: 2400)
 
             let providers = self.aiScreen(
                 viewModel: aiViewModel,
@@ -5494,6 +5517,11 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
                 section: .providers
             )
             try self.render(providers, name: "\(themeName)-ai-providers.png", appearance: appearance)
+            let expandedProvider = self.aiScreen(
+                viewModel: aiViewModel, settings: settings, promptTest: promptTest,
+                theme: appTheme, section: .providers, expandedProviderID: "openai", height: 1800
+            )
+            try self.render(expandedProvider, name: "\(themeName)-ai-provider-expanded-full.png", appearance: appearance, height: 1800)
 
             let advancedPrompts = self.aiScreen(
                 viewModel: aiViewModel,
@@ -5509,6 +5537,11 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
                 .appTheme(appTheme)
                 .datasheetPalette()
             try self.render(feedback, name: "\(themeName)-feedback.png", appearance: appearance)
+            let populatedFeedback = FeedbackView(initialMessage: "Synthetic layout check. Nothing submitted.", includeSystemInfo: false)
+                .frame(width: 960, height: 1400, alignment: .topLeading)
+                .appTheme(appTheme)
+                .datasheetPalette()
+            try self.render(populatedFeedback, name: "\(themeName)-feedback-populated-full.png", appearance: appearance, height: 1400)
 
             let regionalOffer = FillerWordsEditor(renderingRegionalOffer: true)
                 .frame(width: 840, alignment: .topLeading)
@@ -5524,7 +5557,9 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         settings: SettingsStore,
         promptTest: DictationPromptTestCoordinator,
         theme: AppTheme,
-        section: AIEnhancementConfigurationSection
+        section: AIEnhancementConfigurationSection,
+        expandedProviderID: String? = nil,
+        height: CGFloat = 720
     ) -> some View {
         let view = AIEnhancementSettingsView(
             viewModel: viewModel,
@@ -5533,19 +5568,63 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
             theme: theme,
             activeShortcutRecordingTarget: .constant(nil),
             shortcutRecordingMessage: .constant(nil),
-            initialConfigurationSection: section
+            initialConfigurationSection: section,
+            initialExpandedProviderID: expandedProviderID,
+            skipsLifecycleForRender: true
         )
-        return view.aiConfigurationCard
-            .padding(14)
-            .frame(width: 960, height: 720, alignment: .topLeading)
-            .appTheme(theme)
-            .datasheetPalette()
+        return ScrollView(.vertical, showsIndicators: false) {
+            view.padding(14)
+        }
+        .frame(width: 960, height: height, alignment: .topLeading)
+        .appTheme(theme)
+        .datasheetPalette()
     }
 
-    private func render<V: View>(_ view: V, name: String, appearance: NSAppearance.Name) throws {
-        let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+    private func renderDownloadProgress(
+        viewModel: VoiceEngineSettingsViewModel, settings: SettingsStore, theme: AppTheme,
+        appearance: NSAppearance.Name, name: String
+    ) throws {
+        let asr = viewModel.asr
+        let savedID = asr.downloadingModelId
+        let savedDownloading = asr.isDownloadingModel
+        let savedPhase = asr.modelPreparationPhase
+        let savedProgress = asr.downloadProgress
+        let savedPreview = viewModel.previewSpeechModel
+        defer {
+            asr.downloadingModelId = savedID
+            asr.isDownloadingModel = savedDownloading
+            asr.modelPreparationPhase = savedPhase
+            asr.downloadProgress = savedProgress
+            viewModel.previewSpeechModel = savedPreview
+        }
+        asr.downloadingModelId = SettingsStore.SpeechModel.parakeetTDT.id
+        asr.isDownloadingModel = true
+        asr.modelPreparationPhase = .downloading
+        asr.downloadProgress = 0.42
+        viewModel.previewSpeechModel = .parakeetTDT
+        let view = VoiceEngineSettingsView(
+            viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true
+        )
+        .padding(14)
+        .frame(width: 960, height: 720, alignment: .topLeading)
+        .appTheme(theme)
+        .datasheetPalette()
+        try self.render(view, name: name, appearance: appearance)
+    }
+
+    private func render<V: View>(_ view: V, name: String, appearance: NSAppearance.Name, height: CGFloat = 720) throws {
+        let rep = try self.renderNative(view, appearance: appearance, height: height)
         XCTAssertGreaterThan(rep.pixelsWide, 0, name)
         XCTAssertGreaterThan(rep.pixelsHigh, 0, name)
+
+        // Probe the surfaces owned by the installed parent View, rather than the wrapper's
+        // background or nested primitives. Extracting speechRecognitionCard/aiConfigurationCard
+        // before installation freezes these two panels to the default dark palette in light.
+        if name.contains("voice-engine") {
+            self.assertPanelPalette(rep, region: CGRect(x: 60, y: 170, width: 820, height: 90), appearance: appearance, name: name)
+        } else if name.contains("ai-") {
+            self.assertPanelPalette(rep, region: CGRect(x: 60, y: 160, width: 820, height: 40), appearance: appearance, name: name)
+        }
 
         let attachment = XCTAttachment(data: try XCTUnwrap(rep.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
         attachment.name = name
@@ -5554,6 +5633,54 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
 
         if let outputFolder = self.outputFolder {
             try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent(name))
+        }
+    }
+
+    private func renderNative<V: View>(_ view: V, appearance: NSAppearance.Name, height: CGFloat) throws -> NSBitmapImageRep {
+        let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+        let surface = appearance == .darkAqua ? DatasheetTheme.Palette.dark.surface : DatasheetTheme.Palette.light.surface
+        let host = NSHostingView(rootView: view.background(surface).environment(\.colorScheme, scheme))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 960, height: height),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible, "Native fixtures must never be ordered on screen")
+        XCTAssertFalse(window.isKeyWindow)
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    private func assertPanelPalette(
+        _ rep: NSBitmapImageRep, region: CGRect, appearance: NSAppearance.Name, name: String
+    ) {
+        let scaleX = CGFloat(rep.pixelsWide) / rep.size.width
+        let scaleY = CGFloat(rep.pixelsHigh) / rep.size.height
+        var bright = 0
+        var sampled = 0
+        for y in stride(from: Int(region.minY * scaleY), to: Int(region.maxY * scaleY), by: 4) {
+            for x in stride(from: Int(region.minX * scaleX), to: Int(region.maxX * scaleX), by: 4) {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                sampled += 1
+                if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.8 {
+                    bright += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(sampled, 100, name)
+        let fraction = Double(bright) / Double(max(sampled, 1))
+        if appearance == .aqua {
+            XCTAssertGreaterThan(fraction, 0.7, "\(name): parent panel must print on paper, bright fraction=\(fraction)")
+        } else {
+            XCTAssertLessThan(fraction, 0.3, "\(name): parent panel must use dark surface, bright fraction=\(fraction)")
         }
     }
 }

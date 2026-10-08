@@ -15,6 +15,11 @@ struct FeedbackView: View {
     @State private var feedbackText = ""
     @State private var includeSystemInfo = true
 
+    init(initialMessage: String = "", includeSystemInfo: Bool = true) {
+        self._feedbackText = State(initialValue: initialMessage)
+        self._includeSystemInfo = State(initialValue: includeSystemInfo)
+    }
+
     private var trimmedFeedback: String {
         self.feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -334,7 +339,7 @@ private struct FeedbackFigure: View {
 
     private func teethLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(self.palette.text2)
             .lineLimit(1)
     }

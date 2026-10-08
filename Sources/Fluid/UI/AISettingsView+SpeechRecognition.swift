@@ -53,7 +53,13 @@ extension VoiceEngineSettingsView {
 
                 self.modelStatsPanel
 
-                self.sectionHeading("Active Model", trailing: "Loaded · will stay warm")
+                self.sectionHeading(
+                    "Active Model",
+                    trailing: self.viewModel.asr.isAsrReady
+                        ? "Loaded · will stay warm"
+                        : (self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel
+                            ? self.viewModel.asr.modelPreparationStatusText : "No model loaded")
+                )
                 self.modelTableHeader
                 if let activeModel {
                     self.speechModelCard(for: activeModel)
@@ -141,6 +147,7 @@ extension VoiceEngineSettingsView {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 self.previewAction(for: model)
+                    .frame(width: 140, alignment: .trailing)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 18)
@@ -279,6 +286,7 @@ extension VoiceEngineSettingsView {
             HStack(spacing: 8) {
                 if isActive {
                     self.speechModelLanguagePicker(for: model)
+                        .disabled(self.viewModel.areSpeechModelActionsBlocked)
                     HStack(spacing: 5) {
                         DatasheetStatusSquare(kind: .ink)
                         self.monoLabel("Active")
@@ -295,7 +303,7 @@ extension VoiceEngineSettingsView {
                         self.viewModel.deleteSpeechModel(model)
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(self.palette.text2)
                     }
                     .buttonStyle(.plain)
@@ -312,7 +320,7 @@ extension VoiceEngineSettingsView {
                         self.viewModel.openExternalModelSource(for: model)
                     } label: {
                         Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(self.palette.text2)
                     }
                     .buttonStyle(.plain)
@@ -339,6 +347,11 @@ extension VoiceEngineSettingsView {
 
         if self.viewModel.downloadingModel == model {
             self.progressAction(for: model, preparation: false)
+                .frame(minWidth: 140, alignment: .trailing)
+        } else if isConfiguredActive, !self.viewModel.asr.isAsrReady,
+                  self.viewModel.asr.isDownloadingModel || self.viewModel.asr.isLoadingModel || self.viewModel.asr.isCancellingModelPreparation
+        {
+            self.progressAction(for: model, preparation: true)
                 .frame(minWidth: 140, alignment: .trailing)
         } else if model.isInstalled {
             if isActive {
@@ -403,10 +416,10 @@ extension VoiceEngineSettingsView {
                     self.viewModel.cancelSpeechModelDownload()
                 }
             }
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(self.palette.text)
             .buttonStyle(.plain)
-            .disabled(cancelling || self.viewModel.areSpeechModelActionsBlocked)
+            .disabled(cancelling)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
@@ -494,7 +507,7 @@ extension VoiceEngineSettingsView {
     private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(self.palette.text)
                 .padding(.horizontal, 10)
                 .frame(minWidth: 66, minHeight: 28)

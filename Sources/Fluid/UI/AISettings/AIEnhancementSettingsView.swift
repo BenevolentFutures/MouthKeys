@@ -68,6 +68,9 @@ struct AIEnhancementSettingsView: View {
     @State var promptEditorProviderIDDraft: String = ""
     @State var promptEditorModelDraft: String = ""
     @State var promptEditorOriginalConfiguration: SettingsStore.DictationPromptConfiguration? = nil
+    // Installed render fixtures must not load credentials or normalize persisted settings.
+    // Normal callers retain the original lifecycle and all action/alert modifiers.
+    private let skipsLifecycleForRender: Bool
 
     init(
         viewModel: AIEnhancementSettingsViewModel,
@@ -76,7 +79,9 @@ struct AIEnhancementSettingsView: View {
         theme: AppTheme,
         activeShortcutRecordingTarget: Binding<ShortcutRecordingTarget?> = .constant(nil),
         shortcutRecordingMessage: Binding<String?> = .constant(nil),
-        initialConfigurationSection: AIEnhancementConfigurationSection = .providers
+        initialConfigurationSection: AIEnhancementConfigurationSection = .providers,
+        initialExpandedProviderID: String? = nil,
+        skipsLifecycleForRender: Bool = false
     ) {
         self.viewModel = viewModel
         self.settings = settings
@@ -85,12 +90,16 @@ struct AIEnhancementSettingsView: View {
         self._activeShortcutRecordingTarget = activeShortcutRecordingTarget
         self._shortcutRecordingMessage = shortcutRecordingMessage
         self._selectedConfigurationSection = State(initialValue: initialConfigurationSection)
+        self._expandedProviderID = State(initialValue: initialExpandedProviderID)
+        self.skipsLifecycleForRender = skipsLifecycleForRender
     }
 
     var body: some View {
         self.aiConfigurationCard
             .onAppear {
-                self.viewModel.onAppear()
+                if !self.skipsLifecycleForRender {
+                    self.viewModel.onAppear()
+                }
             }
             .onChange(of: self.viewModel.connectionStatus) { oldValue, newValue in
                 if oldValue == .success && newValue != .success {
