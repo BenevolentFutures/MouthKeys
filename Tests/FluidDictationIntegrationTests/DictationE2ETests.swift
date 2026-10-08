@@ -4792,6 +4792,72 @@ final class LapelMicBatteryTests: XCTestCase {
 /// shared settings. Render both appearances to compare against design/app-signal/shots/.
 @MainActor
 final class DatasheetWindowRenderTests: XCTestCase {
+    /// Native Menu sizes can differ from SwiftUI frames. Check the actual AppKit action
+    /// surface without ordering a window, opening a menu, or sending any system input.
+    func testPickerNativeActionCoversPaintedFieldInBothThemes() throws {
+        let cases: [(String, String?)] = [
+            ("Medium", "DEFAULT"),
+            ("Small", nil),
+            ("Hollyland Lapel Mic", "33%"),
+            ("MacBook Pro Speakers (System Default)", nil),
+        ]
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            for (value, detail) in cases {
+                for enabled in [true, false] {
+                    let view = DatasheetPicker(title: "Input choice", value: value, detail: detail) {
+                        Button("Small") {}
+                        Button("Medium") {}
+                    }
+                    .disabled(!enabled)
+                    .padding(20)
+                    .frame(width: 280, height: 72, alignment: .topLeading)
+                    .datasheetPalette()
+                    .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
+                    let host = NSHostingView(rootView: view)
+                    host.appearance = NSAppearance(named: appearance)
+                    let window = NSWindow(
+                        contentRect: NSRect(x: -10000, y: -10000, width: 280, height: 72),
+                        styleMask: .borderless, backing: .buffered, defer: false
+                    )
+                    window.isReleasedWhenClosed = false
+                    window.contentView = host
+                    defer {
+                        window.contentView = nil
+                        window.close()
+                    }
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertFalse(window.isVisible)
+                    XCTAssertFalse(window.isKeyWindow)
+
+                    let popup = try XCTUnwrap(self.nativePopups(in: host).first)
+                    XCTAssertEqual(popup.isEnabled, enabled)
+                    let nativeHost = try XCTUnwrap(popup.superview)
+                    XCTAssertEqual(
+                        host.convert(nativeHost.bounds, from: nativeHost),
+                        NSRect(x: 20, y: 20, width: 240, height: 32)
+                    )
+                    // Use host-local points converted to the hitTest receiver's parent.
+                    // These cover the painted label, center, disclosure and both vertical edges.
+                    for y in [22.0, 36.0, 50.0] {
+                        for x in [22.0, 32.0, 80.0, 135.0, 200.0, 248.0, 258.0] {
+                            let point = NSPoint(x: x, y: y)
+                            XCTAssertEqual(
+                                host.hitTest(host.convert(point, to: host.superview)) === popup,
+                                enabled,
+                                "\(appearance.rawValue) \(value) enabled=\(enabled): incorrect native action at \(point)"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func nativePopups(in view: NSView) -> [NSPopUpButton] {
+        if let popup = view as? NSPopUpButton { return [popup] }
+        return view.subviews.flatMap { self.nativePopups(in: $0) }
+    }
+
     func testRendersEveryWindowPrimitiveInBothThemes() throws {
         XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(127), .compact)
         XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(128), .heavy)

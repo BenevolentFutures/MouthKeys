@@ -198,11 +198,14 @@ struct DatasheetPicker<Content: View>: View {
                 Menu {
                     self.content
                 } label: {
-                    Text(self.value)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
+                    // AppKit sizes a borderless Menu from its label's intrinsic size,
+                    // ignoring SwiftUI frames on Text. A transparent, field-sized image
+                    // gives the native popup the same action surface as the label below.
+                    Image(nsImage: NSImage(size: NSSize(width: self.minimumWidth, height: 32)))
+                        .renderingMode(.original)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .buttonStyle(.plain)
                 .frame(width: self.minimumWidth, height: 32)
                 .accessibilityLabel(self.title)
