@@ -5283,6 +5283,238 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
     }
 }
 
+/// State transitions for the lane B shortcut drill and production-width setup rows.
+@MainActor
+final class BQuickSetupProgressTransitionTests: XCTestCase {
+    private var outputFolder: URL? {
+        (ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            ?? ProcessInfo.processInfo.environment["TEST_RUNNER_MOUTHKEYS_RENDER_DIR"])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    func testShortcutPracticeCompletesOnlyAfterThreeReleasedPressesAndAllPrerequisites() {
+        for pressCount in 0 ... 2 {
+            let progress = self.progress(hotkeyPracticeCount: pressCount)
+            XCTAssertEqual(progress.fourthStep, .pending)
+            XCTAssertEqual(progress.completedCount, 3)
+            XCTAssertEqual(progress.currentIndex, 3)
+            XCTAssertFalse(progress.voiceValidated)
+        }
+
+        let thirdPressHeld = self.progress(hotkeyPracticeCount: 3, isPracticeKeyDown: true)
+        XCTAssertEqual(thirdPressHeld.fourthStep, .pending)
+        XCTAssertEqual(thirdPressHeld.completedCount, 3)
+        XCTAssertEqual(thirdPressHeld.currentIndex, 3)
+
+        let afterThirdRelease = self.progress(hotkeyPracticeCount: 3)
+        XCTAssertEqual(afterThirdRelease.fourthStep, .shortcutPracticed)
+        XCTAssertEqual(afterThirdRelease.completedCount, 4)
+        XCTAssertNil(afterThirdRelease.currentIndex)
+        XCTAssertFalse(afterThirdRelease.voiceValidated, "Key practice does not record Playground voice validation")
+
+        let missingAccessibility = DatasheetQuickSetupProgress(
+            modelReady: true,
+            microphoneAuthorized: true,
+            accessibilityEnabled: false,
+            hotkeyPracticeCount: 3,
+            playgroundValidated: false
+        )
+        XCTAssertEqual(missingAccessibility.fourthStep, .pending)
+        XCTAssertEqual(missingAccessibility.completedCount, 2)
+        XCTAssertEqual(missingAccessibility.currentIndex, 2)
+
+        let missingMicrophone = DatasheetQuickSetupProgress(
+            modelReady: true,
+            microphoneAuthorized: false,
+            accessibilityEnabled: true,
+            hotkeyPracticeCount: 3,
+            playgroundValidated: false
+        )
+        XCTAssertEqual(missingMicrophone.fourthStep, .pending)
+        XCTAssertEqual(missingMicrophone.completedCount, 2)
+        XCTAssertEqual(missingMicrophone.currentIndex, 1)
+
+        let missingModel = DatasheetQuickSetupProgress(
+            modelReady: false,
+            microphoneAuthorized: true,
+            accessibilityEnabled: true,
+            hotkeyPracticeCount: 3,
+            playgroundValidated: false
+        )
+        XCTAssertEqual(missingModel.fourthStep, .pending)
+        XCTAssertEqual(missingModel.completedCount, 2)
+        XCTAssertEqual(missingModel.currentIndex, 0)
+    }
+
+    func testPlaygroundVoiceValidationKeepsItsOwnCompletionState() {
+        let shortcutOnly = self.progress(hotkeyPracticeCount: 3)
+        let voiceValidated = DatasheetQuickSetupProgress(
+            modelReady: true,
+            microphoneAuthorized: true,
+            accessibilityEnabled: true,
+            hotkeyPracticeCount: 0,
+            playgroundValidated: true
+        )
+
+        XCTAssertEqual(shortcutOnly.fourthStep, .shortcutPracticed)
+        XCTAssertEqual(voiceValidated.fourthStep, .voiceValidated)
+        XCTAssertEqual(voiceValidated.completedSteps, [true, true, true, true])
+        XCTAssertTrue(voiceValidated.voiceValidated)
+    }
+
+    func testPracticeGateTracksMonitorFocusAndIndependentViewLifetimes() {
+        var firstView = DatasheetQuickSetupPracticeGateLease()
+        var secondView = DatasheetQuickSetupPracticeGateLease()
+        defer {
+            firstView.release()
+            secondView.release()
+        }
+
+        var unarmedView = DatasheetQuickSetupPracticeGateLease()
+        unarmedView.update(monitorIsArmed: false, applicationIsActive: true)
+        XCTAssertFalse(unarmedView.isArmed)
+
+        firstView.update(monitorIsArmed: true, applicationIsActive: false)
+        XCTAssertFalse(firstView.isArmed)
+        XCTAssertFalse(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
+
+        firstView.update(monitorIsArmed: true, applicationIsActive: true)
+        secondView.update(monitorIsArmed: true, applicationIsActive: true)
+        XCTAssertTrue(firstView.isArmed)
+        XCTAssertTrue(secondView.isArmed)
+        XCTAssertTrue(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
+        XCTAssertFalse(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: false))
+
+        firstView.release()
+        XCTAssertTrue(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true), "One view cannot release another view’s gate")
+
+        secondView.update(monitorIsArmed: true, applicationIsActive: false)
+        XCTAssertFalse(secondView.isArmed)
+        XCTAssertFalse(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
+    }
+
+    func testPracticeGatePassesConfiguredPrimaryKeyToTheLocalEventPath() throws {
+        var practiceLease = DatasheetQuickSetupPracticeGateLease()
+        practiceLease.update(monitorIsArmed: true, applicationIsActive: true)
+        defer { practiceLease.release() }
+
+        let manager = GlobalHotkeyManager(
+            asrService: ASRService(),
+            primaryShortcuts: [HotkeyShortcut(keyCode: 80, modifierFlags: [])],
+            promptModeShortcut: HotkeyShortcut(keyCode: 81, modifierFlags: []),
+            commandModeShortcut: nil,
+            rewriteModeShortcut: HotkeyShortcut(keyCode: 82, modifierFlags: []),
+            promptModeShortcutEnabled: false,
+            commandModeShortcutEnabled: false,
+            rewriteModeShortcutEnabled: false,
+            isShortcutCaptureActiveProvider: {
+                DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true)
+            }
+        )
+        let down = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 80, keyDown: true))
+        down.flags = []
+        XCTAssertFalse(manager.handleKeyEventForTests(down, type: .keyDown), "The active drill lets the primary key reach the local monitor")
+
+        let up = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 80, keyDown: false))
+        up.flags = []
+        XCTAssertFalse(manager.handleKeyEventForTests(up, type: .keyUp), "The active drill lets the matching key-up reach the local monitor")
+    }
+
+    func testCurrentAndCompletedRowsRenderAtProductionWidthsInBothThemes() throws {
+        let states: [(String, DatasheetQuickSetupProgress)] = [
+            ("current", self.progress(hotkeyPracticeCount: 0)),
+            ("shortcut-complete", self.progress(hotkeyPracticeCount: 3)),
+        ]
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let theme = appearance == .darkAqua ? "dark" : "light"
+            for detailWidth in [CGFloat(549), CGFloat(749)] {
+                for (stateName, progress) in states {
+                    let rep = try DatasheetRenderStage.render(
+                        self.setupScene(progress: progress, detailWidth: detailWidth, appearance: appearance),
+                        appearance: appearance
+                    )
+                    XCTAssertGreaterThan(rep.pixelsWide, 0)
+                    XCTAssertEqual(rep.size.width, detailWidth + 2 * DatasheetRenderStage.backdropMargin, accuracy: 0.01)
+                    if let outputFolder {
+                        try DatasheetRenderStage.write(
+                            rep,
+                            to: outputFolder.appendingPathComponent("B-start-production-\(Int(detailWidth))-\(stateName)-\(theme).png")
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func progress(hotkeyPracticeCount: Int, isPracticeKeyDown: Bool = false) -> DatasheetQuickSetupProgress {
+        DatasheetQuickSetupProgress(
+            modelReady: true,
+            microphoneAuthorized: true,
+            accessibilityEnabled: true,
+            hotkeyPracticeCount: hotkeyPracticeCount,
+            hotkeyPracticeIsDown: isPracticeKeyDown,
+            playgroundValidated: false
+        )
+    }
+
+    private func setupScene(
+        progress: DatasheetQuickSetupProgress,
+        detailWidth: CGFloat,
+        appearance: NSAppearance.Name
+    ) -> some View {
+        let isDark = appearance == .darkAqua
+        let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
+        let scheme: ColorScheme = isDark ? .dark : .light
+        return DatasheetQuickSetupReadout(
+            steps: self.steps(progress: progress),
+            completedCount: progress.completedCount,
+            readyShortcut: "Right ⌥",
+            voiceValidated: progress.voiceValidated
+        )
+        .padding(.horizontal, 28)
+        .frame(width: detailWidth, height: 620, alignment: .topLeading)
+        .background(palette.surface)
+        .environment(\.colorScheme, scheme)
+        .datasheetPalette()
+    }
+
+    private func steps(progress: DatasheetQuickSetupProgress) -> [DatasheetSetupStep] {
+        let labels = [
+            ("Voice Model Ready", "Speech recognition model is loaded and ready", "Voice Model Ready", "Parakeet TDT v2 · loaded", "Go to Voice Engine", "arrow.down"),
+            ("Microphone Permission Granted", "MouthKeys has access to your microphone", "Microphone Permission Granted", "Access granted", "Open Settings", "mic"),
+            ("Accessibility Access Enabled", "Accessibility permission granted for typing into apps", "Accessibility Access Enabled", "Typing into apps", "Open Settings", "hand.raised"),
+            ("Test Your Setup", "Try the playground below to test your complete setup", "Setup Tested Successfully", "Voice transcription", "Go to Playground", "arrow.right"),
+        ]
+        return labels.enumerated().map { index, item in
+            let status: DatasheetSetupStepStatus
+            if progress.completedSteps[index] {
+                status = .complete
+            } else if index == progress.currentIndex {
+                status = .current
+            } else {
+                status = .later
+            }
+            let fourthTitle = progress.fourthStep == .shortcutPracticed ? "Shortcut Practice Complete" : item.0
+            let fourthDetail = progress.fourthStep == .shortcutPracticed
+                ? "Your shortcut responded. Test voice transcription in the Playground."
+                : item.1
+            let fourthCompletedTitle = progress.fourthStep == .shortcutPracticed ? "Shortcut Practice Complete" : item.2
+            let fourthCompletedDetail = progress.fourthStep == .shortcutPracticed ? "3 key presses" : item.3
+            return DatasheetSetupStep(
+                number: index + 1,
+                title: index == 3 ? fourthTitle : item.0,
+                detail: index == 3 ? fourthDetail : item.1,
+                completedTitle: index == 3 ? fourthCompletedTitle : item.2,
+                completedDetail: index == 3 ? fourthCompletedDetail : item.3,
+                actionTitle: item.4,
+                actionSymbol: item.5,
+                status: status,
+                action: {}
+            )
+        }
+    }
+}
+
 @MainActor
 private final class DatasheetNativeShellTestModel: ObservableObject {
     @Published var visibility: NavigationSplitViewVisibility = .all

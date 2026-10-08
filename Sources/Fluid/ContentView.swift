@@ -3762,6 +3762,7 @@ struct ContentView: View {
             },
             isShortcutCaptureActiveProvider: {
                 self.isRecordingAnyShortcutCapture
+                    || DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive)
             }
         )
 

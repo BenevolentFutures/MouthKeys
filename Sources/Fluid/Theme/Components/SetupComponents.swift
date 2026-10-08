@@ -163,6 +163,104 @@ enum DatasheetSetupStepStatus: Equatable {
     case later
 }
 
+enum DatasheetQuickSetupFourthStep: Equatable {
+    case pending
+    case shortcutPracticed
+    case voiceValidated
+}
+
+struct DatasheetQuickSetupProgress: Equatable {
+    let modelReady: Bool
+    let microphoneAuthorized: Bool
+    let accessibilityEnabled: Bool
+    let hotkeyPracticeCount: Int
+    let hotkeyPracticeIsDown: Bool
+    let fourthStep: DatasheetQuickSetupFourthStep
+
+    init(
+        modelReady: Bool,
+        microphoneAuthorized: Bool,
+        accessibilityEnabled: Bool,
+        hotkeyPracticeCount: Int,
+        hotkeyPracticeIsDown: Bool = false,
+        playgroundValidated: Bool
+    ) {
+        self.modelReady = modelReady
+        self.microphoneAuthorized = microphoneAuthorized
+        self.accessibilityEnabled = accessibilityEnabled
+        self.hotkeyPracticeCount = hotkeyPracticeCount
+        self.hotkeyPracticeIsDown = hotkeyPracticeIsDown
+
+        if playgroundValidated {
+            self.fourthStep = .voiceValidated
+        } else if modelReady, microphoneAuthorized, accessibilityEnabled, hotkeyPracticeCount >= 3, !hotkeyPracticeIsDown {
+            self.fourthStep = .shortcutPracticed
+        } else {
+            self.fourthStep = .pending
+        }
+    }
+
+    var completedSteps: [Bool] {
+        [
+            self.modelReady,
+            self.microphoneAuthorized,
+            self.accessibilityEnabled,
+            self.fourthStep != .pending,
+        ]
+    }
+
+    var completedCount: Int {
+        self.completedSteps.filter { $0 }.count
+    }
+
+    var voiceValidated: Bool {
+        self.fourthStep == .voiceValidated
+    }
+
+    var currentIndex: Int? {
+        self.completedSteps.firstIndex(of: false)
+    }
+}
+
+@MainActor
+enum DatasheetQuickSetupPracticeGate {
+    private static var activeTokens = Set<UUID>()
+
+    static func isActive(applicationIsActive: Bool) -> Bool {
+        applicationIsActive && !self.activeTokens.isEmpty
+    }
+
+    static func activate(token: UUID) {
+        self.activeTokens.insert(token)
+    }
+
+    static func deactivate(token: UUID) {
+        self.activeTokens.remove(token)
+    }
+}
+
+@MainActor
+struct DatasheetQuickSetupPracticeGateLease {
+    private let token = UUID()
+    private(set) var isArmed = false
+
+    mutating func update(monitorIsArmed: Bool, applicationIsActive: Bool) {
+        guard monitorIsArmed, applicationIsActive else {
+            self.release()
+            return
+        }
+        guard !self.isArmed else { return }
+        DatasheetQuickSetupPracticeGate.activate(token: self.token)
+        self.isArmed = true
+    }
+
+    mutating func release() {
+        guard self.isArmed else { return }
+        DatasheetQuickSetupPracticeGate.deactivate(token: self.token)
+        self.isArmed = false
+    }
+}
+
 struct DatasheetSetupStep: Identifiable {
     let number: Int
     let title: String
@@ -181,6 +279,7 @@ struct DatasheetQuickSetupReadout: View {
     let steps: [DatasheetSetupStep]
     let completedCount: Int
     let readyShortcut: String
+    var voiceValidated = true
     var recoveryHint: AccessibilityHint = .none
     var conflictingCopies: [URL] = []
     var openAccessibilitySettings: () -> Void = {}
@@ -237,32 +336,55 @@ struct DatasheetQuickSetupReadout: View {
             }
 
             if self.completedCount == self.steps.count {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(self.palette.text)
-                        .frame(width: 56)
-                    Text("You’re set. Press")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(self.palette.text)
-                    Text(self.readyShortcut)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(self.palette.text)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(self.palette.field)
-                        .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-                    Text("anywhere and start talking.")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(self.palette.text)
-                    Spacer(minLength: 0)
-                }
+                self.completionFooter
                 .padding(.trailing, 18)
                 .frame(height: 64)
                 .overlay(alignment: .top) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
             }
         }
         .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private var completionFooter: some View {
+        if self.voiceValidated {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
+                    .frame(width: 56)
+                Text("You’re set. Press")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                Text(self.readyShortcut)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(self.palette.field)
+                    .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
+                Text("anywhere and start talking.")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+                Spacer(minLength: 0)
+            }
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
+                    .frame(width: 56)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Shortcut practiced.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                    Text("Test voice transcription in the Playground.")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(self.palette.text2)
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private var progressTitle: String {
@@ -310,48 +432,85 @@ private struct DatasheetQuickSetupStepRow: View {
 
     private func incompleteRow(isCurrent: Bool) -> some View {
         Button(action: self.step.action) {
-            HStack(spacing: 0) {
-                self.numberLabel(color: isCurrent ? self.palette.invForeground : self.palette.textDim)
-                    .font(.system(size: isCurrent ? 16 : 12, weight: .semibold, design: .monospaced))
-                    .frame(maxHeight: .infinity)
-                    .background(isCurrent ? self.palette.invBackground : .clear)
-                    .foregroundStyle(isCurrent ? self.palette.invForeground : self.palette.textDim)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(self.step.title)
-                        .font(.system(size: isCurrent ? 18 : 16, weight: .semibold))
-                        .padding(.horizontal, isCurrent ? 4 : 0)
-                        .background(isCurrent ? self.palette.invBackground : .clear)
-                        .foregroundStyle(isCurrent ? self.palette.invForeground : self.palette.text2)
-                    Text(self.step.detail)
-                        .font(.system(size: 13, weight: .regular))
-                        .lineSpacing(2)
-                        .foregroundStyle(self.palette.text2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.leading, 20)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 8) {
-                    if isCurrent { DatasheetStatusSquare(kind: .orange, size: 6) }
-                    DatasheetMonoLabel(
-                        text: isCurrent ? "DO THIS NOW" : "NEXT",
-                        color: isCurrent ? self.palette.text : self.palette.text2
-                    )
-                }
-                .frame(width: 128, alignment: .leading)
-
-                self.actionLabel(isCurrent: isCurrent)
-                    .frame(width: 218)
-                    .padding(.trailing, 22)
+            ViewThatFits(in: .horizontal) {
+                self.wideIncompleteRow(isCurrent: isCurrent)
+                self.compactIncompleteRow(isCurrent: isCurrent)
             }
-            .frame(minHeight: isCurrent ? 104 : 84)
             .background(self.palette.surface)
             .overlay(Rectangle().stroke(isCurrent ? self.palette.ink : .clear, lineWidth: isCurrent ? 1.5 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Step \(self.step.number), \(self.step.title). \(self.step.detail). \(self.step.actionTitle).")
+    }
+
+    private func wideIncompleteRow(isCurrent: Bool) -> some View {
+        HStack(spacing: 0) {
+            self.numberLabel(color: isCurrent ? self.palette.invForeground : self.palette.textDim)
+                .font(.system(size: isCurrent ? 16 : 12, weight: .semibold, design: .monospaced))
+                .frame(maxHeight: .infinity)
+                .background(isCurrent ? self.palette.invBackground : .clear)
+                .foregroundStyle(isCurrent ? self.palette.invForeground : self.palette.textDim)
+            self.titleAndDetail(isCurrent: isCurrent)
+                .frame(minWidth: 260, maxWidth: .infinity, alignment: .leading)
+            self.statusLabel(isCurrent: isCurrent)
+            self.actionLabel(isCurrent: isCurrent)
+                .frame(width: 218)
+                .padding(.trailing, 22)
+        }
+        .frame(minHeight: isCurrent ? 104 : 84)
+    }
+
+    private func compactIncompleteRow(isCurrent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 0) {
+                self.numberLabel(color: isCurrent ? self.palette.invForeground : self.palette.textDim)
+                    .font(.system(size: isCurrent ? 16 : 12, weight: .semibold, design: .monospaced))
+                    .frame(maxHeight: .infinity)
+                    .background(isCurrent ? self.palette.invBackground : .clear)
+                    .foregroundStyle(isCurrent ? self.palette.invForeground : self.palette.textDim)
+                self.titleAndDetail(isCurrent: isCurrent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 56)
+                self.statusLabel(isCurrent: isCurrent)
+                Spacer(minLength: 8)
+                self.actionLabel(isCurrent: isCurrent)
+                    .frame(width: 218)
+                    .padding(.trailing, 22)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func titleAndDetail(isCurrent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(self.step.title)
+                .font(.system(size: isCurrent ? 18 : 16, weight: .semibold))
+                .padding(.horizontal, isCurrent ? 4 : 0)
+                .background(isCurrent ? self.palette.invBackground : .clear)
+                .foregroundStyle(isCurrent ? self.palette.invForeground : self.palette.text2)
+            Text(self.step.detail)
+                .font(.system(size: 13, weight: .regular))
+                .lineSpacing(2)
+                .foregroundStyle(self.palette.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 20)
+        .padding(.vertical, 14)
+    }
+
+    private func statusLabel(isCurrent: Bool) -> some View {
+        HStack(spacing: 8) {
+            if isCurrent { DatasheetStatusSquare(kind: .orange, size: 6) }
+            DatasheetMonoLabel(
+                text: isCurrent ? "DO THIS NOW" : "NEXT",
+                color: isCurrent ? self.palette.text : self.palette.text2
+            )
+        }
+        .frame(width: 128, alignment: .leading)
     }
 
     @ViewBuilder
@@ -363,7 +522,7 @@ private struct DatasheetQuickSetupStepRow: View {
                 .font(.system(size: 13, weight: isCurrent ? .semibold : .medium))
                 .lineLimit(1)
         }
-        .frame(minWidth: 196, minHeight: 36)
+        .frame(minWidth: 194, minHeight: 36)
         .padding(.horizontal, 12)
 
         if isCurrent {

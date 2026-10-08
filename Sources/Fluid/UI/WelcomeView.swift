@@ -31,6 +31,7 @@ struct WelcomeView: View {
     @State private var hotkeyPracticeCount = 0
     @State private var isPracticeKeyDown = false
     @State private var practiceEventMonitor: Any?
+    @State private var practiceGateLease = DatasheetQuickSetupPracticeGateLease()
 
     private let playgroundSectionID = "welcome-playground-section"
 
@@ -42,10 +43,19 @@ struct WelcomeView: View {
         self.settings.primaryDictationShortcuts.first?.displayString ?? "Not set"
     }
 
+    private var quickSetupProgress: DatasheetQuickSetupProgress {
+        DatasheetQuickSetupProgress(
+            modelReady: self.isModelReady,
+            microphoneAuthorized: self.asr.micStatus == .authorized,
+            accessibilityEnabled: self.accessibilityEnabled,
+            hotkeyPracticeCount: self.hotkeyPracticeCount,
+            hotkeyPracticeIsDown: self.isPracticeKeyDown,
+            playgroundValidated: self.playgroundUsed
+        )
+    }
+
     private var completedSetupCount: Int {
-        [self.isModelReady, self.asr.micStatus == .authorized, self.accessibilityEnabled, self.playgroundUsed]
-            .filter { $0 }
-            .count
+        self.quickSetupProgress.completedCount
     }
 
     var body: some View {
@@ -74,6 +84,7 @@ struct WelcomeView: View {
                         steps: self.setupSteps(proxy: proxy),
                         completedCount: self.completedSetupCount,
                         readyShortcut: self.primaryShortcut,
+                        voiceValidated: self.quickSetupProgress.voiceValidated,
                         recoveryHint: self.permissionMonitor.hint,
                         conflictingCopies: self.permissionMonitor.conflictingCopies,
                         openAccessibilitySettings: { self.permissionMonitor.openAccessibilitySettings() },
@@ -222,8 +233,16 @@ struct WelcomeView: View {
                     await self.asr.checkIfModelsExistAsync()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                self.pauseHotkeyPractice()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                if self.hotkeyPracticeCount < 3 {
+                    self.beginHotkeyPractice()
+                }
+            }
             .onDisappear {
-                self.removePracticeEventMonitor()
+                self.pauseHotkeyPractice()
             }
         }
     }
@@ -245,8 +264,9 @@ struct WelcomeView: View {
     }
 
     private func setupSteps(proxy: ScrollViewProxy) -> [DatasheetSetupStep] {
-        let completion = [self.isModelReady, self.asr.micStatus == .authorized, self.accessibilityEnabled, self.playgroundUsed]
-        let current = completion.firstIndex(of: false)
+        let progress = self.quickSetupProgress
+        let completion = progress.completedSteps
+        let current = progress.currentIndex
 
         func status(_ index: Int) -> DatasheetSetupStepStatus {
             if completion[index] { return .complete }
@@ -262,6 +282,28 @@ struct WelcomeView: View {
             ? "Microphone Permission Granted"
             : "Grant Microphone Permission"
         let microphoneActionTitle = self.asr.micStatus == .notDetermined ? "Grant Access" : "Open Settings"
+
+        let testTitle: String
+        let testDetail: String
+        let testCompletedTitle: String
+        let testCompletedDetail: String
+        switch progress.fourthStep {
+        case .pending:
+            testTitle = "Test Your Setup"
+            testDetail = "Try the playground below to test your complete setup"
+            testCompletedTitle = "Setup Tested Successfully"
+            testCompletedDetail = "Voice transcription"
+        case .shortcutPracticed:
+            testTitle = "Shortcut Practice Complete"
+            testDetail = "Your shortcut responded. Test voice transcription in the Playground."
+            testCompletedTitle = "Shortcut Practice Complete"
+            testCompletedDetail = "3 key presses"
+        case .voiceValidated:
+            testTitle = "Setup Tested Successfully"
+            testDetail = "You’ve successfully tested voice transcription"
+            testCompletedTitle = "Setup Tested Successfully"
+            testCompletedDetail = "Voice transcription"
+        }
 
         return [
             DatasheetSetupStep(
@@ -309,12 +351,10 @@ struct WelcomeView: View {
             ),
             DatasheetSetupStep(
                 number: 4,
-                title: self.playgroundUsed ? "Setup Tested Successfully" : "Test Your Setup",
-                detail: self.playgroundUsed
-                    ? "You’ve successfully tested voice transcription"
-                    : "Try the playground below to test your complete setup",
-                completedTitle: "Setup Tested Successfully",
-                completedDetail: "Playground",
+                title: testTitle,
+                detail: testDetail,
+                completedTitle: testCompletedTitle,
+                completedDetail: testCompletedDetail,
                 actionTitle: "Go to Playground",
                 actionSymbol: "arrow.right",
                 status: status(3),
@@ -334,7 +374,6 @@ struct WelcomeView: View {
     }
 
     private func beginHotkeyPractice() {
-        self.isPracticeKeyDown = false
         self.isHotkeyPracticeActive = true
         self.installPracticeEventMonitor()
     }
@@ -343,16 +382,34 @@ struct WelcomeView: View {
         guard self.hotkeyPracticeCount < 3 else { return }
         self.isHotkeyPracticeActive = true
         self.isPracticeKeyDown = false
+        self.installPracticeEventMonitor()
         self.hotkeyPracticeCount += 1
         self.finishHotkeyPracticeIfNeeded()
     }
 
     private func installPracticeEventMonitor() {
-        guard !TestHostQuietMode.isActive, self.practiceEventMonitor == nil else { return }
-        self.practiceEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
-            self.observePracticeShortcutEvent(event)
-            return event
+        guard !TestHostQuietMode.isActive else {
+            self.practiceGateLease.update(monitorIsArmed: false, applicationIsActive: false)
+            return
         }
+        guard self.settings.primaryDictationShortcuts.first?.isMouseShortcut == false else {
+            self.practiceGateLease.update(monitorIsArmed: false, applicationIsActive: NSApp.isActive)
+            return
+        }
+        guard NSApp.isActive else {
+            self.practiceGateLease.update(monitorIsArmed: self.practiceEventMonitor != nil, applicationIsActive: false)
+            return
+        }
+        if self.practiceEventMonitor == nil {
+            self.practiceEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
+                self.observePracticeShortcutEvent(event)
+                return event
+            }
+        }
+        self.practiceGateLease.update(
+            monitorIsArmed: self.practiceEventMonitor != nil,
+            applicationIsActive: NSApp.isActive
+        )
     }
 
     private func observePracticeShortcutEvent(_ event: NSEvent) {
@@ -414,9 +471,20 @@ struct WelcomeView: View {
     }
 
     private func removePracticeEventMonitor() {
-        guard let monitor = self.practiceEventMonitor else { return }
-        NSEvent.removeMonitor(monitor)
-        self.practiceEventMonitor = nil
+        if let monitor = self.practiceEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            self.practiceEventMonitor = nil
+        }
+        self.practiceGateLease.release()
+    }
+
+    private func pauseHotkeyPractice() {
+        if self.isPracticeKeyDown, self.hotkeyPracticeCount > 0 {
+            self.hotkeyPracticeCount -= 1
+        }
+        self.isPracticeKeyDown = false
+        self.isHotkeyPracticeActive = false
+        self.removePracticeEventMonitor()
     }
 }
 
