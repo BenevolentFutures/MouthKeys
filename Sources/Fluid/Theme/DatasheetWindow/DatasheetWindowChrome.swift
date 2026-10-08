@@ -2,72 +2,147 @@ import AppKit
 import Combine
 import SwiftUI
 
-struct DatasheetSidebarColumnWidthReader: NSViewRepresentable {
-    let onChange: (CGFloat) -> Void
+/// Own the main window's split items: a system sidebar item adds a floating glass card on
+/// macOS 26. Default items keep native divider/collapse mechanics without that decoration.
+struct DatasheetWindowSplitView<Sidebar: View, Detail: View>: NSViewControllerRepresentable {
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    let onSidebarWidthChange: (CGFloat) -> Void
+    @ViewBuilder let sidebar: () -> Sidebar
+    @ViewBuilder let detail: () -> Detail
 
-    func makeNSView(context _: Context) -> NSView {
-        let view = DatasheetSidebarColumnWidthView()
-        view.onChange = self.onChange
-        return view
+    func makeNSViewController(context: Context) -> DatasheetMainWindowSplitController {
+        let controller = DatasheetMainWindowSplitController()
+        self.updateNSViewController(controller, context: context)
+        return controller
     }
 
-    func updateNSView(_ nsView: NSView, context _: Context) {
-        guard let view = nsView as? DatasheetSidebarColumnWidthView else { return }
-        view.onChange = self.onChange
-        view.reportColumnWidth()
+    func updateNSViewController(_ controller: DatasheetMainWindowSplitController, context: Context) {
+        // A native hosting controller is a new SwiftUI root. Forward the full environment,
+        // including the palette, services and mouse tracker, on every update.
+        controller.sidebarHost.rootView = AnyView(self.sidebar().environment(\.self, context.environment))
+        controller.detailHost.rootView = AnyView(self.detail().environment(\.self, context.environment))
+        controller.ruleColor = NSColor(context.environment.datasheetPalette.rule)
+        controller.onSidebarWidthChange = self.onSidebarWidthChange
+        let visibility = self.$columnVisibility
+        controller.onCollapsedChange = { collapsed in
+            let next: NavigationSplitViewVisibility = collapsed ? .detailOnly : .all
+            if visibility.wrappedValue != next { visibility.wrappedValue = next }
+        }
+        controller.setSidebarCollapsed(self.columnVisibility == .detailOnly)
+    }
+
+    static func dismantleNSViewController(_ controller: DatasheetMainWindowSplitController, coordinator _: ()) {
+        controller.onSidebarWidthChange = nil
+        controller.onCollapsedChange = nil
     }
 }
 
-private final class DatasheetSidebarColumnWidthView: NSView {
-    var onChange: ((CGFloat) -> Void)?
+final class DatasheetMainWindowSplitController: NSSplitViewController {
+    let sidebarHost = NSHostingController(rootView: AnyView(EmptyView()))
+    let detailHost = NSHostingController(rootView: AnyView(EmptyView()))
+    var onSidebarWidthChange: ((CGFloat) -> Void)?
+    var onCollapsedChange: ((Bool) -> Void)?
+    var ruleColor: NSColor = .clear {
+        didSet {
+            (self.splitView as? DatasheetMainWindowSplit)?.ruleColor = self.ruleColor
+            self.splitView.needsDisplay = true
+        }
+    }
 
+    private var collapsedObservation: NSKeyValueObservation?
+    private var resizeObserver: NSObjectProtocol?
+    private var didSetInitialWidth = false
     private var lastReportedWidth: CGFloat?
+    private var isUpdatingVisibility = false
+    private var layoutUpdateScheduled = false
+    private var desiredCollapsed = false
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        self.reportColumnWidth()
-    }
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        let split = DatasheetMainWindowSplit()
+        split.isVertical = true
+        split.dividerStyle = .thin
+        self.splitView = split
+        self.sidebarHost.sizingOptions = []
+        self.detailHost.sizingOptions = []
 
-    override func layout() {
-        super.layout()
-        self.reportColumnWidth()
-    }
+        let sidebar = NSSplitViewItem(viewController: self.sidebarHost)
+        sidebar.minimumThickness = 220
+        sidebar.maximumThickness = 300
+        sidebar.holdingPriority = .init(260)
+        sidebar.canCollapse = true
+        sidebar.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
+        self.addSplitViewItem(sidebar)
 
-    func reportColumnWidth() {
-        guard let splitView = self.enclosingSidebarSplitView,
-              let sidebarColumn = splitView.subviews.first
-        else { return }
+        let detail = NSSplitViewItem(viewController: self.detailHost)
+        detail.holdingPriority = .init(250)
+        self.addSplitViewItem(detail)
 
-        let width = sidebarColumn.frame.width
-        guard width >= 220, width <= 300,
-              self.lastReportedWidth.map({ abs($0 - width) > 0.5 }) ?? true
-        else { return }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.window != nil,
-                  self.lastReportedWidth.map({ abs($0 - width) > 0.5 }) ?? true
-            else { return }
-
-            self.lastReportedWidth = width
-            self.onChange?(width)
+        self.resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification, object: split, queue: .main
+        ) { [weak self] _ in
+            self?.scheduleLayoutUpdate()
         }
-    }
-
-    private var enclosingSidebarSplitView: NSSplitView? {
-        var ancestor = self.superview
-        while let view = ancestor {
-            if let splitView = view as? NSSplitView,
-               splitView.isVertical,
-               splitView.subviews.count >= 2,
-               let sidebarColumn = splitView.subviews.first,
-               self.isDescendant(of: sidebarColumn)
-            {
-                return splitView
+        self.collapsedObservation = sidebar.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
+            guard let self, !self.isUpdatingVisibility else { return }
+            self.desiredCollapsed = self.splitViewItems[0].isCollapsed
+            // Avoid changing a SwiftUI binding during an AppKit/representable layout pass.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.onCollapsedChange?(self.splitViewItems[0].isCollapsed)
             }
-            ancestor = view.superview
         }
-        return nil
     }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { nil }
+
+    deinit {
+        if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
+    }
+
+    func setSidebarCollapsed(_ collapsed: Bool) {
+        self.desiredCollapsed = collapsed
+        self.scheduleLayoutUpdate()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        self.scheduleLayoutUpdate()
+    }
+
+    private func scheduleLayoutUpdate() {
+        guard !self.layoutUpdateScheduled else { return }
+        self.layoutUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.layoutUpdateScheduled = false
+            guard self.view.window != nil, self.splitView.bounds.width >= 800 else { return }
+            let sidebar = self.splitViewItems[0]
+            if sidebar.isCollapsed != self.desiredCollapsed {
+                self.isUpdatingVisibility = true
+                sidebar.isCollapsed = self.desiredCollapsed
+                self.isUpdatingVisibility = false
+            }
+            guard !sidebar.isCollapsed else { return }
+            // Initial representable layout can precede the host window's final constraints.
+            // Apply the ideal width after that pass, never reentrantly inside SwiftUI rendering.
+            if !self.didSetInitialWidth {
+                self.didSetInitialWidth = true
+                self.splitView.setPosition(250, ofDividerAt: 0)
+            }
+            // Observe native divider changes too; parent viewDidLayout need not run for them.
+            let width = self.sidebarHost.view.frame.width
+            guard width > 0, self.lastReportedWidth.map({ abs($0 - width) > 0.5 }) ?? true else { return }
+            self.lastReportedWidth = width
+            self.onSidebarWidthChange?(width)
+        }
+    }
+}
+
+private final class DatasheetMainWindowSplit: NSSplitView {
+    var ruleColor: NSColor = .clear
+    override var dividerColor: NSColor { self.ruleColor }
 }
 
 enum DatasheetInputReadout {
@@ -192,11 +267,6 @@ struct DatasheetWindowTitleStrip: View {
                             action: self.sidebarToggleAction
                         )
                         .padding(.leading, 72)
-                    }
-                    .overlay(alignment: .trailing) {
-                        if self.sidebarIsVisible {
-                            Rectangle().fill(self.palette.rule).frame(width: 1)
-                        }
                     }
 
                 if availableDetailWidth >= 700 {

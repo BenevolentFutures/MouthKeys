@@ -4792,6 +4792,161 @@ final class LapelMicBatteryTests: XCTestCase {
 /// shared settings. Render both appearances to compare against design/app-signal/shots/.
 @MainActor
 final class DatasheetWindowRenderTests: XCTestCase {
+    /// Exercise the production split shell inside both native hosting arrangements.
+    /// ImageRenderer/HStack galleries cannot expose AppKit sidebar glass or insets.
+    func testNativeMainWindowSidebarIsFlushAndConstrainedInBothHosts() throws {
+        for useController in [false, true] {
+            for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                for size in [NSSize(width: 1000, height: 700), NSSize(width: 800, height: 500)] {
+                    let view = VStack(spacing: 0) {
+                        Color.clear.frame(height: 40)
+                        DatasheetWindowSplitView(columnVisibility: .constant(.all), onSidebarWidthChange: { _ in }) {
+                            Text("Sidebar").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } detail: {
+                            Color.clear
+                        }
+                    }.ignoresSafeArea(.container)
+                    let window = NSWindow(
+                        contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+                        styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                        backing: .buffered, defer: false
+                    )
+                    window.isReleasedWhenClosed = false
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.appearance = NSAppearance(named: appearance)
+                    if useController {
+                        window.contentViewController = NSHostingController(rootView: view)
+                    } else {
+                        window.contentView = NSHostingView(rootView: view)
+                    }
+                    window.setFrame(NSRect(origin: NSPoint(x: -10000, y: -10000), size: size), display: false)
+                    defer {
+                        window.contentViewController = nil
+                        window.contentView = nil
+                        window.close()
+                    }
+                    let host = try XCTUnwrap(window.contentView)
+                    let deadline = Date().addingTimeInterval(0.15)
+                    repeat {
+                        host.layoutSubtreeIfNeeded()
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+                    } while Date() < deadline
+                    let split = try XCTUnwrap(self.nativeSplits(in: host).first)
+                    let controller = try XCTUnwrap(split.delegate as? NSSplitViewController)
+                    let sidebar = try XCTUnwrap(controller.splitViewItems.first).viewController.view
+                    let sidebarFrame = split.convert(sidebar.bounds, from: sidebar)
+                    let detail = try XCTUnwrap(controller.splitViewItems.last).viewController.view
+                    let detailFrame = split.convert(detail.bounds, from: detail)
+                    let message = "controller=\(useController) \(appearance.rawValue) \(size)"
+                    XCTAssertEqual(split.bounds.height, size.height - 40, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.minX, 0, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.minY, 0, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.height, split.bounds.height, accuracy: 0.5, message)
+                    XCTAssertGreaterThanOrEqual(sidebarFrame.width, 220, message)
+                    XCTAssertLessThanOrEqual(sidebarFrame.width, 300, message)
+                    XCTAssertEqual(detailFrame.minX, sidebarFrame.maxX + split.dividerThickness, accuracy: 0.5, message)
+                    XCTAssertFalse(window.isVisible)
+                    XCTAssertFalse(window.isKeyWindow)
+                }
+            }
+        }
+    }
+
+    private func nativeSplits(in view: NSView) -> [NSSplitView] {
+        if let split = view as? NSSplitView { return [split] }
+        return view.subviews.flatMap { self.nativeSplits(in: $0) }
+    }
+
+    func testNativeSplitPreservesStateEnvironmentAndBidirectionalCollapse() throws {
+        for useController in [false, true] {
+            let model = DatasheetNativeShellTestModel()
+            let sidebarState = DatasheetNativePaneReceipt()
+            let detailState = DatasheetNativePaneReceipt()
+            let root = DatasheetNativeShellTestView(model: model, sidebarState: sidebarState, detailState: detailState)
+            let window = NSWindow(
+                contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 700),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            if useController {
+                window.contentViewController = NSHostingController(rootView: root)
+            } else {
+                window.contentView = NSHostingView(rootView: root)
+            }
+            window.setFrame(NSRect(x: -10000, y: -10000, width: 1000, height: 700), display: false)
+            defer {
+                window.contentViewController = nil
+                window.contentView = nil
+                window.close()
+            }
+            let host = try XCTUnwrap(window.contentView)
+            self.settleNativeLayout(host)
+            let split = try XCTUnwrap(self.nativeSplits(in: host).first)
+            let controller = try XCTUnwrap(split.delegate as? DatasheetMainWindowSplitController)
+            let sidebarHost = controller.sidebarHost
+            let detailHost = controller.detailHost
+            let sidebarIdentity = try XCTUnwrap(sidebarState.identity)
+            let detailIdentity = try XCTUnwrap(detailState.identity)
+            XCTAssertEqual(sidebarHost.view.frame.width, 250, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, sidebarHost.view.frame.width, accuracy: 0.5)
+
+            sidebarState.increment?()
+            detailState.increment?()
+            model.label = "updated environment object"
+            model.isLight = true
+            self.settleNativeLayout(host)
+            for state in [sidebarState, detailState] {
+                XCTAssertEqual(state.count, 1)
+                XCTAssertEqual(state.label, model.label)
+                XCTAssertEqual(state.scheme, .light)
+                XCTAssertEqual(state.ruleColor, NSColor(DatasheetTheme.Palette.light.rule))
+            }
+            XCTAssertEqual(sidebarState.identity, sidebarIdentity)
+            XCTAssertEqual(detailState.identity, detailIdentity)
+            XCTAssertTrue(controller.sidebarHost === sidebarHost)
+            XCTAssertTrue(controller.detailHost === detailHost)
+            XCTAssertEqual(split.dividerColor, NSColor(DatasheetTheme.Palette.light.rule))
+
+            // A native collapse (including divider interaction) must update the SwiftUI strip.
+            controller.splitViewItems[0].isCollapsed = true
+            self.settleNativeLayout(host)
+            XCTAssertEqual(model.visibility, .detailOnly)
+            XCTAssertEqual(detailHost.view.frame.width, split.bounds.width, accuracy: 0.5)
+            // The custom title-strip binding must reopen that same native pane.
+            model.visibility = .all
+            self.settleNativeLayout(host)
+            XCTAssertFalse(controller.splitViewItems[0].isCollapsed)
+            XCTAssertEqual(sidebarState.identity, sidebarIdentity)
+            XCTAssertEqual(detailState.identity, detailIdentity)
+            XCTAssertEqual(sidebarState.count, 1)
+            XCTAssertEqual(detailState.count, 1)
+
+            // Stay above AppKit's intentional collapse threshold while testing minimum width.
+            split.setPosition(180, ofDividerAt: 0)
+            self.settleNativeLayout(host)
+            XCTAssertEqual(sidebarHost.view.frame.width, 220, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, 220, accuracy: 0.5)
+            split.setPosition(400, ofDividerAt: 0)
+            self.settleNativeLayout(host)
+            XCTAssertEqual(sidebarHost.view.frame.width, 300, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, 300, accuracy: 0.5)
+            XCTAssertFalse(window.isVisible)
+            XCTAssertFalse(window.isKeyWindow)
+        }
+    }
+
+    private func settleNativeLayout(_ host: NSView) {
+        let deadline = Date().addingTimeInterval(0.15)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+        } while Date() < deadline
+    }
+
     /// Native Menu sizes can differ from SwiftUI frames. Check the actual AppKit action
     /// surface without ordering a window, opening a menu, or sending any system input.
     func testPickerNativeActionCoversPaintedFieldInBothThemes() throws {
@@ -4971,6 +5126,76 @@ final class DatasheetWindowRenderTests: XCTestCase {
                 }
             }
         }
+    }
+}
+
+@MainActor
+private final class DatasheetNativeShellTestModel: ObservableObject {
+    @Published var visibility: NavigationSplitViewVisibility = .all
+    @Published var label = "initial environment object"
+    @Published var isLight = false
+    var sidebarWidth: CGFloat = 0
+}
+
+@MainActor
+private final class DatasheetNativePaneReceipt {
+    var identity: UUID?
+    var count = 0
+    var label = ""
+    var scheme: ColorScheme?
+    var ruleColor: NSColor?
+    var increment: (() -> Void)?
+}
+
+private struct DatasheetNativeShellTestView: View {
+    @ObservedObject var model: DatasheetNativeShellTestModel
+    let sidebarState: DatasheetNativePaneReceipt
+    let detailState: DatasheetNativePaneReceipt
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 40)
+            DatasheetWindowSplitView(columnVisibility: self.$model.visibility, onSidebarWidthChange: { self.model.sidebarWidth = $0 }) {
+                DatasheetNativeStatefulPane(receipt: self.sidebarState)
+            } detail: {
+                DatasheetNativeStatefulPane(receipt: self.detailState)
+            }
+        }
+        .ignoresSafeArea(.container)
+        .environmentObject(self.model)
+        .environment(\.datasheetPalette, self.model.isLight ? .light : .dark)
+        .environment(\.colorScheme, self.model.isLight ? .light : .dark)
+    }
+}
+
+private struct DatasheetNativeStatefulPane: View {
+    let receipt: DatasheetNativePaneReceipt
+    @State private var identity = UUID()
+    @State private var count = 0
+
+    var body: some View {
+        DatasheetNativeEnvironmentProbe(identity: self.identity, count: self.count, receipt: self.receipt, increment: { self.count += 1 })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct DatasheetNativeEnvironmentProbe: NSViewRepresentable {
+    let identity: UUID
+    let count: Int
+    let receipt: DatasheetNativePaneReceipt
+    let increment: () -> Void
+    @EnvironmentObject private var model: DatasheetNativeShellTestModel
+    @Environment(\.datasheetPalette) private var palette
+    @Environment(\.colorScheme) private var scheme
+
+    func makeNSView(context _: Context) -> NSView { NSView() }
+    func updateNSView(_: NSView, context _: Context) {
+        self.receipt.identity = self.identity
+        self.receipt.count = self.count
+        self.receipt.label = self.model.label
+        self.receipt.scheme = self.scheme
+        self.receipt.ruleColor = NSColor(self.palette.rule)
+        self.receipt.increment = self.increment
     }
 }
 

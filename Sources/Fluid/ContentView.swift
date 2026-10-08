@@ -349,14 +349,14 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         self.mainWindowTitleStrip
 
-                        NavigationSplitView(columnVisibility: self.$columnVisibility) {
+                        DatasheetWindowSplitView(
+                            columnVisibility: self.$columnVisibility,
+                            onSidebarWidthChange: { self.datasheetSidebarWidth = $0 }
+                        ) {
                             self.sidebarView
-                                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-                                .toolbar(removing: .sidebarToggle)
                         } detail: {
                             self.detailView
                         }
-                        .navigationSplitViewStyle(.balanced)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1288,11 +1288,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(self.datasheetPalette.sidebar)
-        .background {
-            DatasheetSidebarColumnWidthReader { width in
-                self.datasheetSidebarWidth = min(300, max(220, width))
-            }
-        }
     }
 
     private func sidebarSectionHeader(_ title: String, topSpacing: CGFloat = 0) -> some View {
