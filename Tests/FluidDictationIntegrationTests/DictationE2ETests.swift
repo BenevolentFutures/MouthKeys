@@ -5436,3 +5436,49 @@ private struct DatasheetWindowFoundationGallery: View {
         .frame(width: width + 24)
     }
 }
+
+/// Offscreen palette proof for the live input meter's optional last-filled accent.
+/// Values here exercise the reusable control only; they do not simulate microphone capture.
+@MainActor
+final class ASettingsMeterRenderTests: XCTestCase {
+    func testInputMeterPaletteStatesRenderInBothThemes() throws {
+        let outputFolder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let theme = appearance == .darkAqua ? "dark" : "light"
+            let view = HStack(alignment: .top, spacing: 18) {
+                self.meterSample("DEFAULT", meter: DatasheetMeter(value: 7, count: 10))
+                self.meterSample("LIVE ZERO", meter: DatasheetMeter(value: 0, count: 16, segmentWidth: 4, segmentHeight: 14, accentLastFilled: true))
+                self.meterSample("LIVE PARTIAL", meter: DatasheetMeter(value: 8, count: 16, segmentWidth: 4, segmentHeight: 14, accentLastFilled: true))
+                self.meterSample("LIVE FULL", meter: DatasheetMeter(value: 16, count: 16, segmentWidth: 4, segmentHeight: 14, accentLastFilled: true))
+            }
+            .padding(20)
+            .frame(width: 620, height: 80, alignment: .topLeading)
+            .environment(\.displayScale, 1)
+            .datasheetPalette()
+
+            let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+            XCTAssertGreaterThan(rep.pixelsWide, 0)
+            XCTAssertGreaterThan(rep.pixelsHigh, 0)
+            let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "a-settings-meter-\(theme)"
+            attachment.lifetime = .keepAlways
+            self.add(attachment)
+
+            if let outputFolder {
+                try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent("a-settings-meter-\(theme).png"))
+            }
+        }
+    }
+
+    private func meterSample<Meter: View>(_ title: String, meter: Meter) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .tracking(0.5)
+            meter
+        }
+    }
+}

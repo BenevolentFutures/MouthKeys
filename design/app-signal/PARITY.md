@@ -18,7 +18,7 @@ These components have no independent `SettingsStore` binding. The consuming scre
 | Gridded value control and fixed readout | Caller-supplied `Binding<Double>` and range | `DatasheetSlider` | Foundation |
 | Shortcut display/capture well | Wrap the existing shortcut recorder and its callbacks | `DatasheetHotkeyWell` | Foundation |
 | Selectable table row | Caller-supplied action and selection | `DatasheetTableRow` | Foundation |
-| Segmented meter | Caller-supplied value and count; optional last-filled accent defaults off | `DatasheetMeter` | Foundation |
+| Segmented meter | Caller-supplied value and count | `DatasheetMeter` | Foundation |
 | Status marker | Caller-supplied ink, orange, or outline kind | `DatasheetStatusSquare` | Foundation |
 | Rest/hover selection bracket | Caller-supplied rest state and hover state | `DatasheetBracketed(rest:)` | Foundation |
 | Grid empty state | Caller-supplied title, message, illustration, action | `DatasheetEmptyState` | Foundation |
@@ -63,7 +63,7 @@ These components have no independent `SettingsStore` binding. The consuming scre
 
 Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.preferencesView`.
 
-Implementation status: all listed controls are wired in the new ten-zone sheet; the incremental Debug build passes. Native two-theme screenshots and local app-hosted focused tests await the coordinator's serialized host turn. No permissions, system devices, login item, backup action, shortcut capture, or alerts were exercised.
+Implementation status: all listed controls are wired in the new ten-zone sheet; the incremental Debug build and focused meter render test pass. Dark/light meter artifacts are under `/Users/atin/Projects/MouthKeys-worktrees/datasheet-run/renders/A/`. Native ten-zone screenshots and walkthrough still await the coordinator's serialized screen turn. No permissions, system devices, login item, backup action, shortcut capture, or alerts were exercised.
 
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
@@ -145,6 +145,7 @@ Implementation status: all listed controls are wired in the new ten-zone sheet; 
 ### A state and evidence notes
 
 - The mic meter subscribes to `ASRService.audioLevelPublisher`, shows only received values while capture is active, and resets to neutral when capture stops or is cancelled and when the view disappears. It uses 16 segments at 4 × 14 points with 2 points between segments. The approved optional `DatasheetMeter.accentLastFilled` flag colors only the final filled segment with the palette accent; earlier filled segments remain ink and unfilled segments retain their existing treatment. An empty meter means no current level; it does not report readiness or failure.
+- `ASettingsMeterRenderTests` renders the default, live-zero, live-partial, and live-full meter states in both themes without simulating audio input. The default caller stays neutral; zero has no accent; partial and full states accent only the final filled segment. See `datasheet-run/renders/A/manifest.json` and its attached PNGs.
 - The input picker calls the same `MicrophonePreferenceCoordinator.pick` path used by the status menu. It changes MouthKeys priority and capture selection, not the macOS default input. Unavailable saved microphones remain in the priority table.
 - Recording restrictions remain local: output-device changes are disabled while `asr.isRunning`; microphone priority edits are disabled while `asr.isRunning || asr.isStarting`. Other Settings controls stay enabled.
 - Accessibility recovery retains stale-grant, conflicting-copy paths and Finder actions, Relaunch MouthKeys, Open Settings, Reveal in Finder, and Open Applications. Hotkey initializing and shortcut capture messages remain visible.
