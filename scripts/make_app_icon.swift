@@ -1,5 +1,5 @@
 // Regenerate: swiftc -O scripts/make_app_icon.swift -o /tmp/make_app_icon && /tmp/make_app_icon Sources/Fluid/Assets.xcassets/AppIcon.appiconset
-// Draws the MouthKeys app icon, the pirate keycap grin (DESIGN.md §17, prototypes/signal/icon-grin.html): an ink
+// Draws the MouthKeys app icon, the pirate keycap grin (DESIGN.md §17, prototypes/datasheet/icon-grin.html): an ink
 // tile, full-bleed, and a grin of white square-ended teeth on a 64-unit grid, the trace mirrored and split by the
 // bite, with one lower tooth right of centre in orange (the gold tooth). The detail follows the pixel count:
 //   256 px and up   seven teeth a jaw, each drawn as a keycap in plan view (top face and chamfers, 0.3 units)

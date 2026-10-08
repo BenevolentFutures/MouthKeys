@@ -241,7 +241,7 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         self.lastResolvedInputName = device.name
         LapelMicBatteryMonitor.shared.noteSelectedInput(uid: device.uid)
         if NotchContentState.shared.isBottomOverlayPresented {
-            SignalOverlayModel.shared.microphoneName = device.name
+            DatasheetOverlayModel.shared.microphoneName = device.name
         }
         DebugLogger.shared.info(
             "MIC_PICK source=\(source) name='\(device.name)' uid=\(device.uid) " +
@@ -266,9 +266,9 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         LapelMicBatteryMonitor.shared.noteSelectedInput(uid: uid)
         // The overlay names the microphone from its first frame; correct it once capture resolves.
         if let name, !name.isEmpty, NotchContentState.shared.isBottomOverlayPresented,
-           SignalOverlayModel.shared.microphoneName != name
+           DatasheetOverlayModel.shared.microphoneName != name
         {
-            SignalOverlayModel.shared.microphoneName = name
+            DatasheetOverlayModel.shared.microphoneName = name
         }
 
         // Onboarding owns microphone feedback inside its setup panel. A global

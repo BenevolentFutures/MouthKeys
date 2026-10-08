@@ -1,0 +1,293 @@
+# MouthKeys window parity ledger
+
+Baseline: the current app at `e5e48a4e` (after PR #57), checked against `SettingsView.swift`, `ContentView.swift`, and the screen files listed below. “Restyle” is the required disposition; lane owners mark rows complete after wiring the new view. Controls backed by AppKit may render blank in `ImageRenderer`; those rows still require the real Debug view check under a screen lease.
+
+## Foundations — phase 0
+
+These components have no independent `SettingsStore` binding. The consuming screen supplies the existing binding and side effects.
+
+| Current surface / component | Current binding or effect | New target | Status |
+|---|---|---|---|
+| `DatasheetTheme` window tokens | `rule`, `ruleSoft`, `sidebar`, `field`; values from prototype `:root` and light theme | Shared window palette | Restyle foundation |
+| Sheet header | No binding | `DatasheetSheetHeader` | Foundation |
+| Zone heading and trailing label | No binding | `DatasheetSection` | Foundation |
+| Setting label, help, indent leader, row rule | Caller-supplied binding/control | `DatasheetRow` | Foundation |
+| On/off control | Caller-supplied `Binding<Bool>` | `DatasheetToggleStyle` | Foundation |
+| Fixed-cell choice control | Caller-supplied selection binding | `DatasheetSegmented` | Foundation |
+| Field-box menu | Caller-supplied menu actions/current value and optional detail | `DatasheetPicker` | Foundation; native 240 × 32 field, stable value width, visible optional detail, and trailing disclosure; native menu remains the action surface |
+| Gridded value control and fixed readout | Caller-supplied `Binding<Double>` and range | `DatasheetSlider` | Foundation |
+| Shortcut display/capture well | Wrap the existing shortcut recorder and its callbacks | `DatasheetHotkeyWell` | Foundation |
+| Selectable table row | Caller-supplied action and selection | `DatasheetTableRow` | Foundation |
+| Segmented meter | Caller-supplied value and count | `DatasheetMeter` | Foundation |
+| Status marker | Caller-supplied ink, orange, or outline kind | `DatasheetStatusSquare` | Foundation |
+| Rest/hover selection bracket | Caller-supplied rest state and hover state | `DatasheetBracketed(rest:)` | Foundation |
+| Grid empty state | Caller-supplied title, message, illustration, action | `DatasheetEmptyState` | Foundation |
+| Tileless grin | Caller-supplied lower-jaw displacement | `DatasheetGrin(jaw:)`, compact/heavy/full pixel tiers | Foundation |
+
+## Chrome — phase 1
+
+| Current screen / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Sidebar: Getting Started | `selectedSidebarItem = .welcome` | `00 Getting Started` | Move/restyle |
+| Sidebar: Settings | `selectedSidebarItem = .preferences` | `01 Settings` | Move/restyle |
+| Sidebar: Voice Engine | `selectedSidebarItem = .voiceEngine` | `02 Voice Engine` | Move/restyle |
+| Sidebar: Custom Dictionary | `selectedSidebarItem = .customDictionary` | `03 Custom Dictionary` | Move/restyle |
+| Sidebar: Command Mode | `selectedSidebarItem = .commandMode` | `04 Command Mode` | Move/restyle |
+| Sidebar: File Transcription | `selectedSidebarItem = .meetingTools` | `05 File Transcription` | Move/restyle |
+| Sidebar: History | `selectedSidebarItem = .history` | `06 History` | Move/restyle |
+| Sidebar: Stats | `selectedSidebarItem = .stats` | `07 Stats` | Move/restyle |
+| Sidebar: AI Enhancement | `selectedSidebarItem = .aiEnhancements` | `08 AI Enhancement` | Move/restyle |
+| Sidebar: Feedback | `selectedSidebarItem = .feedback` | `09 Feedback` | Move/restyle |
+| Sidebar grouping | Existing `SidebarItem` routes; `.rewriteMode` has no row and remains unrouted | Configure, Use, Activity, Advanced, Help groups | Restyle; keep rewrite unrouted |
+| Toolbar: Today / word count | `TodayStatsToolbarButton`; routes to `.stats` | Fixed 40 pt title strip | Move/restyle |
+| Toolbar: Theme | `settings.themePreference`, cycles system/light/dark | Theme control | Restyle |
+| Toolbar: Report | Existing feedback/report route | Report control | Restyle |
+| Settings: Accent Color | `settings.accentColorOption` | No new control | Removed by decision |
+| Window size and navigation keyboard shortcuts | 800 × 500 minimum; no screen-jump shortcuts | Window shell and sidebar | Preserve minimum; prototype number keys stay prototype-only |
+
+## A — Settings
+
+Source: `Sources/Fluid/UI/SettingsView.swift`; bindings passed by `ContentView.preferencesView`.
+
+| Current screen / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Microphone permission: Grant Access | `ASRService.requestMicAccess()` | A Microphone permission row | Restyle; preserve system prompt timing |
+| Microphone permission: Open Settings | `ASRService.openSystemSettingsForMic()` | A Microphone permission row | Restyle |
+| Audio Devices: Refresh | `refreshDevices()`; refreshes the default input/output cache | A Microphone header action | Preserve refresh effect |
+| Input Device Priority: drag reorder | `SettingsStore.microphonePriority` | A Microphone table | Move/restyle |
+| Input Device Priority: remove | `SettingsStore.microphonePriority` / suppressed microphone set | A Microphone table row action | Move/restyle |
+| Input Device Priority: Restore Removed | `restoreRemovedMicrophones(with:)` | A Microphone table action | Move/restyle |
+| Prototype: Input device picker | `selectedInputUID` is reconciled from priority order; explicit selection currently uses status-menu `selectMicrophone(_:)` | A Microphone | Add picker using the existing selection action; add no settings key |
+| Prototype: live input-level meter | Prototype-only readout; no SettingsStore key or SettingsView binding | A Microphone | Add display only from an existing level stream; do not add capture behavior or change system defaults |
+| Output Device picker | `selectedOutputUID`, `SettingsStore.preferredOutputDeviceUID` | A Microphone | Restyle |
+| Sensitivity slider | `visualizerNoiseThreshold` | H Overlay | Restyle |
+| Sensitivity Reset | Sets `visualizerNoiseThreshold` to `0.4` | H Overlay | Preserve effect |
+| Accessibility permission state / Open Settings | `accessibilityEnabled`, `AccessibilityTrustMonitor` | B Hotkeys status row and recovery states | Restyle |
+| Accessibility recovery: Relaunch MouthKeys | `restartApp` callback after trusted-but-failed tap | B Hotkeys recovery row | Restyle |
+| Accessibility recovery: Reveal in Finder | `revealAppInFinder()` | B Hotkeys recovery actions | Preserve destination |
+| Accessibility recovery: Open Applications | `openApplicationsFolder()` | B Hotkeys recovery actions | Preserve destination |
+| Shortcut capture state / capture message | `activeShortcutRecordingTarget`, `shortcutRecordingMessage` | B Hotkeys status and `DatasheetHotkeyWell` | Restyle |
+| Primary Dictation Shortcuts: Add / Change / Cancel / Remove | `primaryDictationShortcuts` and existing recorder callbacks | B Hotkeys | Preserve recorder and one-shortcut minimum |
+| Primary Dictation AI Prompt picker | `dictationPromptSelection(for: .primary)` | B Hotkeys | Restyle |
+| Command Mode shortcut and enable toggle | `commandModeShortcut`, `commandModeShortcutEnabled` | B Hotkeys | Restyle |
+| Edit Mode shortcut and enable toggle | `rewriteShortcut`, `rewriteShortcutEnabled` | B Hotkeys | Restyle |
+| Cancel Recording shortcut | `cancelRecordingShortcut` | B Hotkeys | Restyle |
+| Paste Last Transcription shortcut and enable toggle | `pasteLastTranscriptionShortcut`, `pasteLastTranscriptionShortcutEnabled` | B Hotkeys | Restyle |
+| Reprocess Last Dictation shortcut and enable toggle | `reprocessLastDictationShortcut`, `reprocessLastDictationShortcutEnabled` | B Hotkeys | Restyle |
+| Activation Mode picker | `hotkeyMode`; updates `GlobalHotkeyManager` | B Hotkeys | Restyle |
+| Global Hotkey: “Hotkey initializing…” status | `hotkeyManagerInitialized`; `ContentView.preferencesView` passes the state and `SettingsView` renders this branch while accessibility is enabled | B Hotkeys status row | Preserve; style the initializing state |
+| Input Device Priority: Move Up | `SettingsStore.moveMicrophonePriority(uid:by: -1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
+| Input Device Priority: Move Down | `SettingsStore.moveMicrophonePriority(uid:by: 1)` then `refreshActiveInputSelection()`; also exposed as an accessibility action | A Microphone priority-row actions | Preserve context-menu and accessibility actions, ordering limits, and disabled state |
+| Copy to Clipboard | `copyToClipboard` / `SettingsStore.copyTranscriptionToClipboard` | C Dictation | Restyle |
+| Text Insertion Mode picker | `SettingsStore.textInsertionMode` | C Dictation | Restyle |
+| Return to Starting Field | `SettingsStore.returnDictationToStartingField` | C Dictation | Restyle |
+| Q for Question Mark | `SettingsStore.questionMarkShortcutEnabled` | C Dictation | Restyle; added after prototype by PR #57 |
+| Spoken Send | `SettingsStore.spokenSendEnabled` | C Dictation | Restyle |
+| Spoken Send phrase field | `SettingsStore.spokenSendPhrase` | C Dictation | Restyle |
+| Send After a Pause | `SettingsStore.spokenSendImmediatelyEnabled`; baseline settle duration is 0.5 s, prototype copy says 1.5 s | C Dictation | Restyle; preserve baseline timing |
+| Send Key picker | `SettingsStore.spokenSendKey`; terminal target still sends Return | C Dictation | Restyle |
+| Allow in c11 | No baseline setting after PR #57; terminals always receive Return | No C Dictation control | Removed by decision; prototype predates PR #57 |
+| Pause Media During Transcription | `SettingsStore.pauseMediaDuringTranscription` | C Dictation | Restyle |
+| Skip Silent Recordings | `SettingsStore.skipSilentRecordingsEnabled` | C Dictation | Restyle |
+| Launch at startup | `SettingsStore.setLaunchAtStartup(_:)` | D App | Restyle; do not change during QA |
+| Launch at startup registration status | `SettingsStore.launchAtStartupStatusMessage` | D App status text | Preserve actual login-item status |
+| Launch at startup error | `SettingsStore.launchAtStartupErrorMessage` | D App error state | Preserve error recovery |
+| Show window when launched at login | `SettingsStore.showMainWindowAtLoginLaunch` | D App | Restyle |
+| Hide from Dock & App Switcher | `SettingsStore.hideFromDockAndAppSwitcher` | D App | Restyle |
+| Self-update statement and Latest release link | Static statement; `MouthKeysLinks.latestRelease` | D App | Preserve link; no updater |
+| Transcription Sounds picker | `SettingsStore.transcriptionStartSound`; selecting previews the sound | D App | Restyle; preserve preview effect |
+| Volume slider | `SettingsStore.transcriptionSoundVolume`; release previews volume | D App | Restyle; preserve preview effect |
+| Analytics Details | `showAnalyticsPrivacy`; telemetry remains hard-off | E History | Restyle; retain no-telemetry statement |
+| Save Transcription History | `SettingsStore.saveTranscriptionHistory` | E History | Restyle; preserve usage refresh side effect |
+| Save Audio With History | `SettingsStore.saveAudioWithTranscriptionHistory` | E History | Restyle; remains disabled when history is off |
+| Weekends Don't Break Streak | `SettingsStore.weekendsDontBreakStreak` | E History | Restyle |
+| Audio Storage usage and meter | `audioHistoryUsageBytes`, `audioHistoryUsageFraction()`, `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve live usage display |
+| Audio budget field and Apply | `audioHistoryBudgetText`; writes `SettingsStore.audioHistoryBudgetGB` | E History | Restyle; preserve validation/pruning |
+| Export Audio | `exportAudioZip()` | E History | Restyle |
+| Delete Audio | `deleteSavedAudio()`; deletes saved audio only after confirmation and is disabled at zero usage | E History | Preserve confirmation and disabled state |
+| Lowercase First Letter | `SettingsStore.gaavLowercaseFirstLetterEnabled` | F Format | Restyle |
+| Remove Trailing Period | `SettingsStore.gaavRemoveTrailingPeriodEnabled` | F Format | Restyle |
+| Slash Commands & @ Formatting | `SettingsStore.literalDictationFormattingEnabled` | F Format | Restyle |
+| Space Between Dictations | `SettingsStore.continuousDictationSpacingEnabled` | F Format | Restyle |
+| Smart Capitalization | `SettingsStore.contextAwareCapitalizationEnabled` | F Format | Restyle |
+| AI Enhancement Failures | `SettingsStore.notifyAIProcessingFailures` | G Alerts | Restyle |
+| Microphone Changes | `SettingsStore.showMicrophoneChangeAlerts` | G Alerts | Restyle; preserve dismiss/reset side effect |
+| Paste Check | `SettingsStore.showPasteCheckAlerts` | G Alerts | Restyle |
+| Overlay Position | `SettingsStore.overlayPosition` | H Overlay | Restyle |
+| Transcription Preview Length slider | `SettingsStore.transcriptionPreviewCharLimit` | H Overlay | Restyle |
+| Overlay Size picker | `SettingsStore.overlaySize` | H Overlay | Restyle |
+| Notch Style picker | `SettingsStore.notchPresentationMode` | H Overlay | Restyle |
+| Live Preview | `enableStreamingPreview` / `SettingsStore.enableStreamingPreview` | H Overlay | Restyle |
+| Bottom Offset slider | `SettingsStore.overlayBottomOffset` | H Overlay | Restyle |
+| Backup Export / Import | `exportBackup()` / `importBackup()`; API keys excluded | I Backup | Restyle; preserve document contents and confirmations |
+| Show Debug Logs in App | `SettingsStore.enableDebugLogs` | J Debug | Restyle |
+| Debug log location/help | `AppStorageLocation.logFolderName` | J Debug | Preserve path and diagnostics wording |
+| Reveal Log File | `FileLogger.shared.currentLogFileURL()` and `NSWorkspace.shared.activateFileViewerSelecting` | J Debug action | Preserve Finder destination |
+| Prototype: settings recording notice | Output Device is disabled while `asr.isRunning`; microphone-priority edits are disabled while running or starting | Settings status notice; retain those two individual disabled states | Add notice; do not disable every Settings row |
+
+## B — Getting Started
+
+Source: `ContentView.welcomeView`, `Sources/Fluid/UI/WelcomeView.swift`, `Theme/Components/SetupComponents.swift`, `UI/OnboardingTryoutStepView.swift`.
+
+| Current screen / control or state | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Quick Setup step actions and completion state | Existing onboarding/permission state | Four-cell setup readout | Restyle; done collapses, next action remains actionable |
+| Welcome title before model readiness | `ASRService` readiness | Getting Started lead | Preserve wording/ordering |
+| Microphone status and permission action | `ASRService` authorization and request | Setup status row | Restyle |
+| Accessibility status / Open Settings / floating guide | `AccessibilityTrustMonitor` | Permission recovery rows | Restyle |
+| “Already switched on?” recovery | Trust monitor result after return from System Settings | Permission recovery row | Preserve |
+| Conflicting app-copy Show in Finder list | `ConflictingAppCopyDetector` | Permission recovery row | Preserve paths and Finder action |
+| failed_trusted Relaunch MouthKeys | Existing relaunch callback | Permission recovery row | Preserve |
+| Grant Access | Existing microphone permission request | Permission recovery row | Preserve |
+| Your Dictation Key display and activation mode | `primaryDictationShortcuts`, `hotkeyMode` | Keycap and mode readout | Restyle |
+| Prototype addition: three-press hotkey practice drill | No matching baseline practice sequence or completion callback in `WelcomeView.swift` | Your Dictation Key | New prototype interaction; Getting Started lane must wire completion if retained |
+| Run Onboarding Again | `resetOnboardingProgress()` and `playgroundUsed = false` | Quick Setup header action | Preserve action and reset effect |
+| Editable transcript | `asr.finalText` binding | Playground transcript editor | Preserve edit and transcription state |
+| Copy Text | Copies `asr.finalText` to `NSPasteboard` | Playground transcript actions | Preserve copy action |
+| Clear & Test Again | Sets `asr.finalText` to the empty string | Playground transcript actions | Preserve clear action |
+| Playground microphone picker | Existing selected-input binding and device coordinator | Playground | Restyle; preserve real device selection |
+| Playground recording/cancel and inline overlay | Existing `SignalOverlay`/`DatasheetOverlay` state and callbacks | Playground | Preserve overlay and delivery behavior |
+| Prototype addition: hover callout zones | No baseline callout view or callback; annotation names and geometry are defined in prototype `callouts.js` | Playground annotations | New prototype annotations; implement in Getting Started lane |
+| Open Voice Engine / Settings actions | Existing sidebar routing callbacks | Setup step actions | Preserve destinations |
+
+## C — Voice Engine, Custom Dictionary, AI Enhancement, Feedback
+
+| Current screen / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Voice Engine: primary language menu | `selectedAppleSpeechLocale` / current engine language model | Voice Engine language control | Restyle |
+| Voice Engine: provider filter menu | `viewModel.providerFilter` | Voice Engine table controls | Restyle |
+| Voice Engine: model sort menu | `viewModel.modelSortOption` | Voice Engine table controls | Restyle |
+| Voice Engine: model selection row | `SettingsStore.selectedSpeechModel` | Voice Engine model table | Restyle; preserve selected engine |
+| Voice Engine: Activate | Existing activation action | Model table row action | Restyle |
+| Voice Engine: Download / Cancel | Existing model download and cancellation state | Model table row action and progress states | Restyle; preserve errors/progress |
+| Voice Engine: Delete models | Existing model deletion action | Model row/management action | Preserve; do not run during QA |
+| Voice Engine: language menu per model | `selectedNemotronLanguage`, `selectedCohereLanguage`, and per-model language binding | Model row language control | Restyle |
+| Voice Engine: Open Custom Dictionary | Sidebar route to `.customDictionary` | Voice Engine custom words link | Preserve |
+| Voice Engine: remove filler words toggle/list | `viewModel.removeFillerWordsEnabled` and filler-word settings | Filler-word tags/list | Restyle |
+| Voice Engine: regional filler-word offer | Existing offer preference and answer callbacks | Filler-word offer | Preserve offer and both choices |
+| Custom Dictionary: Import / Export | `importDictionary()` / `exportDictionary()` | Dictionary header actions | Restyle |
+| Custom Dictionary: Auto-learn words while typing | `automaticDictionaryLearningEnabled` | Teach Words | Restyle |
+| Teach Words: replacement field | `trainingReplacement` | Teach Words form | Restyle |
+| Teach Words: training recorder / test action | Existing training recorder state and service | Teach Words form | Preserve recording action |
+| Replacement table: add trigger(s) and replacement | `manualTriggerDraft`, `manualReplacement` | First inline table | Move from popover to inline editor |
+| Replacement table: add, edit, delete, clear | Existing replacement store and row callbacks | First inline table | Move/restyle; preserve mutation effects |
+| Custom Words table: add/edit/delete | Existing vocabulary store and row callbacks | Second inline table | Move/restyle; preserve mutation effects |
+| Custom Words Boosting | `vocabBoostingEnabled` | Custom Words section | Restyle |
+| Boost term field and priority picker | `boostTermText`, `boostTermStrength` | Custom Words inline table | Restyle |
+| Spoken Formatting toggle and start word | `punctuationAutoConvertEnabled`, `punctuationPrefix` | Third inline table | Restyle |
+| Formatting action toggles and edit | `formattingActionEnabledBinding(for:)` and action rules | Third inline table | Restyle |
+| Formatting phrases/symbol fields, add/save/clear | `punctuationSymbolText` and existing phrase/rule stores | Third inline table | Restyle; preserve rule semantics |
+| Formatting reset defaults | Existing reset confirmation and default rules | Third inline table | Preserve confirmation/effect |
+| AI Enhancement tabs | Existing provider/advanced-prompt section selection | Providers / Advanced Prompts tabs | Restyle |
+| Provider search | `providerSearchText` | Providers tab | Restyle |
+| Provider list expand/collapse | `toggleProviderExpansion(item.id)` | Providers table | Restyle |
+| Provider/model selection | Existing selected-provider/model bindings and `SearchableModelPicker` | Providers table | Restyle |
+| Provider reasoning control | Existing reasoning configuration view model | Provider row action/editor | Restyle |
+| Add provider: name, base URL, API key | `newProviderName`, `newProviderBaseURL`, `newProviderApiKey` | Add Provider form | Restyle; preserve keychain write path |
+| Provider: test connection, save, cancel | Existing `testAPIConnection`, `saveNewProvider`, cancel callbacks | Provider editor | Restyle |
+| Edit provider: name, URL, API key, save/cancel | `editProviderName`, `editProviderBaseURL`, API key editor bindings | Provider editor | Restyle |
+| API-key reveal / clear / edit | Existing keychain service and `handleAPIKeyButtonTapped()` | Provider row action/editor | Preserve keychain service; no key edits during QA |
+| Provider delete | Existing provider delete confirmation and view-model mutation | Provider row action | Restyle; preserve confirmation |
+| Advanced Prompts: add/edit/delete prompt | Existing prompt profile and prompt editor bindings | Advanced Prompts tab | Restyle |
+| Advanced Prompts: prompt name/body/model | `draftPromptName`, prompt content and prompt-model picker bindings | Prompt editor | Restyle |
+| Advanced Prompts: Reset to Built-in | `resetDefaultPromptOverride(for:)`; available when a default prompt override exists | Prompt editor | Preserve reset and viewer-opening effects |
+| Advanced Prompts: mode tabs | `selectedPromptMode` and `SettingsStore.PromptMode.visiblePromptModes` | Advanced Prompts | Preserve per-mode configuration |
+| Advanced Prompts: routing scope | `viewModel.promptRoutingScope(for:)` and existing per-mode scope store | Advanced Prompts | Preserve app routing |
+| Dictation: Send Custom Prompt Only | `customPromptOnlyToggleRow` and existing custom-prompt selection behavior | Advanced Prompts / Dictate | Preserve routing effect |
+| Prompt editor: custom shortcut capture / clear | `promptEditorShortcutDraft` and existing hotkey recorder callbacks | Prompt editor | Preserve capture behavior |
+| Prompt editor: provider selection | `promptEditorProviderIDDraft` and prompt configuration callbacks | Prompt editor | Preserve per-prompt provider |
+| Prompt Test Mode | `promptTest.isActive`; runs only the draft-prompt preview path | Prompt editor test panel | Preserve; never types into another app |
+| Prompt test progress, error and raw/output results | `promptTest.isProcessing`, `lastError`, `lastTranscriptionText`, `lastOutputText` | Prompt editor test panel | Preserve every result state |
+| Advanced Prompts: per-app overrides and sync | Existing app prompt binding and linked-mode bindings | Advanced Prompts table | Restyle; preserve routing |
+| Feedback: message editor | `feedbackText` | Feedback form | Restyle; preserve editable text |
+| Feedback: Include app and macOS version | `includeSystemInfo` | Feedback form | Restyle |
+| Feedback: open issue | `openFeedbackIssue` and `MouthKeysLinks.newIssue` | Feedback action | Preserve destination; do not submit during QA |
+| About: Fig. 1 and GitHub link | Static grin drawing; GitHub URL | About section | Add per approved design |
+| About: FluidVoice credit and support links | `MouthKeysLinks.upstreamRepository`, `MouthKeysLinks.upstreamSponsor`; static attribution text | About section | Preserve both links and attribution |
+
+## D — History, Stats, Command Mode, File Transcription
+
+| Current screen / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| History search | `searchQuery` | History list header | Restyle |
+| History row selection | `selectedEntryID` | History list | Restyle |
+| History copy processed/raw/both | `copyToClipboard` and `combinedText(for:)` | History detail actions | Restyle; preserve copied text selection |
+| History audio playback | Existing dictation audio playback action | History detail | Restyle |
+| History Export Pair | `exportPair(entry)` | History detail action | Restyle |
+| History Reveal Audio | `revealAudio(entry)` | History detail action | Restyle |
+| History Delete / Delete Entry | `historyStore.deleteEntry(id:)` | History detail action | Restyle; preserve selection update |
+| History Clear All | Existing clear-all confirmation and store mutation | History header action | Restyle; preserve confirmation |
+| History empty state / Open Playground | Empty-state route to `.welcome` | Empty-state panel | Restyle; outline grin in lane F |
+| Stats date-range picker | `chartDays` | Stats chart control | Restyle |
+| Stats WPM edit field | `editingWPM` | Typing-speed KPI cell | Restyle |
+| Stats WPM Save / Cancel | Existing user typing WPM setter | Typing-speed KPI cell | Preserve validation and save |
+| Stats Reset Everything | Existing destructive reset confirmation | Stats action | Restyle; preserve confirmation |
+| Command Mode: New Chat | `service.createNewChat()` | Command Mode header | Restyle |
+| Command Mode: chat selector/menu | Existing chat selection/deletion callbacks | Command Mode header | Restyle; preserve selection and confirmation |
+| Command Mode: clear/delete history | Existing clear confirmation and chat store | Command Mode header | Restyle; preserve confirmation |
+| Command Mode: Confirm Before Execute | `settings.commandModeConfirmBeforeExecute` | Confirm panel | Restyle |
+| Command Mode: how-to expander | `showHowTo` | Not-ready/help panel | Restyle |
+| Command Mode: prompt field | `inputText` | Composer | Restyle |
+| Command Mode: Sync | `settings.commandModeLinkedToGlobal` | Provider/model controls | Restyle |
+| Command Mode: provider/model pickers | Existing command-mode provider/model bindings | Provider/model controls | Restyle |
+| Command Mode: AI Settings | Routes to AI Enhancement settings | Not-ready/help panel | Preserve route |
+| Command Mode: record, Run, cancel pending command | Existing dictation and command service callbacks | Composer actions | Restyle; preserve behavior |
+| Command Mode: thinking detail expander | `isThinkingExpanded` | Result detail | Restyle |
+| File Transcription: choose file / drag and drop | Existing file picker and `.fileURL` drop handler | Drop zone | Restyle |
+| File Transcription: remove selected file | Clears selected file and resets transcription service | File header action | Preserve effect |
+| File Transcription: Label speakers | `settings.fileTranscriptionSpeakerLabelsEnabled` | Options zone | Restyle |
+| File Transcription: Number of speakers | `settings.fileTranscriptionExpectedSpeakerCount` | Options zone | Restyle |
+| File Transcription: Transcribe / Cancel | Existing transcription service state/actions | Primary action and progress | Restyle; preserve progress/errors |
+| File Transcription result: Copy / Export | Existing clipboard and export dialog callbacks | Result actions | Restyle |
+| File Transcription history: select / Copy / Export / Delete | Existing file history store and selected entry | Recent table and detail | Restyle; preserve mutations |
+| File Transcription history: Clear all | Existing confirmation and history store action | Recent table action | Preserve confirmation |
+
+## E — First-run wizard
+
+Source: `OnboardingFlowView` in `WelcomeView.swift`, `UI/OnboardingTryoutStepView.swift`, `UI/OnboardingAIEnhancementStepView.swift`.
+
+| Current step / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Step rail and navigation | Existing onboarding step state | Six-step rail | Restyle; preserve ordering |
+| Welcome / Next | Existing step advance | Welcome with Fig. 1 | Restyle |
+| Language selection / all languages / custom language | Existing language selection, filter and picker callbacks | Language step | Restyle |
+| Voice Engine selection | `SettingsStore.selectedSpeechModel` and engine language settings | Voice Engine step | Restyle |
+| Voice Engine download / cancel / retry | Existing model preparation and download state | Voice Engine step | Preserve all progress/error states |
+| Enable Access actions | Existing microphone and Accessibility permission callbacks | Enable Access step | Preserve all permission recovery states |
+| Try MouthKeys practice drill | Existing primary shortcut and tryout callbacks | Try MouthKeys step | Restyle; preserve completion |
+| Regional filler-word offer: keep / No thanks | Existing offer answer callbacks | Try MouthKeys step | Preserve both answers |
+| AI Enhancement suggestions/provider choices | Existing onboarding provider actions | Optional AI Enhancement step | Restyle; preserve configuration effects |
+| Back / Next / Finish Setup | Existing step and onboarding completion callbacks | Ruled footer | Restyle; preserve completion gate |
+
+## F — Menu and finish
+
+| Current screen / control | Current binding or effect | New target | Status |
+|---|---|---|---|
+| Status menu header | Current menu title/state | Datasheet grin and MouthKeys wordmark | Restyle |
+| Status menu: Start Dictation | `toggleDictation` | Status menu | Preserve action |
+| Status menu: hotkeys-paused recovery | `resolveHotkeysPaused`; visible while configured hotkeys lack Accessibility trust | Status menu recovery item | Preserve visibility and route |
+| Status menu: microphone selection submenu | `selectMicrophone(_:)` from the prioritized available inputs | Microphone submenu | Preserve current-device state and selection |
+| Status menu: History | `openHistory` | Status menu | Preserve route |
+| Status menu: Copy Last Transcript | `copyLastTranscript(_:)` | Status menu | Preserve availability and clipboard effect |
+| Status menu: Custom Dictionary | `openCustomDictionary` | Status menu | Preserve route |
+| Status menu: Open MouthKeys | `openMainWindow` | Status menu | Preserve route |
+| Status menu: Settings | `openPreferences` | Status menu | Preserve route |
+| Status menu: Quit MouthKeys | `NSApplication.terminate(_:)` | Status menu | Preserve action |
+| MouthKeys on GitHub | No current item | New status-menu item | Add per approved design |
+| Custom Dictionary empty state grin | Existing empty-state condition | Outline grin | Add in lane F |
+| History empty state grin | Existing empty-state condition | Outline grin | Add in lane F |
+| Legacy `AppTheme` / `ThemedCard` / `ThemedGroupBox` / `GlossyEffects` | Shared app styles used by unconverted code | Remove only when no references remain | Retire after reference audit |
+| Real-path install checks | Current Developer ID checklist | `docs/INSTALL-CHECKLIST.md` | Add at lane F; file stays untouched in this phase |
+
+## Change log by lane
+
+| Lane | Commit / PR | Notes |
+|---|---|---|
+| Foundations | Pending | The table above records the current bindings and target dispositions before screen rewiring. |
+| Chrome | Pending |  |
+| A | Pending |  |
+| B | Pending |  |
+| C | Pending |  |
+| D | Pending |  |
+| E | Pending |  |
+| F | Pending |  |

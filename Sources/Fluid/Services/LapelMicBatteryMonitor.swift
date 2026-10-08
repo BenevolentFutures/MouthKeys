@@ -10,7 +10,7 @@ import Foundation
 /// it and every 30 s after. The 30 s timer runs for whatever input is selected, re-resolving it
 /// each tick (two Core Audio property reads), so a receiver replugged or added to the aggregate is
 /// picked up; the HID heartbeat goes out only on ticks where the input is the receiver. The main actor keeps the last reading with its time and sets
-/// `SignalOverlayModel.micBattery` only when what the label shows changes; the overlay reads that
+/// `DatasheetOverlayModel.micBattery` only when what the label shows changes; the overlay reads that
 /// and nothing else. A reading older than 2 minutes reads as none. Under `TestHostQuietMode` it
 /// does nothing at all, so no test ever opens a HID device.
 @MainActor
@@ -58,13 +58,13 @@ final class LapelMicBatteryMonitor {
     }
 
     private func publish(now: Date = Date()) {
-        let battery = SignalMicBattery.from(
+        let battery = DatasheetMicBattery.from(
             inputIsReceiver: self.selectedUID.flatMap { self.receiverInputs[$0] } ?? false,
             reading: self.reading,
             readAt: self.readAt,
             now: now
         )
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         if model.micBattery != battery {
             model.micBattery = battery
         }
@@ -76,7 +76,7 @@ final class LapelMicBatteryMonitor {
         self.expiry?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.publish() }
         self.expiry = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + SignalMicBattery.freshness + 0.5, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + DatasheetMicBattery.freshness + 0.5, execute: work)
     }
 
     /// The background half, confined to its serial queue: resolves the input, runs the 30 s

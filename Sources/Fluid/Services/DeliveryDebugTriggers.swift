@@ -101,7 +101,7 @@ enum DeliveryDebugTriggers {
         self.observers.append(center.addObserver(forName: self.logPreview, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 DebugLogger.shared.info(
-                    "DEBUG_DELIVERY preview mic='\(SignalOverlayModel.shared.microphoneName)' " +
+                    "DEBUG_DELIVERY preview mic='\(DatasheetOverlayModel.shared.microphoneName)' " +
                         "text='\(NotchContentState.shared.cachedPreviewText)'",
                     source: "DeliveryDebugTriggers"
                 )

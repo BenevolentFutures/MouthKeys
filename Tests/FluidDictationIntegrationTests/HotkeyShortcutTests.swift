@@ -2876,7 +2876,7 @@ final class EscapeCancelGateTests: XCTestCase {
         XCTAssertTrue(self.asr.isRunning, "the dictation keeps recording")
         XCTAssertEqual(self.otherCancels, 0)
         XCTAssertEqual(self.spokenSend.indicator, .canceled)
-        XCTAssertEqual(SignalOverlayModel.placard(indicator: self.spokenSend.indicator), .noSend)
+        XCTAssertEqual(DatasheetOverlayModel.placard(indicator: self.spokenSend.indicator), .noSend)
         try self.release()
 
         XCTAssertTrue(try self.press(), "as before PR #17: Esc while recording cancels it")
@@ -2900,7 +2900,7 @@ final class EscapeCancelGateTests: XCTestCase {
         self.startRecording(armed: true)
         _ = self.spokenSend.beginStop()
         BottomOverlayWindowController.shared.markRecordingStopped()
-        SignalOverlayModel.shared.setStopPlacard(.send)
+        DatasheetOverlayModel.shared.setStopPlacard(.send)
         self.asr.isRunning = false
         XCTAssertTrue(self.spokenSend.hasPendingReturn)
         XCTAssertTrue(try self.press(), "drops the Return, consumed")
@@ -2908,7 +2908,7 @@ final class EscapeCancelGateTests: XCTestCase {
             XCTAssertTrue(try self.press(autorepeat: true), "repeats never reach the app")
         }
         XCTAssertEqual(self.otherCancels, 0)
-        XCTAssertEqual(SignalOverlayModel.shared.stopPlacard, .noSend)
+        XCTAssertEqual(DatasheetOverlayModel.shared.stopPlacard, .noSend)
         try self.release()
         XCTAssertFalse(try self.press(), "a new press after the Return was dropped passes through")
     }
@@ -2951,7 +2951,7 @@ final class EscapeCancelGateTests: XCTestCase {
         self.startRecording(armed: false)
         BottomOverlayWindowController.shared.markRecordingStopped()
         self.asr.isRunning = false
-        SignalOverlayModel.shared.showDelivered(SignalDelivery(appName: "c11", words: 3, method: .paste, sentReturn: false))
+        DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: "c11", words: 3, method: .paste, sentReturn: false))
         XCTAssertFalse(try self.press(), "Pasted on screen: Esc reaches the app")
     }
 

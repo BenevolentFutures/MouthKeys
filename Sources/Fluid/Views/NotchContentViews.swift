@@ -127,8 +127,8 @@ class NotchContentState: ObservableObject {
     /// processing ("Transcribing") keeps the last count.
     private func updateLiveWordCount(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !SignalOverlayModel.statusWords.contains(trimmed) else { return }
-        let count = SignalOverlayModel.wordCount(trimmed)
+        guard !DatasheetOverlayModel.statusWords.contains(trimmed) else { return }
+        let count = DatasheetOverlayModel.wordCount(trimmed)
         if count != self.liveWordCount { self.liveWordCount = count }
     }
 

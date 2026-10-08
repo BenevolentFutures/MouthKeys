@@ -33,10 +33,10 @@ final class BottomOverlayWindowController {
     /// The pill's floating shadow (DESIGN.md §6): a click-through child panel under the overlay's,
     /// with the overlay's own visibility, so the transparent margin keeps passing clicks. Kept off
     /// the start path: presented a main-queue turn after the pill is shown, withdrawn once hidden.
-    let floatShadow = SignalFloatShadow(presentsWithParent: false) { state in BottomOverlayShadowView(state: state) }
-    /// Where the overlay's buttons are, for the hosting view's double-click (SignalClickTargets).
-    let clickTargets = SignalClickTargets()
-    /// Level ticks feed the Signal trace's sampler directly: no view is invalidated per tick.
+    let floatShadow = DatasheetFloatShadow(presentsWithParent: false) { state in BottomOverlayShadowView(state: state) }
+    /// Where the overlay's buttons are, for the hosting view's double-click (DatasheetClickTargets).
+    let clickTargets = DatasheetClickTargets()
+    /// Level ticks feed the Datasheet trace's sampler directly: no view is invalidated per tick.
     private var audioSubscription: AnyCancellable?
     private var spokenSendSubscription: AnyCancellable?
     /// The dictation whose delivery the overlay waits for after its stop (the delivered hold).
@@ -167,8 +167,8 @@ final class BottomOverlayWindowController {
         NotchContentState.shared.setBottomOverlayDismissing(false)
         self.cancelDeliveryHold()
         self.nextHideIsCut = false
-        let model = SignalOverlayModel.shared
-        model.ensureTraceBars(SignalOverlayGeometry.forSize(SettingsStore.shared.overlaySize).traceBars)
+        let model = DatasheetOverlayModel.shared
+        model.ensureTraceBars(DatasheetOverlayGeometry.forSize(SettingsStore.shared.overlaySize).traceBars)
         // No Core Audio lookup on the start path: the last name (capture corrects it once resolved).
         model.microphoneName = Self.cachedMicrophoneName(current: model.microphoneName)
         model.beginRecording(noiseThreshold: CGFloat(SettingsStore.shared.visualizerNoiseThreshold))
@@ -193,7 +193,7 @@ final class BottomOverlayWindowController {
         self.audioSubscription = audioPublisher
             .receive(on: DispatchQueue.main)
             .sink { level in
-                SignalOverlayModel.shared.trace.ingest(level: level, at: Date().timeIntervalSinceReferenceDate)
+                DatasheetOverlayModel.shared.trace.ingest(level: level, at: Date().timeIntervalSinceReferenceDate)
             }
     }
 
@@ -275,12 +275,12 @@ final class BottomOverlayWindowController {
         // Dismiss (DESIGN.md §8): opacity 1 -> 0 over 120 ms, linear, no scale, no drop. A cut when
         // a recovery card takes the overlay's place, and under reduced motion. The overlay is inert
         // from here on (isBottomOverlayDismissing).
-        let isCut = self.nextHideIsCut || SignalTheme.Motion.isReduced
+        let isCut = self.nextHideIsCut || DatasheetTheme.Motion.isReduced
         self.nextHideIsCut = false
         NotchContentState.shared.setBottomOverlayReleaseTransitioning(true)
         NotchContentState.shared.setBottomOverlayDismissing(true)
         if !isCut {
-            SignalOverlayModel.shared.beginFading()
+            DatasheetOverlayModel.shared.beginFading()
         }
 
         Self.overlayBench("bottom_hide_animation_start cut=\(isCut)")
@@ -292,7 +292,7 @@ final class BottomOverlayWindowController {
         self.clearPresentationResources()
 
         if !isCut {
-            try? await Task.sleep(nanoseconds: UInt64(SignalTheme.Motion.dismiss * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(DatasheetTheme.Motion.dismiss * 1_000_000_000))
         }
 
         guard self.presentationGeneration == currentGeneration else {
@@ -313,7 +313,7 @@ final class BottomOverlayWindowController {
         self.withdrawFloatShadowAfterHandoff(generation: currentGeneration)
         self.scheduleParkingAfterHandoff(generation: currentGeneration)
         NotchContentState.shared.setBottomOverlayPresented(false)
-        SignalOverlayModel.shared.reset()
+        DatasheetOverlayModel.shared.reset()
         self.endReleaseTransition(flushDeferredUpdate: false)
         NotchContentState.shared.setBottomOverlayDismissing(false)
         if NotchContentState.shared.targetAppIcon != nil {
@@ -400,11 +400,11 @@ final class BottomOverlayWindowController {
         NotchContentState.shared.setProcessing(processing)
         // Transcribing shows only once the final pass is slow (the caller defers it 250 ms).
         if processing, NotchContentState.shared.isBottomOverlayPresented {
-            SignalOverlayModel.shared.beginTranscribing()
+            DatasheetOverlayModel.shared.beginTranscribing()
         }
     }
 
-    // MARK: - Signal: stop, delivered hold, cards, Spoken Send
+    // MARK: - Datasheet: stop, delivered hold, cards, Spoken Send
 
     /// The stopped dictation the overlay is holding, until the hold ends.
     private struct PendingDelivery {
@@ -428,13 +428,13 @@ final class BottomOverlayWindowController {
         self.audioSubscription = nil
         self.sendCancelHold?.cancel()
         self.sendCancelHold = nil
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         let spokenSend = SpokenSendController.shared
-        var placard = SignalPlacard.none
+        var placard = DatasheetPlacard.none
         if SettingsStore.shared.spokenSendEnabled, NotchContentState.shared.mode == .dictation {
             placard = model.sendDrain?.isCanceled == true
                 ? .noSend
-                : SignalOverlayModel.placard(indicator: spokenSend.indicator)
+                : DatasheetOverlayModel.placard(indicator: spokenSend.indicator)
         }
         Self.logTraceSummary(model.trace)
         model.stopRecording(preview: Self.previewAtStop(), placard: placard)
@@ -445,7 +445,7 @@ final class BottomOverlayWindowController {
     /// can be read from the log: real-time windows, windows with voice, bars pushed (the trace
     /// advances only with voice), bars above the floor, the loudest window, and the calibration it
     /// ended on (levels are linear in dB: 0 is -55 dBFS, 1 is 0 dBFS).
-    static func logTraceSummary(_ trace: SignalTraceModel) {
+    static func logTraceSummary(_ trace: DatasheetTraceModel) {
         let stats = trace.stats
         DebugLogger.shared.info(
             String(
@@ -495,10 +495,10 @@ final class BottomOverlayWindowController {
         case .dispatched:
             pending.outcomeShown = true
             self.pendingDelivery = pending
-            SignalOverlayModel.shared.showDelivered(SignalDelivery(
+            DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(
                 appName: pending.appName,
                 words: pending.words,
-                method: outcome.method?.signalMethod ?? .paste,
+                method: outcome.method?.datasheetMethod ?? .paste,
                 sentReturn: outcome.sentReturn
             ))
             self.scheduleHoldEnd(after: Self.deliveredHold, reason: "delivered")
@@ -527,7 +527,7 @@ final class BottomOverlayWindowController {
         guard let traceID,
               NotchContentState.shared.isBottomOverlayPresented,
               !NotchContentState.shared.isBottomOverlayDismissing,
-              SignalOverlayModel.shared.isPostStop,
+              DatasheetOverlayModel.shared.isPostStop,
               let pending = self.pendingDelivery,
               pending.traceID == traceID,
               pending.generation == self.presentationGeneration
@@ -544,7 +544,7 @@ final class BottomOverlayWindowController {
         guard NotchContentState.shared.isBottomOverlayPresented,
               !NotchContentState.shared.isBottomOverlayDismissing
         else { return false }
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         let heldAfterStop = model.isPostStop
         let refusedBeforeCapture = refusedStart && model.phase == .listening && !AppServices.shared.asr.isRunningOrStarting
         guard heldAfterStop || refusedBeforeCapture else { return false }
@@ -571,14 +571,14 @@ final class BottomOverlayWindowController {
               self.isShowingSendPlacard(spokenSend: spokenSend),
               spokenSend.cancelSend()
         else { return false }
-        SignalOverlayModel.shared.markSendCanceled()
+        DatasheetOverlayModel.shared.markSendCanceled()
         return true
     }
 
     /// The pill is on screen, not fading, and shows the SEND placard right now.
     func isShowingSendPlacard(spokenSend: SpokenSendController = .shared) -> Bool {
         let state = NotchContentState.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         guard state.isBottomOverlayPresented, !state.isBottomOverlayDismissing, !model.isFading,
               self.window?.alphaValue ?? 0 > 0
         else { return false }
@@ -607,14 +607,14 @@ final class BottomOverlayWindowController {
 
     /// The stop decided the Spoken Send outcome; the held pill's placard follows it from here.
     func spokenSendDecided(_ outcome: SpokenSendOutcome) {
-        guard NotchContentState.shared.isBottomOverlayPresented, SignalOverlayModel.shared.isPostStop else { return }
-        let placard: SignalPlacard = switch outcome {
+        guard NotchContentState.shared.isBottomOverlayPresented, DatasheetOverlayModel.shared.isPostStop else { return }
+        let placard: DatasheetPlacard = switch outcome {
         case .returnFollows: .send
         case .canceled: .noSend
         case .noReturn: .noReturn
         case .noPhrase: .none
         }
-        SignalOverlayModel.shared.setStopPlacard(placard)
+        DatasheetOverlayModel.shared.setStopPlacard(placard)
     }
 
     /// The app the held dictation traced `traceID` was pasted into, for its card's headline; nil
@@ -629,7 +629,7 @@ final class BottomOverlayWindowController {
     }
 
     /// How long the outcome stays (DESIGN.md §8: 0.6 s). Tests shorten it.
-    static var deliveredHold: TimeInterval = SignalTheme.Motion.deliveredHold
+    static var deliveredHold: TimeInterval = DatasheetTheme.Motion.deliveredHold
 
     private static let outcomeWait: TimeInterval = 5
     private static let cardWait: TimeInterval = 1.5
@@ -649,7 +649,7 @@ final class BottomOverlayWindowController {
         self.cancelDeliveryHold()
         guard NotchContentState.shared.isBottomOverlayPresented,
               !NotchContentState.shared.isBottomOverlayDismissing,
-              SignalOverlayModel.shared.isPostStop
+              DatasheetOverlayModel.shared.isPostStop
         else { return }
         if reason != "delivered" {
             // The overlay held a stopped dictation but no outcome or card came: logged so a
@@ -681,10 +681,10 @@ final class BottomOverlayWindowController {
     /// nothing, when there is no bottom pill to use (the top overlay is set, or a recording or a
     /// held dictation owns the pill); the caller then shows the notice another way.
     @discardableResult
-    func presentNotice(_ notice: SignalNotice, frozenDuration: TimeInterval?, pointerInside: Bool? = nil) -> Bool {
+    func presentNotice(_ notice: DatasheetNotice, frozenDuration: TimeInterval?, pointerInside: Bool? = nil) -> Bool {
         guard SettingsStore.shared.overlayPosition == .bottom else { return false }
         let state = NotchContentState.shared
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         if state.isBottomOverlayPresented, !state.isBottomOverlayDismissing, !model.isNotice, model.phase != .idle {
             return false
         }
@@ -703,7 +703,7 @@ final class BottomOverlayWindowController {
         state.setBottomOverlayPresented(true)
         state.setBottomOverlayDismissing(false)
         state.clearAIProcessingFailure()
-        model.ensureTraceBars(SignalOverlayGeometry.forSize(SettingsStore.shared.overlaySize).traceBars)
+        model.ensureTraceBars(DatasheetOverlayGeometry.forSize(SettingsStore.shared.overlaySize).traceBars)
         model.microphoneName = Self.cachedMicrophoneName(current: model.microphoneName)
         model.showNotice(notice, frozenDuration: frozenDuration)
 
@@ -731,7 +731,7 @@ final class BottomOverlayWindowController {
     /// Dismisses the notice row (Dismiss, the Cancel chip, the timer): the pill's usual 120 ms
     /// fade, or a cut when something takes its place (Reprocess shows the pill again).
     func dismissNotice(cut: Bool = false) {
-        guard SignalOverlayModel.shared.isNotice, NotchContentState.shared.isBottomOverlayPresented else { return }
+        guard DatasheetOverlayModel.shared.isNotice, NotchContentState.shared.isBottomOverlayPresented else { return }
         self.noticeWork?.cancel()
         self.noticeWork = nil
         self.nextHideIsCut = cut
@@ -743,7 +743,7 @@ final class BottomOverlayWindowController {
     /// Once per notice, whichever of the row's Reprocess and the rail's Reprocess chip comes first:
     /// the kept dictation clears only after its transcription, so a second run would paste twice.
     func reprocessFromNotice() {
-        guard SignalOverlayModel.shared.isNotice, !self.noticeReprocessed else { return }
+        guard DatasheetOverlayModel.shared.isNotice, !self.noticeReprocessed else { return }
         self.noticeReprocessed = true
         self.dismissNotice(cut: true)
         NotchContentState.shared.onReprocessLastRequested?()
@@ -751,7 +751,7 @@ final class BottomOverlayWindowController {
 
     /// The pointer over the pill pauses the notice's timer; leaving resumes it with 4 s.
     func noticeHoverChanged(_ hovering: Bool) {
-        guard SignalOverlayModel.shared.isNotice else { return }
+        guard DatasheetOverlayModel.shared.isNotice else { return }
         if hovering {
             self.noticeWork?.cancel()
             self.noticeWork = nil
@@ -783,7 +783,7 @@ final class BottomOverlayWindowController {
     /// it runs; a cancel stops the bar in ink and holds NO SEND 700 ms. The microphone is still
     /// open then, so the row returns to the live trace (the controller keeps recording).
     private func spokenSendIndicatorChanged(_ indicator: SpokenSendController.Indicator) {
-        let model = SignalOverlayModel.shared
+        let model = DatasheetOverlayModel.shared
         guard NotchContentState.shared.isBottomOverlayPresented, model.phase == .listening else {
             model.clearSendCountdown()
             return
@@ -801,7 +801,7 @@ final class BottomOverlayWindowController {
             let generation = self.presentationGeneration
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.presentationGeneration == generation else { return }
-                SignalOverlayModel.shared.clearSendCountdown()
+                DatasheetOverlayModel.shared.clearSendCountdown()
             }
             self.sendCancelHold = work
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.sendCancelHoldDuration, execute: work)
@@ -813,9 +813,9 @@ final class BottomOverlayWindowController {
                 let generation = self.presentationGeneration
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                     guard let self, self.presentationGeneration == generation,
-                          SignalOverlayModel.shared.phase == .listening
+                          DatasheetOverlayModel.shared.phase == .listening
                     else { return }
-                    SignalOverlayModel.shared.clearSendCountdown()
+                    DatasheetOverlayModel.shared.clearSendCountdown()
                 }
                 return
             }
@@ -828,7 +828,7 @@ final class BottomOverlayWindowController {
     /// The live preview as it stood when the recording stopped, without the stop path's status words.
     private static func previewAtStop() -> String {
         let text = NotchContentState.shared.cachedPreviewText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SignalOverlayModel.statusWords.contains(text) ? "" : text
+        return DatasheetOverlayModel.statusWords.contains(text) ? "" : text
     }
 
     /// The microphone name without touching Core Audio (for the start path).
@@ -961,7 +961,7 @@ final class BottomOverlayWindowController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         // No window-server shadow: it would rim the brackets and chips. The pill's floating shadow
-        // is its own click-through panel (SignalFloatShadow), attached below.
+        // is its own click-through panel (DatasheetFloatShadow), attached below.
         panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
@@ -1066,7 +1066,7 @@ final class BottomOverlayWindowController {
     static func anchoredOrigin(
         for windowSize: NSSize,
         on screen: NSScreen,
-        contentInset: CGFloat = SignalTheme.Metrics.windowInsets.bottom
+        contentInset: CGFloat = DatasheetTheme.Metrics.windowInsets.bottom
     ) -> NSPoint {
         let fullFrame = screen.frame
         let visibleFrame = screen.visibleFrame
@@ -1145,7 +1145,7 @@ final class BottomOverlayWindowController {
         let frame = window.frame
         let xFraction = (frame.midX - screen.frame.minX) / screen.frame.width
         // The content's bottom edge, not the window's: the window keeps a transparent margin.
-        let yFraction = (frame.minY + SignalTheme.Metrics.windowInsets.bottom - screen.frame.minY) / screen.frame.height
+        let yFraction = (frame.minY + DatasheetTheme.Metrics.windowInsets.bottom - screen.frame.minY) / screen.frame.height
         let defaults = UserDefaults.standard
         defaults.set(Double(min(max(xFraction, 0), 1)), forKey: Self.dragPositionXFractionKey)
         defaults.set(Double(min(max(yFraction, 0), 1)), forKey: Self.dragPositionYFractionKey)
@@ -1162,8 +1162,8 @@ final class BottomOverlayWindowController {
     /// buttons and the drag see the same click through SwiftUI, never delayed.
     func overlayMouseUp(clickCount: Int, at point: CGPoint) {
         let state = NotchContentState.shared
-        guard state.isBottomOverlayPresented, !state.isBottomOverlayDismissing, !SignalOverlayModel.shared.isFading else { return }
-        guard SignalClickTargets.isPositionResetClick(clickCount: clickCount, at: point, targets: self.clickTargets.rects) else { return }
+        guard state.isBottomOverlayPresented, !state.isBottomOverlayDismissing, !DatasheetOverlayModel.shared.isFading else { return }
+        guard DatasheetClickTargets.isPositionResetClick(clickCount: clickCount, at: point, targets: self.clickTargets.rects) else { return }
         DebugLogger.shared.info("OVERLAY_POSITION reset=double-click", source: "BottomOverlay")
         self.resetDraggedPositionToDefault()
     }
@@ -1207,7 +1207,7 @@ final class BottomOverlayHistoryMenuController: ObservableObject {
 
     private var menuWindow: NSPanel?
     /// The card's floating shadow (DESIGN.md §6), in its own click-through panel under the card's.
-    let floatShadow = SignalFloatShadow { state in SignalFloatShadowView(state: state).signalPalette() }
+    let floatShadow = DatasheetFloatShadow { state in DatasheetFloatShadowView(state: state).datasheetPalette() }
     private var hostingView: NSHostingView<BottomOverlayHistoryMenuView>?
     /// The History chip, so a click on it toggles the card instead of dismissing it first.
     private var selectorFrameInScreen: CGRect = .zero
@@ -1218,7 +1218,7 @@ final class BottomOverlayHistoryMenuController: ObservableObject {
     private var menuMaxWidth: CGFloat = 480
     /// The width the hosted root view was built with: it is rebuilt only when that changes.
     private var builtMaxWidth: CGFloat?
-    private var menuGap: CGFloat = SignalTheme.Metrics.historyGapAboveOverlay
+    private var menuGap: CGFloat = DatasheetTheme.Metrics.historyGapAboveOverlay
     private var pendingPositionWorkItem: DispatchWorkItem?
 
     private init() {}
@@ -1228,7 +1228,7 @@ final class BottomOverlayHistoryMenuController: ObservableObject {
         overlayFrameInScreen: CGRect,
         parentWindow: NSWindow?,
         maxWidth: CGFloat,
-        menuGap: CGFloat = SignalTheme.Metrics.historyGapAboveOverlay
+        menuGap: CGFloat = DatasheetTheme.Metrics.historyGapAboveOverlay
     ) {
         guard selectorFrameInScreen.width > 0, selectorFrameInScreen.height > 0 else { return }
 
@@ -1357,7 +1357,7 @@ final class BottomOverlayHistoryMenuController: ObservableObject {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         // No window-server shadow: the card's floating shadow is its own click-through panel
-        // (SignalFloatShadow, DESIGN.md §6), attached below.
+        // (DatasheetFloatShadow, DESIGN.md §6), attached below.
         panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
@@ -1422,7 +1422,7 @@ final class BottomOverlayHistoryMenuController: ObservableObject {
             panelSize: fittingSize,
             overlayFrame: self.overlayFrameInScreen,
             gap: self.menuGap,
-            insets: SignalTheme.Metrics.windowInsets,
+            insets: DatasheetTheme.Metrics.windowInsets,
             visibleFrame: screen?.visibleFrame
         )
         let currentFrame = menuWindow.frame
@@ -1471,20 +1471,20 @@ extension BottomOverlayHistoryMenuController {
     }
 }
 
-/// The history browser: the Signal history card (the newest 12, newest first). Clicking an entry
+/// The history browser: the Datasheet history card (the newest 12, newest first). Clicking an entry
 /// re-inserts its text into the dictation target app. Padded by the bracket margin.
 private struct BottomOverlayHistoryMenuView: View {
     @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
 
     let maxWidth: CGFloat
     /// The card panel's floating shadow, which the card reports its box to.
-    let floatShadow: SignalFloatShadow.State
+    let floatShadow: DatasheetFloatShadow.State
     let onDismissRequested: () -> Void
 
     private static let maxEntriesShown = 12
 
     var body: some View {
-        SignalHistoryCard(
+        DatasheetHistoryCard(
             entries: Array(self.historyStore.entries.prefix(Self.maxEntriesShown)),
             totalCount: self.historyStore.entries.count,
             notPasted: DeliveryFailureOverlayController.shared.notPastedTranscripts,
@@ -1497,9 +1497,9 @@ private struct BottomOverlayHistoryMenuView: View {
                 BottomOverlayHistoryMenuController.shared.isHovered = hovering
             }
         )
-        .signalFloatShadowSource(self.floatShadow)
-        .padding(SignalTheme.Metrics.windowInsets)
-        .signalPalette()
+        .datasheetFloatShadowSource(self.floatShadow)
+        .padding(DatasheetTheme.Metrics.windowInsets)
+        .datasheetPalette()
     }
 
     private func restoreTypingTargetApp() {

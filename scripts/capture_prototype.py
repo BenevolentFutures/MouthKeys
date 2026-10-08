@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Capture the binding Signal prototype's overlay states as PNGs, for the native comparison.
+"""Capture the binding Datasheet prototype's overlay states as PNGs, for the native comparison.
 
-    python3 scripts/capture_prototype.py [--page signal/round6.html]
+    python3 scripts/capture_prototype.py [--page datasheet/round6.html]
 
 Serves design/visual-language/prototypes over 127.0.0.1, opens each state in headless Chromium
 (nothing on screen) at 2x, and writes design/visual-language/native-renders/prototype/<theme>-<state>.png
@@ -66,7 +66,7 @@ def rect(page, selector):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--page", default="signal/round6.html")
+    parser.add_argument("--page", default="datasheet/round6.html")
     args = parser.parse_args()
     server = serve()
     port = server.server_address[1]
