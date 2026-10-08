@@ -5628,3 +5628,77 @@ final class DatasheetLaneDNativeLayoutTests: XCTestCase {
         return host.fittingSize
     }
 }
+
+/// Exercise the real Command Mode scroll document without ordering or activating a window.
+@MainActor
+final class DatasheetLaneDCommandScrollTests: XCTestCase {
+    func testNativeOuterScrollReachesComposerAtMinimumAndDefaultSizes() throws {
+        let defaults = UserDefaults.standard
+        let chatKeys = ["CommandModeChatSessions", "CommandModeCurrentChatID"]
+        let saved = chatKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            for size in [CGSize(width: 549, height: 460), CGSize(width: 749, height: 660)] {
+                try self.verifyComposerReachability(size: size, scheme: scheme)
+            }
+        }
+    }
+
+    private func verifyComposerReachability(size: CGSize, scheme: ColorScheme) throws {
+        let service = CommandModeService()
+        service.enableNotchOutput = false
+        let root = CommandModeView(service: service)
+            .environmentObject(AppServices.shared)
+            .environmentObject(MenuBarManager())
+            .datasheetPalette()
+            .environment(\.colorScheme, scheme)
+        let host = NSHostingView(rootView: root)
+        let window = NSWindow(
+            contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            if descendants(host).filter({ $0 is NSScrollView }).count >= 2 { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        } while Date() < deadline
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let views = descendants(host)
+        let scrolls = views.compactMap { $0 as? NSScrollView }
+        XCTAssertGreaterThanOrEqual(scrolls.count, 2, "The page and chat each need their native scroll view")
+        let outer = try XCTUnwrap(scrolls.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+        let document = try XCTUnwrap(outer.documentView)
+        let clip = outer.contentView
+        let extent = max(0, document.bounds.height - clip.bounds.height)
+        if size.height == 460 {
+            XCTAssertGreaterThan(extent, 200, "Narrow controls must wrap into a scrollable document")
+        }
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: extent))
+        outer.reflectScrolledClipView(clip)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(clip.bounds.minY, extent, accuracy: 1)
+        let composers = views.compactMap { $0 as? NSTextField }.filter {
+            $0.placeholderString == "Type a command or ask a question..."
+        }
+        let composer = try XCTUnwrap(composers.first, "The real composer must exist")
+        XCTAssertEqual(composers.count, 1)
+        let composerRect = composer.convert(composer.bounds, to: document)
+        XCTAssertTrue(clip.bounds.contains(composerRect), "The full composer must be reachable at the native scroll limit")
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.isKeyWindow)
+        XCTAssertFalse(window.isMainWindow)
+    }
+}
