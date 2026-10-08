@@ -261,6 +261,58 @@ struct DatasheetQuickSetupPracticeGateLease {
     }
 }
 
+/// Welcome's modifier drill owns the physical chord until its first configured key release.
+/// The shared decision remains pure; no global hotkey or recorder state is changed here.
+struct DatasheetPracticeModifierPress {
+    private var activeShortcut: HotkeyShortcut?
+    private var interrupted = false
+
+    mutating func interrupt() {
+        if self.activeShortcut != nil { self.interrupted = true }
+    }
+
+    mutating func update(
+        shortcut: HotkeyShortcut,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        pressedKeys: Set<UInt16>
+    ) -> ModifierOnlyShortcutFlagsDecision.Outcome {
+        let relevantFlags = modifiers.intersection(HotkeyShortcut.relevantModifierMask)
+        let physicalFlags = pressedKeys.reduce(into: NSEvent.ModifierFlags()) { flags, code in
+            if let flag = HotkeyShortcut.modifierFlag(forKeyCode: code) { flags.insert(flag) }
+        }
+        var ownedShortcut = self.activeShortcut ?? shortcut
+        // A flag-only chord accepts either side. Once armed, retain the actual physical owners
+        // so a sibling holding the same aggregate flag cannot hide the owning key's release.
+        if self.activeShortcut == nil, shortcut.normalizedModifierKeyCodes.isEmpty,
+           relevantFlags == shortcut.expectedModifierFlags, physicalFlags == relevantFlags {
+            ownedShortcut = HotkeyShortcut(
+                keyCode: shortcut.keyCode,
+                modifierFlags: shortcut.modifierFlags,
+                modifierKeyCodes: Array(pressedKeys)
+            )
+        }
+        let decision = ModifierOnlyShortcutFlagsDecision.evaluate(
+            shortcut: ownedShortcut,
+            holdModeType: .transcription,
+            isEnabled: self.activeShortcut != nil
+                || (relevantFlags == ownedShortcut.expectedModifierFlags && physicalFlags == relevantFlags),
+            keyCode: keyCode,
+            modifiers: modifiers,
+            state: ModifierOnlyShortcutTrackingState(
+                pressedModifierKeyCodes: pressedKeys,
+                activeModifierOnlyType: self.activeShortcut == nil ? nil : .transcription,
+                activeModifierOnlyShortcut: self.activeShortcut,
+                otherKeyPressedDuringModifier: self.interrupted,
+                isModeKeyPressed: self.activeShortcut != nil
+            )
+        )
+        self.activeShortcut = decision.activeModifierOnlyShortcut
+        self.interrupted = decision.otherKeyPressedDuringModifier
+        return decision.outcome
+    }
+}
+
 struct DatasheetSetupStep: Identifiable {
     let number: Int
     let title: String
@@ -709,9 +761,9 @@ struct DatasheetKeyPracticeReadout: View {
                         Text(self.shortcut.uppercased())
                             .font(.system(size: 20, weight: .semibold, design: .monospaced))
                             .tracking(0.6)
-                            .foregroundStyle(self.palette.text)
+                            .foregroundStyle(self.isDown ? self.palette.invForeground : self.palette.text)
                             .frame(width: 188, height: 88)
-                            .background(self.palette.field)
+                            .background(self.isDown ? self.palette.invBackground : self.palette.field)
                             .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
                             .contentShape(Rectangle())
                     }
@@ -831,7 +883,7 @@ struct DatasheetKeyPracticeReadout: View {
         HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { index in
                 Rectangle()
-                    .fill(index < self.pressCount ? self.palette.ink : .clear)
+                    .fill(index < self.pressCount ? (self.pressCount >= 3 && !self.isDown ? self.palette.accent : self.palette.ink) : .clear)
                     .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
                     .frame(width: 22, height: 10)
             }
@@ -853,7 +905,12 @@ struct DatasheetKeyPracticeReadout: View {
     }
 
     private var practiceFallbackHint: some View {
-        DatasheetMonoLabel(text: "No key? Click the keycap.", color: self.palette.text2)
+        Text("No key? Click the keycap.")
+            .font(DatasheetTheme.Typography.meta.font)
+            .tracking(DatasheetTheme.Typography.meta.tracking)
+            .textCase(.uppercase)
+            .foregroundStyle(self.palette.text2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -878,9 +935,113 @@ private struct DatasheetCalloutCopy: Identifiable {
     ]
 }
 
-private struct DatasheetCalloutZone: Identifiable {
+struct DatasheetCalloutZone: Identifiable {
     let id: String
     let frame: CGRect
+}
+
+/// The teaching reference alone fits to its canvas. The pill, rails and all hover regions use
+/// this same transform; the live overlay retains its original size and placement.
+struct DatasheetInlineOverlayLayout {
+    let geometry: DatasheetOverlayGeometry
+    let canvasWidth: CGFloat
+
+    var compositionWidth: CGFloat {
+        self.geometry.pillWidth + 2 * (DatasheetTheme.Metrics.chip + DatasheetTheme.Metrics.railGap)
+    }
+
+    var overlayRowHeight: CGFloat {
+        max(self.geometry.railHeight, self.geometry.pillHeight)
+    }
+
+    var scale: CGFloat {
+        // Keep the chips' outside brackets and zone outlines inside the reference's edge.
+        min(1, max(0, self.canvasWidth - 2 * DatasheetTheme.Metrics.windowInsets.leading) / self.compositionWidth)
+    }
+
+    var originX: CGFloat {
+        (self.canvasWidth - self.compositionWidth * self.scale) / 2
+    }
+
+    func fittedFrame(_ rect: CGRect) -> CGRect {
+        CGRect(
+            x: self.originX + rect.minX * self.scale, y: rect.minY * self.scale,
+            width: rect.width * self.scale, height: rect.height * self.scale
+        )
+    }
+
+    func outlineStyle(for id: String, activeCallout: String?) -> StrokeStyle {
+        StrokeStyle(lineWidth: 1, dash: activeCallout == id ? [] : [3, 3])
+    }
+
+    private var pillHeight: CGFloat { self.geometry.pillHeight }
+
+    func calloutZones(micText: String, micBattery: DatasheetMicBattery?) -> [DatasheetCalloutZone] {
+        let metrics = DatasheetTheme.Metrics.self
+        let chip = metrics.chip
+        let railGap = metrics.railGap
+        let railHeight = self.geometry.railHeight
+        let railInset = DatasheetRail<EmptyView, EmptyView, EmptyView>.gap(height: railHeight)
+        let compositionX: CGFloat = 0
+        let pillX = compositionX + chip + railGap
+        let pillY = max(0, self.overlayRowHeight - self.pillHeight)
+        let traceY = pillY + metrics.pillPaddingTop + self.geometry.topAreaHeight + metrics.previewGap
+        let footY = traceY + metrics.traceRowHeight + metrics.micGap
+        let readoutX = pillX + metrics.pillPaddingHorizontal + self.geometry.innerWidth - self.geometry.readoutWidth
+        let timerX = readoutX + metrics.recordSquare + metrics.readoutGap
+        let traceWidth = max(12, self.geometry.innerWidth - self.geometry.readoutWidth - metrics.traceReadoutGap)
+        let micRole = DatasheetTheme.Typography.micLabel
+        let micWidth: CGFloat
+        if let micBattery {
+            micWidth = DatasheetMicLabel.layout(
+                prefix: "", battery: micBattery, maxWidth: metrics.micMaxWidth, width: micRole.width(of:)
+            ).width
+        } else {
+            micWidth = min(metrics.micMaxWidth, micRole.width(of: micText.uppercased()) + 1)
+        }
+        let pairWidth = metrics.targetIcon + metrics.footGap + micWidth
+        let pairX = pillX + metrics.pillPaddingHorizontal + (self.geometry.innerWidth - pairWidth) / 2
+        let topChipY = railInset + chip / 2
+        let bottomChipY = railHeight - railInset - chip / 2
+        let traceRect = CGRect(x: pillX + metrics.pillPaddingHorizontal, y: traceY, width: traceWidth, height: metrics.traceRowHeight)
+        let timerLineY = traceY + metrics.traceMidline - DatasheetTheme.Typography.timer.lineHeight / 2
+
+        return [
+            DatasheetCalloutZone(id: "history", frame: CGRect(x: compositionX, y: topChipY - chip / 2, width: chip, height: chip)),
+            DatasheetCalloutZone(id: "copy", frame: CGRect(x: compositionX, y: bottomChipY - chip / 2, width: chip, height: chip)),
+            DatasheetCalloutZone(id: "cancel", frame: CGRect(x: pillX + self.geometry.pillWidth + railGap, y: topChipY - chip / 2, width: chip, height: chip)),
+            DatasheetCalloutZone(id: "reprocess", frame: CGRect(x: pillX + self.geometry.pillWidth + railGap, y: bottomChipY - chip / 2, width: chip, height: chip)),
+            DatasheetCalloutZone(
+                id: "preview",
+                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal, y: pillY + metrics.pillPaddingTop, width: self.geometry.innerWidth, height: self.geometry.topAreaHeight)
+            ),
+            DatasheetCalloutZone(id: "trace", frame: traceRect),
+            DatasheetCalloutZone(
+                id: "record",
+                frame: CGRect(x: readoutX, y: timerLineY, width: metrics.recordSquare, height: DatasheetTheme.Typography.timer.lineHeight)
+            ),
+            DatasheetCalloutZone(
+                id: "timer",
+                frame: CGRect(x: timerX, y: timerLineY, width: metrics.timerBoxWidth, height: DatasheetTheme.Typography.timer.lineHeight)
+            ),
+            DatasheetCalloutZone(
+                id: "wc",
+                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal, y: footY, width: 68, height: metrics.micRowHeight)
+            ),
+            DatasheetCalloutZone(
+                id: "wpm",
+                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal + self.geometry.innerWidth - 76, y: footY, width: 76, height: metrics.micRowHeight)
+            ),
+            DatasheetCalloutZone(
+                id: "app",
+                frame: CGRect(x: pairX, y: footY + (metrics.micRowHeight - metrics.targetIcon) / 2, width: metrics.targetIcon, height: metrics.targetIcon)
+            ),
+            DatasheetCalloutZone(
+                id: "mic",
+                frame: CGRect(x: pairX + metrics.targetIcon + metrics.footGap, y: footY, width: micWidth, height: metrics.micRowHeight)
+            ),
+        ].map { DatasheetCalloutZone(id: $0.id, frame: self.fittedFrame($0.frame)) }
+    }
 }
 
 struct DatasheetInlineOverlayPreview: View {
@@ -928,79 +1089,92 @@ struct DatasheetInlineOverlayPreview: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .bottom, spacing: DatasheetTheme.Metrics.railGap) {
-                DatasheetRail(height: self.geometry.railHeight) {
-                    self.chip("history", icon: "clock.arrow.circlepath", help: "Recent Dictations")
-                } middle: {
-                    Color.clear
-                } bottom: {
-                    self.chip("copy", icon: "doc.on.doc", help: "Copy")
+        GeometryReader { proxy in
+            let layout = DatasheetInlineOverlayLayout(geometry: self.geometry, canvasWidth: proxy.size.width)
+            let zones = layout.calloutZones(micText: self.micText, micBattery: self.model.micBattery)
+            ZStack(alignment: .topLeading) {
+                self.composition
+                    .frame(width: layout.compositionWidth, height: self.overlayRowHeight, alignment: .top)
+                    .scaleEffect(layout.scale, anchor: .topLeading)
+                    .frame(
+                        width: layout.compositionWidth * layout.scale,
+                        height: self.overlayRowHeight * layout.scale,
+                        alignment: .topLeading
+                    )
+                    .offset(x: layout.originX)
+
+                ForEach(zones) { zone in
+                    Rectangle()
+                        .stroke(
+                            self.palette.accent,
+                            style: layout.outlineStyle(for: zone.id, activeCallout: self.visibleCallout)
+                        )
+                        .frame(width: zone.frame.width + 6, height: zone.frame.height + 6)
+                        .position(x: zone.frame.midX, y: zone.frame.midY)
+                        .allowsHitTesting(false)
                 }
 
-                self.pill
+                if let id = self.visibleCallout,
+                   let zone = zones.first(where: { $0.id == id }),
+                   let copy = DatasheetCalloutCopy.all.first(where: { $0.id == id }) {
+                    let rect = zone.frame
+                    self.calloutLeader(from: rect, canvas: proxy.size)
+                        .stroke(self.palette.text2, lineWidth: 1)
+                        .allowsHitTesting(false)
 
-                DatasheetRail(height: self.geometry.railHeight) {
-                    self.chip("cancel", icon: "xmark", help: "Cancel")
-                } middle: {
-                    Color.clear
-                } bottom: {
-                    self.chip("reprocess", icon: "arrow.clockwise", help: "Reprocess")
+                    Rectangle()
+                        .fill(self.palette.text)
+                        .frame(width: 3, height: 3)
+                        .position(x: rect.midX, y: rect.maxY)
+                        .allowsHitTesting(false)
+
+                    self.calloutCard(copy)
+                        .frame(width: min(280, proxy.size.width - 24), alignment: .leading)
+                        .position(
+                            x: rect.midX < proxy.size.width / 2
+                                ? 12 + min(140, proxy.size.width / 2 - 12)
+                                : proxy.size.width - 12 - min(140, proxy.size.width / 2 - 12),
+                            y: self.overlayRowHeight + 36
+                        )
+                        .allowsHitTesting(false)
                 }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: self.overlayRowHeight, alignment: .top)
 
-            Color.clear.frame(height: 58)
-        }
-        .overlay {
-            GeometryReader { proxy in
-                ZStack(alignment: .topLeading) {
-                    let zones = self.calloutZones(in: proxy.size)
-                    if let id = self.visibleCallout,
-                       let zone = zones.first(where: { $0.id == id }),
-                       let copy = DatasheetCalloutCopy.all.first(where: { $0.id == id }) {
-                        let rect = zone.frame
-                        Rectangle()
-                            .stroke(self.palette.accent, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                            .frame(width: rect.width + 6, height: rect.height + 6)
-                            .position(x: rect.midX, y: rect.midY)
-                            .allowsHitTesting(false)
-
-                        self.calloutLeader(from: rect, canvas: proxy.size)
-                            .stroke(self.palette.text2, lineWidth: 1)
-                            .allowsHitTesting(false)
-
-                        Rectangle()
-                            .fill(self.palette.text)
-                            .frame(width: 3, height: 3)
-                            .position(x: rect.midX, y: rect.maxY)
-                            .allowsHitTesting(false)
-
-                        self.calloutCard(copy)
-                            .frame(width: min(280, proxy.size.width - 24), alignment: .leading)
-                            .position(
-                                x: rect.midX < proxy.size.width / 2
-                                    ? 12 + min(140, proxy.size.width / 2 - 12)
-                                    : proxy.size.width - 12 - min(140, proxy.size.width / 2 - 12),
-                                y: self.overlayRowHeight + 36
-                            )
-                            .allowsHitTesting(false)
-                    }
-
-                    ForEach(zones) { zone in
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .frame(width: zone.frame.width, height: zone.frame.height)
-                            .position(x: zone.frame.midX, y: zone.frame.midY)
-                            .onHover { self.setHover(zone.id, hovering: $0) }
-                            .accessibilityHidden(true)
-                    }
+                ForEach(zones) { zone in
+                    Rectangle()
+                        .fill(Color.clear)
+                        .contentShape(Rectangle())
+                        .frame(width: zone.frame.width, height: zone.frame.height)
+                        .position(x: zone.frame.midX, y: zone.frame.midY)
+                        .onHover { self.setHover(zone.id, hovering: $0) }
+                        .accessibilityHidden(true)
                 }
             }
         }
+        // Reserve the same teaching/card band across width and hover changes.
+        .frame(height: self.overlayRowHeight + 58)
         .datasheetPalette()
+    }
+
+    private var composition: some View {
+        HStack(alignment: .bottom, spacing: DatasheetTheme.Metrics.railGap) {
+            DatasheetRail(height: self.geometry.railHeight) {
+                self.chip("history", icon: "clock.arrow.circlepath", help: "Recent Dictations")
+            } middle: {
+                Color.clear
+            } bottom: {
+                self.chip("copy", icon: "doc.on.doc", help: "Copy")
+            }
+
+            self.pill
+
+            DatasheetRail(height: self.geometry.railHeight) {
+                self.chip("cancel", icon: "xmark", help: "Cancel")
+            } middle: {
+                Color.clear
+            } bottom: {
+                self.chip("reprocess", icon: "arrow.clockwise", help: "Reprocess")
+            }
+        }
     }
 
     private var pill: some View {
@@ -1092,66 +1266,6 @@ struct DatasheetInlineOverlayPreview: View {
         }
     }
 
-    private func calloutZones(in size: CGSize) -> [DatasheetCalloutZone] {
-        let metrics = DatasheetTheme.Metrics.self
-        let chip = metrics.chip
-        let railGap = metrics.railGap
-        let railHeight = self.geometry.railHeight
-        let railInset = DatasheetRail<EmptyView, EmptyView, EmptyView>.gap(height: railHeight)
-        let compositionWidth = 2 * chip + 2 * railGap + self.geometry.pillWidth
-        let compositionX = max(0, (size.width - compositionWidth) / 2)
-        let pillX = compositionX + chip + railGap
-        let pillY = max(0, self.overlayRowHeight - self.pillHeight)
-        let traceY = pillY + metrics.pillPaddingTop + self.geometry.topAreaHeight + metrics.previewGap
-        let footY = traceY + metrics.traceRowHeight + metrics.micGap
-        let readoutX = pillX + metrics.pillPaddingHorizontal + self.geometry.innerWidth - self.geometry.readoutWidth
-        let timerX = readoutX + metrics.recordSquare + metrics.readoutGap
-        let traceWidth = max(12, self.geometry.innerWidth - self.geometry.readoutWidth - metrics.traceReadoutGap)
-        let micRole = DatasheetTheme.Typography.micLabel
-        let micWidth = min(metrics.micMaxWidth, micRole.width(of: self.micText.uppercased()) + 1)
-        let pairWidth = metrics.targetIcon + metrics.footGap + micWidth
-        let pairX = pillX + metrics.pillPaddingHorizontal + (self.geometry.innerWidth - pairWidth) / 2
-        let topChipY = railInset + chip / 2
-        let bottomChipY = railHeight - railInset - chip / 2
-        let traceRect = CGRect(x: pillX + metrics.pillPaddingHorizontal, y: traceY, width: traceWidth, height: metrics.traceRowHeight)
-        let timerLineY = traceY + metrics.traceMidline - DatasheetTheme.Typography.timer.lineHeight / 2
-
-        return [
-            DatasheetCalloutZone(id: "history", frame: CGRect(x: compositionX, y: topChipY - chip / 2, width: chip, height: chip)),
-            DatasheetCalloutZone(id: "copy", frame: CGRect(x: compositionX, y: bottomChipY - chip / 2, width: chip, height: chip)),
-            DatasheetCalloutZone(id: "cancel", frame: CGRect(x: pillX + self.geometry.pillWidth + railGap, y: topChipY - chip / 2, width: chip, height: chip)),
-            DatasheetCalloutZone(id: "reprocess", frame: CGRect(x: pillX + self.geometry.pillWidth + railGap, y: bottomChipY - chip / 2, width: chip, height: chip)),
-            DatasheetCalloutZone(
-                id: "preview",
-                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal, y: pillY + metrics.pillPaddingTop, width: self.geometry.innerWidth, height: self.geometry.topAreaHeight)
-            ),
-            DatasheetCalloutZone(id: "trace", frame: traceRect),
-            DatasheetCalloutZone(
-                id: "record",
-                frame: CGRect(x: readoutX, y: timerLineY, width: metrics.recordSquare, height: DatasheetTheme.Typography.timer.lineHeight)
-            ),
-            DatasheetCalloutZone(
-                id: "timer",
-                frame: CGRect(x: timerX, y: timerLineY, width: metrics.timerBoxWidth, height: DatasheetTheme.Typography.timer.lineHeight)
-            ),
-            DatasheetCalloutZone(
-                id: "wc",
-                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal, y: footY, width: 68, height: metrics.micRowHeight)
-            ),
-            DatasheetCalloutZone(
-                id: "wpm",
-                frame: CGRect(x: pillX + metrics.pillPaddingHorizontal + self.geometry.innerWidth - 76, y: footY, width: 76, height: metrics.micRowHeight)
-            ),
-            DatasheetCalloutZone(
-                id: "app",
-                frame: CGRect(x: pairX, y: footY + (metrics.micRowHeight - metrics.targetIcon) / 2, width: metrics.targetIcon, height: metrics.targetIcon)
-            ),
-            DatasheetCalloutZone(
-                id: "mic",
-                frame: CGRect(x: pairX + metrics.targetIcon + metrics.footGap, y: footY, width: micWidth, height: metrics.micRowHeight)
-            ),
-        ]
-    }
 
     private func chip(_ id: String, icon: String, help: String) -> some View {
         DatasheetChip(

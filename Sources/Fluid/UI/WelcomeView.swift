@@ -32,6 +32,7 @@ struct WelcomeView: View {
     @State private var isPracticeKeyDown = false
     @State private var practiceEventMonitor: Any?
     @State private var practiceGateLease = DatasheetQuickSetupPracticeGateLease()
+    @State private var practiceModifierPress = DatasheetPracticeModifierPress()
 
     private let playgroundSectionID = "welcome-playground-section"
 
@@ -181,9 +182,7 @@ struct WelcomeView: View {
             }
             .scrollIndicators(.visible)
             .onAppear {
-                if self.hotkeyPracticeCount < 3 {
-                    self.beginHotkeyPractice()
-                }
+                self.updateHotkeyPracticeAvailability()
                 Task { @MainActor in
                     await AudioStartupGate.shared.scheduleOpenAfterInitialUISettled()
                     await AudioStartupGate.shared.waitUntilOpen()
@@ -195,9 +194,13 @@ struct WelcomeView: View {
                 self.pauseHotkeyPractice()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                if self.hotkeyPracticeCount < 3 {
-                    self.beginHotkeyPractice()
-                }
+                self.updateHotkeyPracticeAvailability()
+            }
+            .onChange(of: self.asr.isRunning) { _, _ in
+                self.updateHotkeyPracticeAvailability()
+            }
+            .onChange(of: self.asr.isStarting) { _, _ in
+                self.updateHotkeyPracticeAvailability()
             }
             .onDisappear {
                 self.pauseHotkeyPractice()
@@ -239,6 +242,7 @@ struct WelcomeView: View {
             if self.asr.isRunning {
                 Task { await self.stopAndProcessTranscription() }
             } else {
+                self.pauseHotkeyPractice()
                 self.startRecording()
                 self.markSetupTested()
             }
@@ -408,12 +412,29 @@ struct WelcomeView: View {
     }
 
     private func beginHotkeyPractice() {
+        guard self.isHotkeyPracticeEligible, NSApp.isActive else {
+            self.pauseHotkeyPractice()
+            return
+        }
         self.isHotkeyPracticeActive = true
         self.installPracticeEventMonitor()
     }
 
+    private var isHotkeyPracticeEligible: Bool {
+        self.hotkeyPracticeCount < 3 && !self.asr.isRunning && !self.asr.isStarting
+    }
+
+    private func updateHotkeyPracticeAvailability() {
+        if self.isHotkeyPracticeEligible {
+            self.beginHotkeyPractice()
+        } else {
+            self.pauseHotkeyPractice()
+        }
+    }
+
     private func countManualPracticePress() {
-        guard self.hotkeyPracticeCount < 3 else { return }
+        guard self.isHotkeyPracticeEligible, NSApp.isActive else { return }
+        self.pauseHotkeyPractice()
         self.isHotkeyPracticeActive = true
         self.isPracticeKeyDown = false
         self.installPracticeEventMonitor()
@@ -422,6 +443,10 @@ struct WelcomeView: View {
     }
 
     private func installPracticeEventMonitor() {
+        guard self.isHotkeyPracticeEligible else {
+            self.pauseHotkeyPractice()
+            return
+        }
         guard !TestHostQuietMode.isActive else {
             self.practiceGateLease.update(monitorIsArmed: false, applicationIsActive: false)
             return
@@ -447,23 +472,40 @@ struct WelcomeView: View {
     }
 
     private func observePracticeShortcutEvent(_ event: NSEvent) {
+        guard !self.asr.isRunning, !self.asr.isStarting, NSApp.isActive else {
+            self.pauseHotkeyPractice()
+            return
+        }
         guard self.isHotkeyPracticeActive,
               let shortcut = self.settings.primaryDictationShortcuts.first,
               !shortcut.isMouseShortcut
         else { return }
 
         if shortcut.isModifierOnlyShortcut {
-            guard event.type == .flagsChanged,
-                  event.keyCode == shortcut.keyCode,
-                  let trigger = shortcut.modifierTriggerFlag
-            else { return }
-            let isDown = event.modifierFlags.contains(trigger)
-            guard isDown != self.isPracticeKeyDown else { return }
-            self.isPracticeKeyDown = isDown
-            if isDown, self.hotkeyPracticeCount < 3 {
+            guard event.type == .flagsChanged else {
+                if event.type == .keyDown { self.practiceModifierPress.interrupt() }
+                return
+            }
+            let pressedKeys = Set([UInt16(63), 55, 54, 58, 61, 59, 62, 56, 60].filter {
+                CGEventSource.keyState(.combinedSessionState, key: CGKeyCode($0))
+            })
+            switch self.practiceModifierPress.update(
+                shortcut: shortcut,
+                keyCode: event.keyCode,
+                modifiers: event.modifierFlags,
+                pressedKeys: pressedKeys
+            ) {
+            case .start:
+                self.isPracticeKeyDown = true
                 self.recordObservedPracticePress()
-            } else {
+            case let .finish(wasCleanPress):
+                if !wasCleanPress, self.isPracticeKeyDown, self.hotkeyPracticeCount > 0 {
+                    self.hotkeyPracticeCount -= 1
+                }
+                self.isPracticeKeyDown = false
                 self.finishHotkeyPracticeIfNeeded()
+            case .ignore:
+                break
             }
             return
         }
@@ -510,6 +552,7 @@ struct WelcomeView: View {
             self.practiceEventMonitor = nil
         }
         self.practiceGateLease.release()
+        self.practiceModifierPress = DatasheetPracticeModifierPress()
     }
 
     private func pauseHotkeyPractice() {

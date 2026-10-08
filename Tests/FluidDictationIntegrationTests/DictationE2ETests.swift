@@ -5420,6 +5420,72 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         XCTAssertFalse(manager.handleKeyEventForTests(up, type: .keyUp), "The active drill lets the matching key-up reach the local monitor")
     }
 
+    func testModifierPracticeRequiresTheCompletePhysicalChordAndMatchingFlags() {
+        let chord = HotkeyShortcut(keyCode: 58, modifierFlags: .shift, modifierKeyCodes: [58, 56])
+        var press = DatasheetPracticeModifierPress()
+        XCTAssertEqual(press.update(shortcut: chord, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
+        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: .option, pressedKeys: [58, 56]), .ignore)
+        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: [.option, .shift], pressedKeys: [58, 56]), .start)
+        XCTAssertEqual(press.update(shortcut: chord, keyCode: 58, modifiers: .shift, pressedKeys: [56]), .finish(wasCleanPress: true))
+        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: [], pressedKeys: []), .ignore)
+    }
+
+    func testModifierPracticeRetainsItsPhysicalReleaseOwnerAcrossSiblingModifiers() {
+        let rightOption = HotkeyShortcut(keyCode: 61, modifierFlags: [], modifierKeyCodes: [61])
+        var press = DatasheetPracticeModifierPress()
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: .option, pressedKeys: [61, 58]), .ignore)
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [58]), .finish(wasCleanPress: false))
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: [], pressedKeys: []), .ignore)
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
+        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: [], pressedKeys: []), .finish(wasCleanPress: true))
+
+        let eitherOption = HotkeyShortcut(keyCode: 61, modifierFlags: [])
+        var eitherPress = DatasheetPracticeModifierPress()
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 58, modifiers: .option, pressedKeys: [58]), .start)
+        eitherPress.interrupt()
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 58, modifiers: [], pressedKeys: []), .finish(wasCleanPress: false))
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
+        XCTAssertEqual(eitherPress.update(shortcut: eitherOption, keyCode: 61, modifiers: [], pressedKeys: []), .finish(wasCleanPress: true))
+    }
+
+    func testInlineOverlayFitsAllTwelveZonesAndUsesTheProductionBatteryReservation() throws {
+        let expectedIDs: Set<String> = ["history", "copy", "cancel", "reprocess", "preview", "trace", "record", "timer", "wc", "wpm", "app", "mic"]
+        for size in SettingsStore.OverlaySize.allCases {
+            for width in [CGFloat(443), 493, 693, 813] {
+                let layout = DatasheetInlineOverlayLayout(geometry: .forSize(size), canvasWidth: width)
+                XCTAssertGreaterThan(layout.scale, 0)
+                XCTAssertLessThanOrEqual(layout.scale, 1)
+                for battery in [DatasheetMicBattery(percent: nil), .init(percent: 9), .init(percent: 100)] {
+                    let zones = layout.calloutZones(micText: "Hollyland Lapel Mic", micBattery: battery)
+                    XCTAssertEqual(Set(zones.map(\.id)), expectedIDs)
+                    XCTAssertEqual(zones.count, expectedIDs.count)
+                    for zone in zones {
+                        XCTAssertTrue([zone.frame.minX, zone.frame.maxX, zone.frame.minY, zone.frame.maxY].allSatisfy(\.isFinite))
+                        XCTAssertGreaterThanOrEqual(zone.frame.minX - 3, 0)
+                        XCTAssertLessThanOrEqual(zone.frame.maxX + 3, width)
+                        XCTAssertGreaterThanOrEqual(zone.frame.minY, 0)
+                        XCTAssertLessThanOrEqual(zone.frame.maxY, layout.overlayRowHeight * layout.scale + 0.01)
+                    }
+                    let mic = try XCTUnwrap(zones.first { $0.id == "mic" }).frame
+                    let app = try XCTUnwrap(zones.first { $0.id == "app" }).frame
+                    let expectedLabel = DatasheetMicLabel.layout(
+                        prefix: "", battery: battery, maxWidth: DatasheetTheme.Metrics.micMaxWidth,
+                        width: DatasheetTheme.Typography.micLabel.width(of:)
+                    )
+                    XCTAssertEqual(mic.width, expectedLabel.width * layout.scale, accuracy: 0.01)
+                    XCTAssertEqual(mic.minX - app.maxX, DatasheetTheme.Metrics.footGap * layout.scale, accuracy: 0.01)
+                    XCTAssertEqual((app.minX + mic.maxX) / 2, width / 2, accuracy: 0.01)
+                    for active in [nil] + expectedIDs.sorted().map(Optional.some) {
+                        for zone in zones {
+                            XCTAssertEqual(layout.outlineStyle(for: zone.id, activeCallout: active).dash, active == zone.id ? [] : [3, 3])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testCurrentAndCompletedRowsRenderAtProductionWidthsInBothThemes() throws {
         let states: [(String, DatasheetQuickSetupProgress)] = [
             ("current", self.progress(hotkeyPracticeCount: 0)),
