@@ -555,31 +555,8 @@ struct OnboardingFigureOne: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(spacing: 5) {
-                    self.toothNumbers(1...7)
-
-                    DatasheetGrin()
-                        .frame(width: 270, height: 108)
-
-                    self.toothNumbers(8...14)
-
-                    Text("21.3 HIGH   ·   43.4 WIDE   ·   7 KEYS × 6.4 PITCH")
-                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                        .tracking(0.4)
-                        .foregroundStyle(self.palette.text2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-                .frame(maxWidth: .infinity)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    self.callout("KEYCAP · PLAN VIEW", detail: "FACE INSET 0.22 · 4 CHAMFERS")
-                    self.callout("BITE 3.0 · SMILE 2.5", detail: "CENTRE LINE THROUGH THE BITE")
-                    self.callout("TOOTH 12 · GOLD", detail: "THE ONE COLOUR · #FF4F1F", isLive: true)
-                }
-                .frame(width: 205, alignment: .leading)
-            }
+            OnboardingFigureDrawing()
+                .frame(height: 181)
 
             Rectangle()
                 .fill(self.palette.rule)
@@ -600,17 +577,88 @@ struct OnboardingFigureOne: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Figure 1. MouthKeys grin engineering drawing, fourteen teeth, tooth twelve highlighted.")
     }
+}
 
-    private func toothNumbers(_ range: ClosedRange<Int>) -> some View {
-        HStack(spacing: 0) {
-            ForEach(Array(range), id: \.self) { number in
-                Text(String(format: "%02d", number))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(number == 12 ? self.palette.accent : self.palette.text2)
-                    .frame(maxWidth: .infinity)
+private struct OnboardingFigureDrawing: View {
+    @Environment(\.datasheetPalette) private var palette
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        GeometryReader { proxy in
+            let drawing = OnboardingFigureDrawingGeometry(
+                canvasSize: proxy.size,
+                displayScale: self.displayScale
+            )
+            let calloutWidth = max(0, proxy.size.width - drawing.calloutX - 8)
+
+            ZStack(alignment: .topLeading) {
+                Canvas { context, _ in
+                    var centerline = Path()
+                    centerline.move(to: CGPoint(x: drawing.bounds.minX - 16, y: drawing.centerlineY))
+                    centerline.addLine(to: CGPoint(x: drawing.bounds.maxX + 16, y: drawing.centerlineY))
+                    context.stroke(
+                        centerline,
+                        with: .color(self.palette.graticule),
+                        style: StrokeStyle(lineWidth: 1, dash: [10, 3, 2, 3])
+                    )
+                }
+
+                DatasheetGrin()
+                    .frame(width: drawing.grinFrame.width, height: drawing.grinFrame.height)
+                    .position(x: drawing.grinFrame.midX, y: drawing.grinFrame.midY)
+
+                Canvas { context, _ in
+                    self.drawDimensions(drawing, in: &context)
+                    self.drawCalloutLeaders(drawing, in: &context)
+                }
+
+                ForEach(0..<7, id: \.self) { index in
+                    Text(String(format: "%02d", index + 1))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(self.palette.text2)
+                        .position(x: drawing.upperToothCenters[index].x, y: drawing.upperLabelY - 5)
+
+                    Text(String(format: "%02d", index + 8))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(index + 8 == 12 ? self.palette.accent : self.palette.text2)
+                        .position(x: drawing.lowerToothCenters[index].x, y: drawing.lowerLabelY - 5)
+                }
+
+                Text("43.4 · 7 KEYS × 6.4 PITCH")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .frame(width: 174, height: 12)
+                    .background(self.palette.surface)
+                    .position(x: drawing.bounds.midX, y: drawing.widthDimensionY - 1)
+
+                Text("21.3")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text2)
+                    .background(self.palette.surface)
+                    .rotationEffect(.degrees(-90))
+                    .position(x: drawing.heightDimensionX - 8, y: drawing.bounds.midY)
+
+                self.callout("KEYCAP · PLAN VIEW", detail: "FACE INSET 0.22 · 4 CHAMFERS")
+                    .frame(width: calloutWidth, alignment: .leading)
+                    .padding(.horizontal, 4)
+                    .background(self.palette.surface)
+                    .position(x: drawing.calloutX + calloutWidth / 2, y: drawing.keycapCalloutCenterY)
+
+                self.callout("BITE 3.0 · SMILE 2.5", detail: "CENTRE LINE THROUGH THE BITE")
+                    .frame(width: calloutWidth, alignment: .leading)
+                    .padding(.horizontal, 4)
+                    .background(self.palette.surface)
+                    .position(x: drawing.calloutX + calloutWidth / 2, y: drawing.biteCalloutCenterY)
+
+                self.callout("TOOTH 12 · GOLD", detail: "THE ONE COLOUR · #FF4F1F", isLive: true)
+                    .frame(width: calloutWidth, alignment: .leading)
+                    .padding(.horizontal, 4)
+                    .background(self.palette.surface)
+                    .position(x: drawing.calloutX + calloutWidth / 2, y: drawing.goldCalloutCenterY)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(width: 270)
+        .accessibilityHidden(true)
     }
 
     private func callout(_ title: String, detail: String, isLive: Bool = false) -> some View {
@@ -620,11 +668,10 @@ struct OnboardingFigureOne: View {
                     DatasheetStatusSquare(kind: .orange, size: 5)
                 }
                 Text(title)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.35)
                     .foregroundStyle(self.palette.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
             }
 
             Rectangle()
@@ -632,12 +679,248 @@ struct OnboardingFigureOne: View {
                 .frame(height: 1)
 
             Text(detail)
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .tracking(0.25)
                 .foregroundStyle(self.palette.text2)
                 .lineLimit(2)
-                .minimumScaleFactor(0.75)
         }
+    }
+
+    private func drawDimensions(_ drawing: OnboardingFigureDrawingGeometry, in context: inout GraphicsContext) {
+        var path = Path()
+        path.move(to: CGPoint(x: drawing.bounds.minX, y: drawing.widthExtensionStartY))
+        path.addLine(to: CGPoint(x: drawing.bounds.minX, y: drawing.widthDimensionY + 5))
+        path.move(to: CGPoint(x: drawing.bounds.maxX, y: drawing.widthExtensionStartY))
+        path.addLine(to: CGPoint(x: drawing.bounds.maxX, y: drawing.widthDimensionY + 5))
+        path.move(to: CGPoint(x: drawing.bounds.minX, y: drawing.widthDimensionY))
+        path.addLine(to: CGPoint(x: drawing.bounds.maxX, y: drawing.widthDimensionY))
+
+        path.move(to: CGPoint(x: drawing.bounds.minX, y: drawing.widthDimensionY - 4))
+        path.addLine(to: CGPoint(x: drawing.bounds.minX + 6, y: drawing.widthDimensionY))
+        path.move(to: CGPoint(x: drawing.bounds.minX, y: drawing.widthDimensionY + 4))
+        path.addLine(to: CGPoint(x: drawing.bounds.minX + 6, y: drawing.widthDimensionY))
+        path.move(to: CGPoint(x: drawing.bounds.maxX, y: drawing.widthDimensionY - 4))
+        path.addLine(to: CGPoint(x: drawing.bounds.maxX - 6, y: drawing.widthDimensionY))
+        path.move(to: CGPoint(x: drawing.bounds.maxX, y: drawing.widthDimensionY + 4))
+        path.addLine(to: CGPoint(x: drawing.bounds.maxX - 6, y: drawing.widthDimensionY))
+
+        path.move(to: CGPoint(x: drawing.bounds.minX - 8, y: drawing.closedBounds.minY))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX - 5, y: drawing.closedBounds.minY))
+        path.move(to: CGPoint(x: drawing.bounds.minX - 8, y: drawing.closedBounds.maxY))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX - 5, y: drawing.closedBounds.maxY))
+        path.move(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.minY))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.maxY))
+
+        path.move(to: CGPoint(x: drawing.heightDimensionX - 4, y: drawing.closedBounds.minY + 6))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.minY))
+        path.move(to: CGPoint(x: drawing.heightDimensionX + 4, y: drawing.closedBounds.minY + 6))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.minY))
+        path.move(to: CGPoint(x: drawing.heightDimensionX - 4, y: drawing.closedBounds.maxY - 6))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.maxY))
+        path.move(to: CGPoint(x: drawing.heightDimensionX + 4, y: drawing.closedBounds.maxY - 6))
+        path.addLine(to: CGPoint(x: drawing.heightDimensionX, y: drawing.closedBounds.maxY))
+
+        context.stroke(path, with: .color(self.palette.text2), lineWidth: 1)
+    }
+
+    private func drawCalloutLeaders(_ drawing: OnboardingFigureDrawingGeometry, in context: inout GraphicsContext) {
+        var path = Path()
+
+        let keycap = drawing.upperTooth(index: 5)
+        let keycapAnchor = CGPoint(x: keycap.midX, y: keycap.minY + keycap.height * 0.35)
+        path.addEllipse(in: CGRect(x: keycapAnchor.x - 2, y: keycapAnchor.y - 2, width: 4, height: 4))
+        path.move(to: keycapAnchor)
+        path.addLine(to: CGPoint(x: drawing.calloutX - 8, y: drawing.keycapCalloutY))
+        path.addLine(to: CGPoint(x: drawing.calloutX - 2, y: drawing.keycapCalloutY))
+
+        let biteX = drawing.bounds.maxX + 12
+        let biteTop = drawing.point(x: 0, y: 32 - 1.5 + SelfFigureMasterGeometry.smile[0]).y
+        let biteBottom = drawing.point(x: 0, y: 32 + 1.5 + SelfFigureMasterGeometry.smile[0]).y
+        path.move(to: CGPoint(x: drawing.bounds.maxX + 6, y: biteTop))
+        path.addLine(to: CGPoint(x: biteX, y: biteTop))
+        path.addLine(to: CGPoint(x: biteX, y: biteBottom))
+        path.addLine(to: CGPoint(x: drawing.calloutX - 8, y: drawing.biteCalloutY))
+        path.addLine(to: CGPoint(x: drawing.calloutX - 2, y: drawing.biteCalloutY))
+
+        let gold = drawing.lowerTooth(index: 4)
+        let goldAnchor = CGPoint(x: gold.midX, y: gold.midY)
+        let goldLeaderY = drawing.point(x: 0, y: 41).y
+        path.move(to: goldAnchor)
+        path.addLine(to: CGPoint(x: goldAnchor.x, y: goldLeaderY))
+        path.addLine(to: CGPoint(x: drawing.calloutX - 8, y: goldLeaderY))
+        path.addLine(to: CGPoint(x: drawing.calloutX - 2, y: drawing.goldCalloutTargetY))
+
+        context.stroke(path, with: .color(self.palette.text2), lineWidth: 1)
+
+        let goldMarker = CGRect(x: goldAnchor.x - 3, y: goldLeaderY - 3, width: 6, height: 6)
+        context.stroke(Path(goldMarker), with: .color(self.palette.text), lineWidth: 1.5)
+    }
+}
+
+private enum SelfFigureMasterGeometry {
+    static let teeth = 7
+    static let toothWidth: CGFloat = 5
+    static let pitch: CGFloat = 6.4
+    static let gap: CGFloat = 3
+    static let upper: [CGFloat] = [5, 8, 9, 9, 9, 8, 5]
+    static let lower: [CGFloat] = [4, 7, 9, 9, 9, 7, 4]
+    static let smile: [CGFloat] = [-2.5, -1, -0.3, 0, -0.3, -1, -2.5]
+
+    static let x0 = 32 - (CGFloat(Self.teeth - 1) * Self.pitch + Self.toothWidth) / 2
+    static let closedBounds: CGRect = {
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        for index in 0..<Self.teeth {
+            let upperY = 32 - Self.gap / 2 - Self.upper[index] + Self.smile[index]
+            let lowerY = 32 + Self.gap / 2 + Self.smile[index]
+            minY = min(minY, upperY)
+            maxY = max(maxY, max(upperY + Self.upper[index], lowerY + Self.lower[index]))
+        }
+        return CGRect(
+            x: Self.x0,
+            y: minY,
+            width: CGFloat(Self.teeth - 1) * Self.pitch + Self.toothWidth,
+            height: maxY - minY
+        )
+    }()
+}
+
+private struct OnboardingFigureDrawingGeometry {
+    let grinFrame: CGRect
+    let origin: CGPoint
+    let layout: DatasheetGrinLayout
+    let canvasSize: CGSize
+
+    private let sourceBounds = SelfFigureMasterGeometry.closedBounds
+
+    init(canvasSize: CGSize, displayScale: CGFloat) {
+        self.canvasSize = canvasSize
+        let frameWidth = min(320, max(0, canvasSize.width * 0.52))
+        let frameHeight = min(110, canvasSize.height)
+        self.grinFrame = CGRect(x: 0, y: (canvasSize.height - frameHeight) / 2, width: frameWidth, height: frameHeight)
+        self.layout = DatasheetGrinGeometry.layout(in: self.grinFrame.size, displayScale: displayScale)
+        let drawnSize = CGSize(
+            width: self.layout.viewport.width * self.layout.scale,
+            height: self.layout.viewport.height * self.layout.scale
+        )
+        self.origin = CGPoint(
+            x: self.grinFrame.minX + (self.grinFrame.width - drawnSize.width) / 2,
+            y: self.grinFrame.minY + (self.grinFrame.height - drawnSize.height) / 2
+        )
+    }
+
+    var closedBounds: CGRect {
+        self.map(self.sourceBounds)
+    }
+
+    var bounds: CGRect {
+        self.closedBounds
+    }
+
+    var calloutX: CGFloat {
+        self.bounds.maxX + 46
+    }
+
+    var centerlineY: CGFloat {
+        self.point(x: 0, y: 32).y
+    }
+
+    var upperLabelY: CGFloat {
+        self.bounds.minY - 12
+    }
+
+    var lowerLabelY: CGFloat {
+        self.point(x: 0, y: self.sourceBounds.maxY + 3).y + 12
+    }
+
+    var widthExtensionStartY: CGFloat {
+        self.lowerLabelY + 8
+    }
+
+    var widthDimensionY: CGFloat {
+        self.lowerLabelY + 18
+    }
+
+    var heightDimensionX: CGFloat {
+        self.bounds.minX - 34
+    }
+
+    var upperToothCenters: [CGPoint] {
+        (0..<SelfFigureMasterGeometry.teeth).map { self.upperTooth(index: $0).midPoint }
+    }
+
+    var lowerToothCenters: [CGPoint] {
+        (0..<SelfFigureMasterGeometry.teeth).map { self.lowerTooth(index: $0).midPoint }
+    }
+
+    var keycapCalloutY: CGFloat {
+        self.bounds.minY - 4
+    }
+
+    var keycapCalloutCenterY: CGFloat {
+        self.keycapCalloutY + 14
+    }
+
+    var biteCalloutY: CGFloat {
+        self.centerlineY + 6
+    }
+
+    var biteCalloutCenterY: CGFloat {
+        self.biteCalloutY + 13
+    }
+
+    var goldCalloutY: CGFloat {
+        self.point(x: 0, y: 41).y
+    }
+
+    var goldCalloutCenterY: CGFloat {
+        min(self.canvasSize.height - 20, self.goldCalloutY + 30)
+    }
+
+    var goldCalloutTargetY: CGFloat {
+        self.goldCalloutCenterY - 16
+    }
+
+    func point(x: CGFloat, y: CGFloat) -> CGPoint {
+        CGPoint(
+            x: self.origin.x + (x - self.layout.viewport.minX) * self.layout.scale,
+            y: self.origin.y + (y - self.layout.viewport.minY) * self.layout.scale
+        )
+    }
+
+    func upperTooth(index: Int) -> CGRect {
+        let gridRect = CGRect(
+            x: SelfFigureMasterGeometry.x0 + CGFloat(index) * SelfFigureMasterGeometry.pitch,
+            y: 32 - SelfFigureMasterGeometry.gap / 2 - SelfFigureMasterGeometry.upper[index] + SelfFigureMasterGeometry.smile[index],
+            width: SelfFigureMasterGeometry.toothWidth,
+            height: SelfFigureMasterGeometry.upper[index]
+        )
+        return self.map(gridRect)
+    }
+
+    func lowerTooth(index: Int) -> CGRect {
+        let gridRect = CGRect(
+            x: SelfFigureMasterGeometry.x0 + CGFloat(index) * SelfFigureMasterGeometry.pitch,
+            y: 32 + SelfFigureMasterGeometry.gap / 2 + SelfFigureMasterGeometry.smile[index],
+            width: SelfFigureMasterGeometry.toothWidth,
+            height: SelfFigureMasterGeometry.lower[index]
+        )
+        return self.map(gridRect)
+    }
+
+    private func map(_ rect: CGRect) -> CGRect {
+        CGRect(
+            x: self.origin.x + (rect.minX - self.layout.viewport.minX) * self.layout.scale,
+            y: self.origin.y + (rect.minY - self.layout.viewport.minY) * self.layout.scale,
+            width: rect.width * self.layout.scale,
+            height: rect.height * self.layout.scale
+        )
+    }
+}
+
+private extension CGRect {
+    var midPoint: CGPoint {
+        CGPoint(x: self.midX, y: self.midY)
     }
 }
 

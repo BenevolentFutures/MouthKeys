@@ -11,6 +11,12 @@ struct StatsView: View {
     @State private var chartDays = 7
     @State private var hoveredActivityIndex: Int?
 
+    // Two 280-point columns keep the lower tables' 10-point labels and values legible.
+    private static let lowerTableColumnMinWidth: CGFloat = 280
+    private static let lowerTableColumnSpacing: CGFloat = 20
+    private static let lowerTablesSideBySideMinWidth: CGFloat =
+        Self.lowerTableColumnMinWidth * 2 + Self.lowerTableColumnSpacing
+
     private static let activityTooltipDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("EEE MMM d")
@@ -25,9 +31,17 @@ struct StatsView: View {
                 self.activitySection.padding(.top, 34)
                 self.milestonesSection.padding(.top, 34)
 
-                HStack(alignment: .top, spacing: 20) {
-                    self.insightsSection
-                    self.recordsSection
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: Self.lowerTableColumnSpacing) {
+                        self.insightsSection.frame(minWidth: Self.lowerTableColumnMinWidth)
+                        self.recordsSection.frame(minWidth: Self.lowerTableColumnMinWidth)
+                    }
+                    .frame(minWidth: Self.lowerTablesSideBySideMinWidth, maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 20) {
+                        self.insightsSection
+                        self.recordsSection
+                    }
                 }
                 .padding(.top, 34)
 
@@ -464,24 +478,38 @@ struct StatsView: View {
     }
 
     private func insightRow(title: String, value: String, fallback: String) -> some View {
-        HStack(spacing: 12) {
-            DatasheetMonoLabel(
-                text: title,
-                role: DatasheetTheme.Typography.tableLabel,
-                color: self.palette.text2
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
+        let resolvedValue = value.isEmpty ? fallback : value
+        let titleLabel = Text(title)
+            .font(DatasheetTheme.Typography.tableLabel.font)
+            .tracking(DatasheetTheme.Typography.tableLabel.tracking)
+            .textCase(.uppercase)
+            .foregroundStyle(self.palette.text2)
+        let valueLabel = Text(resolvedValue)
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .foregroundStyle(self.palette.text)
 
-            Spacer(minLength: 4)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                titleLabel
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
 
-            Text(value.isEmpty ? fallback : value)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(self.palette.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .multilineTextAlignment(.trailing)
+                Spacer(minLength: 4)
+
+                valueLabel
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                titleLabel
+                    .fixedSize(horizontal: false, vertical: true)
+                valueLabel
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .frame(minHeight: 36)
         .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }

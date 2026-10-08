@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SearchableModelPicker: View {
     @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var datasheetPalette
     let models: [String]
     @Binding var selectedModel: String
     var onRefresh: (() async -> Void)?
@@ -18,6 +19,7 @@ struct SearchableModelPicker: View {
     var selectionEnabled: Bool = true
     let controlWidth: CGFloat
     let controlHeight: CGFloat?
+    let appearance: SearchablePickerAppearance
 
     init(
         models: [String],
@@ -27,7 +29,8 @@ struct SearchableModelPicker: View {
         refreshEnabled: Bool = true,
         selectionEnabled: Bool = true,
         controlWidth: CGFloat = 180,
-        controlHeight: CGFloat? = nil
+        controlHeight: CGFloat? = nil,
+        appearance: SearchablePickerAppearance = .standard
     ) {
         self.models = models
         self._selectedModel = selectedModel
@@ -37,6 +40,7 @@ struct SearchableModelPicker: View {
         self.selectionEnabled = selectionEnabled
         self.controlWidth = controlWidth
         self.controlHeight = controlHeight
+        self.appearance = appearance
     }
 
     @State private var searchText = ""
@@ -65,24 +69,40 @@ struct SearchableModelPicker: View {
             // Model button that opens popover
             Button(action: { self.isShowingPopover.toggle() }) {
                 HStack(spacing: 6) {
-                    Text(self.selectedModel.isEmpty ? "Select Model" : self.selectedModel)
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(self.selectedModel.isEmpty ? .secondary : self.theme.palette.primaryText)
+                    if self.appearance == .datasheet {
+                        Text(self.selectedModel.isEmpty ? "Select Model" : self.selectedModel)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(
+                                self.selectionEnabled && !self.selectedModel.isEmpty
+                                    ? self.datasheetPalette.text
+                                    : self.datasheetPalette.text2
+                            )
+                    } else {
+                        Text(self.selectedModel.isEmpty ? "Select Model" : self.selectedModel)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(self.selectedModel.isEmpty ? .secondary : self.theme.palette.primaryText)
+                    }
                     Spacer(minLength: 6)
-                    FluidPickerDisclosureIcon(backgroundOpacity: 0.6)
+                    SearchablePickerDisclosure(
+                        appearance: self.appearance,
+                        standardBackgroundOpacity: 0.6
+                    )
                 }
-                .searchablePickerControlChrome(
+                .modifier(SearchablePickerControlAppearance(
+                    appearance: self.appearance,
                     width: self.pickerControlWidth,
                     height: self.controlHeight,
                     usesMaterial: true,
                     showsShadow: true
-                )
+                ))
             }
             .buttonStyle(.plain)
             .disabled(!self.selectionEnabled)
-            .opacity(self.selectionEnabled ? 1 : 0.55)
+            .opacity(self.appearance == .standard && !self.selectionEnabled ? 0.55 : 1)
             .popover(isPresented: self.$isShowingPopover, arrowEdge: .bottom) {
                 VStack(spacing: 0) {
                     // Search field

@@ -730,6 +730,13 @@ struct DatasheetAccessibilityRecoveryRow: View {
 }
 
 struct DatasheetKeyPracticeReadout: View {
+    private static let practiceDetailVariants = [
+        "You can change this in Settings at any time.",
+        "Press Reset to practice your shortcut.",
+        "The Option key right of the space bar. Press and let go, three times.",
+        "Press and let go, three times. Use the keycap if needed.",
+    ]
+
     let shortcut: String
     let mode: HotkeyActivationMode
     let pressCount: Int
@@ -810,11 +817,17 @@ struct DatasheetKeyPracticeReadout: View {
                     .foregroundStyle(self.palette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(self.practiceDetail)
-                    .font(.system(size: 12, weight: .regular))
-                    .lineSpacing(2)
-                    .foregroundStyle(self.palette.text2)
-                    .fixedSize(horizontal: false, vertical: true)
+                ZStack(alignment: .topLeading) {
+                    ForEach(Self.practiceDetailVariants, id: \.self) { detail in
+                        self.practiceDetailText(detail)
+                            .hidden()
+                            .accessibilityHidden(true)
+                            .allowsHitTesting(false)
+                    }
+
+                    self.practiceDetailText(self.practiceDetail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 22) {
@@ -855,6 +868,15 @@ struct DatasheetKeyPracticeReadout: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 18)
+    }
+
+    private func practiceDetailText(_ detail: String) -> some View {
+        Text(detail)
+            .font(.system(size: 12, weight: .regular))
+            .lineSpacing(2)
+            .foregroundStyle(self.palette.text2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var practiceKeyStatus: some View {

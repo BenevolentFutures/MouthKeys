@@ -544,10 +544,10 @@ struct CommandModeView: View {
                 }
             ),
             controlWidth: 140,
-            controlHeight: 30
+            controlHeight: 30,
+            appearance: .datasheet
         )
         .disabled(self.settings.commandModeLinkedToGlobal)
-        .opacity(self.settings.commandModeLinkedToGlobal ? 0.55 : 1)
     }
 
     private var modelControl: some View {
@@ -564,7 +564,8 @@ struct CommandModeView: View {
             isRefreshing: false,
             selectionEnabled: !self.settings.commandModeLinkedToGlobal && !self.availableModels.isEmpty,
             controlWidth: 180,
-            controlHeight: 30
+            controlHeight: 30,
+            appearance: .datasheet
         )
         .disabled(self.settings.commandModeLinkedToGlobal)
     }

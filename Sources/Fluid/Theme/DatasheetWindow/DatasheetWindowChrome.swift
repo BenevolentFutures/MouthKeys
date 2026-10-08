@@ -389,21 +389,31 @@ private struct DatasheetTodayTitleButton: View {
     var body: some View {
         let summary = self.historyStore.todaySummary
         let hasActivity = summary.words > 0
-        let saved = summary.formattedTimeSaved(typingWPM: self.typingWPM).uppercased()
+        let formattedSaved = summary.formattedTimeSaved(typingWPM: self.typingWPM)
+        let saved = formattedSaved
+            .replacingOccurrences(of: " ", with: "")
+            .uppercased()
+        let words = self.compactWordCount(summary.words)
 
         Button(action: self.action) {
-            HStack(spacing: 3) {
+            HStack(spacing: 2) {
                 Text("TODAY")
+                    .lineLimit(1)
                     .frame(width: 34, alignment: .leading)
 
-                Text(hasActivity ? "\(summary.words.formatted()) WORDS" : "— WORDS")
-            .frame(width: 76, alignment: .leading)
+                Text(hasActivity ? "\(words) WORDS" : "— WORDS")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: 82, alignment: .leading)
 
                 Text("·")
-                    .frame(width: 8, alignment: .center)
+                    .lineLimit(1)
+                    .frame(width: 6, alignment: .center)
 
                 Text(hasActivity ? "\(saved) SAVED" : "— SAVED")
-                    .frame(width: 66, alignment: .trailing)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: 60, alignment: .trailing)
             }
             .font(DatasheetTheme.Typography.tableLabel.font)
             .tracking(DatasheetTheme.Typography.tableLabel.tracking)
@@ -419,8 +429,28 @@ private struct DatasheetTodayTitleButton: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(self.palette.rule).frame(width: 1)
         }
-        .help(hasActivity ? "Today: \(summary.words) words · \(saved) saved - view stats" : "View your stats")
-        .accessibilityLabel("Today stats")
+        .help(hasActivity ? "Today: \(summary.words) words · \(formattedSaved) saved - view stats" : "View your stats")
+        .accessibilityLabel(hasActivity ? "Today stats: \(summary.words) words, \(formattedSaved) saved" : "Today stats")
+    }
+
+    private func compactWordCount(_ words: Int) -> String {
+        guard words >= 10_000 else { return words.formatted() }
+
+        let units: [(value: Double, suffix: String)] = [
+            (1_000, "K"),
+            (1_000_000, "M"),
+            (1_000_000_000, "B"),
+            (1_000_000_000_000, "T"),
+            (1_000_000_000_000_000, "P"),
+            (1_000_000_000_000_000_000, "E"),
+        ]
+        var unitIndex = units.lastIndex(where: { Double(words) >= $0.value }) ?? 0
+        var amount = Double(words) / units[unitIndex].value
+        if amount >= 999.95, unitIndex + 1 < units.count {
+            unitIndex += 1
+            amount = Double(words) / units[unitIndex].value
+        }
+        return amount.formatted(.number.precision(.fractionLength(0...1))) + units[unitIndex].suffix
     }
 }
 
@@ -477,6 +507,7 @@ struct DatasheetSidebarStamp: View {
 
     @Environment(\.datasheetPalette) private var palette
     @State private var isGitHubHovered = false
+    @State private var isWordmarkHovered = false
 
     var body: some View {
         GeometryReader { _ in
@@ -494,12 +525,21 @@ struct DatasheetSidebarStamp: View {
                         }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("MOUTHKEYS")
-                            .font(.system(size: 13, weight: .bold, design: .monospaced))
-                            .tracking(1.04)
-                            .foregroundStyle(self.palette.text)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
+                        Button {
+                            NSWorkspace.shared.open(self.repositoryURL)
+                        } label: {
+                            Text("MOUTHKEYS")
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .tracking(1.04)
+                                .underline(self.isWordmarkHovered)
+                                .foregroundStyle(self.palette.text)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { self.isWordmarkHovered = $0 }
+                        .help("Open MouthKeys on GitHub")
+                        .accessibilityLabel("MouthKeys project on GitHub")
 
                         Text("VOICE→TEXT")
                             .font(DatasheetTheme.Typography.tableLabel.font)

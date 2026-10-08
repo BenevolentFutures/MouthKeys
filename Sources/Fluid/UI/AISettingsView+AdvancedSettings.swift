@@ -139,7 +139,7 @@ extension AIEnhancementSettingsView {
                                 .font(.system(size: 13, weight: .semibold))
                                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
                         }
-                        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+                        .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
                         .disabled(!isEnabled)
                         .help("Configure")
                     }
@@ -152,7 +152,7 @@ extension AIEnhancementSettingsView {
                                 .font(.system(size: 13, weight: .semibold))
                                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
                         }
-                        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+                        .buttonStyle(DatasheetAIButtonStyle(kind: .outline, layout: .fixed))
                         .disabled(!isEnabled)
                         .help("Delete")
                     } else {
