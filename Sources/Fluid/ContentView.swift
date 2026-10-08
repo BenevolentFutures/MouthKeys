@@ -1458,6 +1458,7 @@ struct ContentView: View {
             theme: self.theme
         )
         .environmentObject(self.appServices)
+        .ignoresSafeArea(.container)
     }
 
     // MARK: - Welcome Guide

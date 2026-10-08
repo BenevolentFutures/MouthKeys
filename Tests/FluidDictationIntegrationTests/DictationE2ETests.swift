@@ -5589,6 +5589,264 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
     }
 }
 
+/// Offscreen render checks for the first-run wizard shell and Accessibility recovery rows.
+/// ImageRenderer keeps the app host invisible, silent, and away from permissions and input;
+/// AppKit-backed scroll content is checked in the leased native walkthrough.
+@MainActor
+final class OnboardingWizardRenderTests: XCTestCase {
+    private var outputFolder: URL? {
+        ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    func testEveryWizardStepRendersInBothThemes() throws {
+        let steps: [(Int, String)] = [
+            (0, "welcome"),
+            (1, "language"),
+            (2, "voice-engine"),
+            (3, "enable-access"),
+            (4, "try-mouthkeys"),
+            (5, "legacy-ai-step"),
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            let themeName = scheme == .dark ? "dark" : "light"
+            for (step, name) in steps {
+                let renderer = ImageRenderer(content: self.wizard(step: step, scheme: scheme))
+                renderer.scale = 1
+                renderer.proposedSize = ProposedViewSize(width: 980, height: 680)
+                let image = try XCTUnwrap(renderer.cgImage, "\(themeName) \(name) wizard page did not render")
+                XCTAssertEqual(image.width, 980)
+                XCTAssertEqual(image.height, 680)
+
+                let rep = NSBitmapImageRep(cgImage: image)
+                let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = "\(themeName)-wizard-\(name).png"
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+
+                if let outputFolder {
+                    try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+                    try png.write(to: outputFolder.appendingPathComponent("\(themeName)-wizard-\(name).png"))
+                }
+            }
+        }
+
+        XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0)
+    }
+
+    func testAccessibilityRecoveryStatesRenderInBothThemes() throws {
+        let states: [(String, AccessibilityHint, [URL])] = [
+            ("stale-grant", .staleGrant, []),
+            ("conflicting-copies", .conflictingCopies, [URL(fileURLWithPath: "/tmp/MouthKeys-old.app")]),
+            ("relaunch", .relaunch, []),
+        ]
+        var imagesByState: [String: [String: Data]] = [:]
+
+        for scheme in [ColorScheme.dark, .light] {
+            let themeName = scheme == .dark ? "dark" : "light"
+            let palette = DatasheetTheme.Palette.forScheme(scheme)
+            for (name, hint, paths) in states {
+                let view = OnboardingDatasheetRecoveryHintView(
+                    hint: hint,
+                    conflictingCopies: paths,
+                    openAccessibilitySettings: {},
+                    relaunch: {}
+                )
+                .frame(width: 760)
+                .environment(\.colorScheme, scheme)
+                .environment(\.datasheetPalette, palette)
+                .background(palette.surface)
+                let renderer = ImageRenderer(content: view)
+                renderer.scale = 1
+                renderer.proposedSize = ProposedViewSize(width: 760, height: 84)
+                let image = try XCTUnwrap(renderer.cgImage, "\(themeName) \(name) recovery row did not render")
+                let rep = NSBitmapImageRep(cgImage: image)
+                let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                imagesByState[name, default: [:]][themeName] = png
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = "\(themeName)-wizard-recovery-\(name).png"
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+
+                if let outputFolder {
+                    try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+                    try png.write(to: outputFolder.appendingPathComponent("\(themeName)-recovery-\(name).png"))
+                }
+            }
+        }
+
+        for (name, images) in imagesByState {
+            XCTAssertNotEqual(images["dark"], images["light"], "\(name) recovery row should use each theme's palette")
+        }
+
+        XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0)
+    }
+
+    private func wizard(step: Int, scheme: ColorScheme) -> some View {
+        let palette = DatasheetTheme.Palette.forScheme(scheme)
+        let theme = AppTheme.adaptive(accent: palette.accent, colorScheme: scheme)
+
+        return OnboardingFlowView(
+            currentStep: .constant(step),
+            accessibilityEnabled: false,
+            accessibilitySetupInProgress: false,
+            markAISkipped: {},
+            finishOnboardingAtGettingStarted: {},
+            openAccessibilitySettings: {},
+            restartApp: {},
+            menuBarManager: MenuBarManager(),
+            activeShortcutRecordingTarget: .constant(nil),
+            shortcutRecordingMessage: .constant(nil),
+            theme: theme
+        )
+        .environmentObject(AppServices.shared)
+        .appTheme(theme)
+        .environment(\.colorScheme, scheme)
+        .environment(\.datasheetPalette, palette)
+        .frame(width: 980, height: 680)
+    }
+}
+
+/// Native AppKit-hosted bitmap fixtures for the wizard. These are layout evidence only:
+/// page 5 remains permission-gated and no dictation, window ordering, or activation occurs.
+@MainActor
+final class OnboardingNativeBitmapProbeTests: XCTestCase {
+    private let size = NSSize(width: 980, height: 680)
+
+    func testNativeHostingBitmapsCoverEveryWizardStepInBothThemes() throws {
+        XCTAssertTrue(TestHostQuietMode.isActive)
+        NSApp.setActivationPolicy(.prohibited)
+        XCTAssertEqual(NSApp.activationPolicy(), .prohibited)
+        XCTAssertFalse(NSApp.isActive)
+
+        let outputFolder = self.outputFolder
+        try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
+        print("ONBOARDING_NATIVE_BITMAP_DIR=\(outputFolder.path)")
+
+        let steps: [(Int, String)] = [
+            (0, "welcome"),
+            (1, "language"),
+            (2, "voice-engine"),
+            (3, "enable-access"),
+            (4, "try-mouthkeys-fixture"),
+        ]
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+            let themeName = scheme == .dark ? "dark" : "light"
+
+            for (step, name) in steps {
+                let window = NSWindow(
+                    contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: self.size),
+                    styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.isReleasedWhenClosed = false
+                window.titleVisibility = .hidden
+                window.titlebarAppearsTransparent = true
+                window.appearance = NSAppearance(named: appearance)
+                let host = NSHostingView(rootView: self.wizard(step: step, scheme: scheme))
+                host.frame = NSRect(origin: .zero, size: self.size)
+                window.contentView = host
+                window.setFrame(
+                    NSRect(origin: NSPoint(x: -10000, y: -10000), size: self.size),
+                    display: false
+                )
+                defer {
+                    window.contentView = nil
+                    window.close()
+                }
+
+                host.layoutSubtreeIfNeeded()
+                host.displayIfNeeded()
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                XCTAssertGreaterThan(bitmap.pixelsWide, 0)
+                XCTAssertGreaterThan(bitmap.pixelsHigh, 0)
+                XCTAssertGreaterThan(
+                    self.distinctMainPaneColors(in: bitmap),
+                    6,
+                    "\(themeName) \(name) main pane should contain native SwiftUI content"
+                )
+
+                let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                let fileName = "native-fixture-\(themeName)-wizard-\(name).png"
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = fileName
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+                try png.write(to: outputFolder.appendingPathComponent(fileName))
+
+                XCTAssertFalse(window.isVisible, "\(fileName) must remain unordered")
+                XCTAssertFalse(window.isKeyWindow, "\(fileName) must not take key status")
+                XCTAssertEqual(NSApp.activationPolicy(), .prohibited)
+                XCTAssertFalse(NSApp.isActive)
+                XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0)
+            }
+        }
+    }
+
+    private var outputFolder: URL {
+        if let path = ProcessInfo.processInfo.environment["MOUTHKEYS_NATIVE_RENDER_DIR"] {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        let runDirectory = (0..<5).reduce(Bundle.main.bundleURL) { directory, _ in
+            directory.deletingLastPathComponent()
+        }
+        if runDirectory.path.contains("/atlas-jobs/mk-ds/runs/") {
+            let name = "\(runDirectory.lastPathComponent)-native-bitmaps"
+            return runDirectory.deletingLastPathComponent().appendingPathComponent(name, isDirectory: true)
+        }
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("MouthKeys-Onboarding-Native-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func distinctMainPaneColors(in bitmap: NSBitmapImageRep) -> Int {
+        var colors = Set<String>()
+        let minX = Int(Double(bitmap.pixelsWide) * 0.26)
+        let maxX = Int(Double(bitmap.pixelsWide) * 0.98)
+        let minY = Int(Double(bitmap.pixelsHigh) * 0.08)
+        let maxY = Int(Double(bitmap.pixelsHigh) * 0.92)
+
+        for y in stride(from: minY, to: maxY, by: 6) {
+            for x in stride(from: minX, to: maxX, by: 6) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let red = Int((color.redComponent * 31).rounded())
+                let green = Int((color.greenComponent * 31).rounded())
+                let blue = Int((color.blueComponent * 31).rounded())
+                colors.insert("\(red),\(green),\(blue)")
+            }
+        }
+
+        return colors.count
+    }
+
+    private func wizard(step: Int, scheme: ColorScheme) -> some View {
+        let palette = DatasheetTheme.Palette.forScheme(scheme)
+        let theme = AppTheme.adaptive(accent: palette.accent, colorScheme: scheme)
+
+        return OnboardingFlowView(
+            currentStep: .constant(step),
+            accessibilityEnabled: false,
+            accessibilitySetupInProgress: false,
+            markAISkipped: {},
+            finishOnboardingAtGettingStarted: {},
+            openAccessibilitySettings: {},
+            restartApp: {},
+            menuBarManager: MenuBarManager(),
+            activeShortcutRecordingTarget: .constant(nil),
+            shortcutRecordingMessage: .constant(nil),
+            theme: theme
+        )
+        .environmentObject(AppServices.shared)
+        .appTheme(theme)
+        .environment(\.colorScheme, scheme)
+        .environment(\.datasheetPalette, palette)
+        .frame(width: self.size.width, height: self.size.height)
+    }
+}
+
 @MainActor
 private final class DatasheetNativeShellTestModel: ObservableObject {
     @Published var visibility: NavigationSplitViewVisibility = .all
