@@ -25,143 +25,118 @@ private struct ConditionalDrawingGroup: ViewModifier {
     }
 }
 
+enum DatasheetAIButtonKind {
+    case ink
+    case outline
+    case orange
+}
+
+struct DatasheetAIButtonStyle: ButtonStyle {
+    let kind: DatasheetAIButtonKind
+
+    @Environment(\.datasheetPalette) private var palette
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let foreground: Color
+        let background: Color
+        switch self.kind {
+        case .ink:
+            foreground = self.palette.invForeground
+            background = self.palette.invBackground
+        case .outline:
+            foreground = self.palette.text
+            background = self.palette.surface
+        case .orange:
+            foreground = self.palette.invForeground
+            background = self.palette.accent
+        }
+
+        return configuration.label
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(background)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            .opacity(self.isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.48)
+    }
+}
+
 extension AIEnhancementSettingsView {
     // MARK: - Helper Functions
 
     func formLabel(_ title: String) -> some View {
         Text(title)
-            .fontWeight(.medium)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .tracking(0.3)
+            .foregroundStyle(self.palette.text2)
             .frame(width: AISettingsLayout.labelWidth, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [self.theme.palette.accent.opacity(0.15), self.theme.palette.accent.opacity(0.05)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .cornerRadius(6)
     }
 
     // MARK: - AI Configuration Card
 
     var aiConfigurationCard: some View {
-        VStack(spacing: 14) {
-            ThemedCard(style: .prominent, hoverEffect: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    self.aiSetupHeader
-                    self.aiConfigurationSectionPicker
-
-                    Group {
-                        switch self.selectedConfigurationSection {
-                        case .providers:
-                            self.providerConfigurationContent
-                        case .advancedPrompts:
-                            self.promptsStepContent
-                        }
-                    }
-                    .transition(.opacity)
-                    .animation(.easeOut(duration: 0.12), value: self.selectedConfigurationSection)
-                }
-                .padding(16)
-            }
-        }
-    }
-
-    private var aiSetupHeader: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(self.theme.palette.contentBackground.opacity(0.82))
-                    .overlay(
-                        LinearGradient(
-                            colors: [.white.opacity(0.1), .clear],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(self.theme.palette.accent.opacity(0.35), lineWidth: 1)
-                    )
-
-                Image(systemName: "brain")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.accent)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("AI Enhancement")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(self.theme.palette.primaryText)
-                Text("Untested and unsupported. Kept from FluidVoice; fix or change it with your own agent.")
-                    .font(.caption)
-                    .foregroundStyle(self.theme.palette.secondaryText)
-            }
-
-            Spacer()
-        }
-    }
-
-    private var aiConfigurationSectionPicker: some View {
-        HStack(spacing: 3) {
-            ForEach(AIEnhancementConfigurationSection.allCases) { section in
-                self.aiConfigurationSectionButton(section)
-            }
-        }
-        .padding(4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(self.theme.palette.contentBackground.opacity(0.78))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.24), lineWidth: 1)
+        VStack(alignment: .leading, spacing: 0) {
+            DatasheetContentHeader(placard: "08 / Advanced", title: "AI Enhancement") {
+                DatasheetSegmented(
+                    selection: self.$selectedConfigurationSection,
+                    choices: [
+                        .init(value: .providers, title: "AI Providers"),
+                        .init(value: .advancedPrompts, title: "Advanced Prompts"),
+                    ],
+                    cellWidth: 150
                 )
-        )
-        .frame(maxWidth: .infinity, alignment: .center)
-        .accessibilityElement(children: .contain)
+                .frame(height: 30)
+            }
+
+            self.aiUnsupportedNotice
+
+            Group {
+                switch self.selectedConfigurationSection {
+                case .providers:
+                    self.providerConfigurationContent
+                case .advancedPrompts:
+                    self.promptsStepContent
+                }
+            }
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+        }
+        .frame(maxWidth: 880, alignment: .leading)
+        .padding(26)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func aiConfigurationSectionButton(_ section: AIEnhancementConfigurationSection) -> some View {
-        let isSelected = self.selectedConfigurationSection == section
-        let isHovering = self.hoveredConfigurationSection == section
-        let tone = self.theme.palette.accent
-        let shape = Capsule(style: .continuous)
+    private var aiUnsupportedNotice: some View {
+        HStack(alignment: .top, spacing: 12) {
+            DatasheetStatusSquare(kind: .outline)
+                .padding(.top, 5)
 
-        return Button {
-            self.selectedConfigurationSection = section
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: section.systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(section.title)
-                    .font(.system(size: 13, weight: .semibold))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("UNSUPPORTED")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.55)
+                    .foregroundStyle(self.palette.text)
+
+                Text("Untested and unsupported. Kept from FluidVoice; fix or change it with your own agent.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+
+                Text("MouthKeys is straight voice to text. Nothing on this page runs unless you set it up, and setup and Getting Started never ask for it.")
+                    .font(.system(size: 13))
+                    .lineSpacing(2)
+                    .foregroundStyle(self.palette.text2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(isSelected ? tone : (isHovering ? self.theme.palette.primaryText : self.theme.palette.secondaryText))
-            .frame(width: 176, height: 36)
-            .contentShape(shape)
-            .background(
-                shape
-                    .fill(isSelected ? tone.opacity(0.13) : (isHovering ? self.theme.palette.cardBackground.opacity(0.66) : .clear))
-                    .overlay(
-                        shape
-                            .stroke(isSelected ? tone.opacity(0.46) : (isHovering ? self.theme.palette.cardBorder.opacity(0.36) : .clear), lineWidth: 1)
-                    )
-                    .shadow(color: isSelected ? tone.opacity(0.18) : .clear, radius: 8, x: 0, y: 2)
-            )
+
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(section.title)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .onHover { hovering in
-            self.hoveredConfigurationSection = hovering ? section : nil
-        }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
-        .animation(.easeOut(duration: 0.12), value: isSelected)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+        .padding(.bottom, 18)
     }
 
     private var providerConfigurationContent: some View {
@@ -172,9 +147,10 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Providers")
                         .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(self.palette.text)
                     Text("Configure local models and API providers.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(self.palette.text2)
                 }
 
                 Spacer()
@@ -184,20 +160,14 @@ extension AIEnhancementSettingsView {
                         Image(systemName: self.viewModel.showHelp ? "questionmark.circle.fill" : "questionmark.circle")
                             .font(.system(size: 14))
                         Text("Help")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .fontWeight(.medium)
                     }
-                    .foregroundStyle(self.viewModel.showHelp ? self.theme.palette.accent : .secondary)
+                    .foregroundStyle(self.palette.text)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(self.viewModel.showHelp ? self.theme.palette.accent.opacity(0.12) : self.theme.palette.cardBackground.opacity(0.8))
-                            .overlay(
-                                Capsule()
-                                    .stroke(self.viewModel.showHelp ? self.theme.palette.accent.opacity(0.3) : self.theme.palette.cardBorder.opacity(0.4), lineWidth: 1)
-                            )
-                    )
+                    .frame(height: 30)
+                    .background(self.palette.surface)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
             }
@@ -231,39 +201,35 @@ extension AIEnhancementSettingsView {
 
     private var aiSetupSummaryDivider: some View {
         Rectangle()
-            .fill(self.theme.palette.separator.opacity(0.45))
+            .fill(self.palette.ruleSoft.opacity(0.45))
             .frame(width: 1, height: 14)
     }
 
     private func aiSetupSummaryItem(icon: String, text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(self.theme.palette.accent.opacity(0.95))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(self.palette.text2)
                 .frame(width: 14)
 
             Text(text)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(self.theme.palette.secondaryText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(self.palette.text2)
                 .lineLimit(1)
         }
     }
 
     var apiKeyWarningView: some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.system(size: 16))
+            DatasheetStatusSquare(kind: .orange)
             Text("API key required for AI enhancement to work")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(self.palette.text)
             Spacer()
         }
         .padding(12)
-        .background(.orange.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.orange.opacity(0.3), lineWidth: 1))
-        .padding(.horizontal, 4)
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.accent, lineWidth: 1) }
     }
 
     var helpSectionView: some View {
@@ -271,7 +237,7 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Image(systemName: "lightbulb.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(self.palette.accent)
                 Text("Quick Start Guide")
                     .font(.system(size: 13, weight: .semibold))
             }
@@ -286,39 +252,30 @@ extension AIEnhancementSettingsView {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(self.theme.palette.accent.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.2), lineWidth: 1)
-                )
-        )
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+        .transition(.opacity)
     }
 
     func helpStep(_ number: String, _ text: String, _ icon: String) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(self.theme.palette.accent.opacity(0.15))
-                    .frame(width: 22, height: 22)
-                Text(number)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(self.theme.palette.accent)
-            }
+            Text(number)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.invForeground)
+                .frame(width: 20, height: 20)
+                .background(self.palette.invBackground)
             Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(self.palette.text2)
                 .frame(width: 16)
             Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(self.palette.text2)
         }
     }
 
     var providerStepContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             self.verifiedProvidersSection
 
             self.allProvidersSection
@@ -340,118 +297,105 @@ extension AIEnhancementSettingsView {
                     $0.id.localizedCaseInsensitiveContains(query)
             }
         let count = filteredItems.count
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                Text("All providers")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                Text("(\(count))")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(self.theme.palette.tertiaryText)
-            }
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                TextField("Search providers", text: self.$providerSearchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(self.theme.palette.contentBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(self.theme.palette.cardBorder.opacity(0.3), lineWidth: 1)
-                    )
-            )
-
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 6) {
-                        ForEach(filteredItems) { item in
-                            self.providerCard(item)
-                                .id(item.id)
-                        }
-                        if filteredItems.isEmpty, !query.isEmpty {
-                            Text("No providers match \"\(query)\"")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        self.customProviderButton
-                            .id("custom-provider")
-                    }
-                    .padding(4)
+        return DatasheetSection(letter: "", title: "All Providers", trailing: "\(count) providers") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundStyle(self.palette.text2)
+                    TextField("Search providers", text: self.$providerSearchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundStyle(self.palette.text)
                 }
-                .onChange(of: self.expandedProviderID) { _, newID in
-                    if let id = newID {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(id, anchor: .top)
+                .padding(.horizontal, 10)
+                .frame(height: 34)
+                .background(self.palette.field)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+
+                self.providerTableHeader
+
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(filteredItems) { item in
+                                self.providerCard(item)
+                                    .id(item.id)
+                            }
+                            if filteredItems.isEmpty, !query.isEmpty {
+                                HStack(spacing: 8) {
+                                    DatasheetStatusSquare(kind: .outline)
+                                    Text("No providers match \"\(query)\"")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(self.palette.text2)
+                                    Spacer()
+                                }
+                                .padding(12)
+                            }
+                            self.customProviderButton
+                                .id("custom-provider")
+                        }
+                    }
+                    .onChange(of: self.expandedProviderID) { _, newID in
+                        if let id = newID {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo(id, anchor: .top)
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 380)
+                .background(self.palette.surface)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             }
-            .frame(maxHeight: 380)
-            .padding(8)
-            .background(self.theme.palette.contentBackground.opacity(0.5))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+        .padding(.top, 0)
+    }
+
+    private var providerTableHeader: some View {
+        HStack(spacing: 10) {
+            self.providerColumnHeading("Provider").frame(maxWidth: .infinity, alignment: .leading)
+            self.providerColumnHeading("Status").frame(width: 170, alignment: .trailing)
+            self.providerColumnHeading("Setup").frame(width: 70, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 34)
+        .overlay(alignment: .top) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.ruleSoft).frame(height: 1) }
+    }
+
+    private func providerColumnHeading(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .tracking(0.4)
+            .foregroundStyle(self.palette.text2)
+            .lineLimit(1)
     }
 
     private var verifiedProvidersSection: some View {
         let verified = self.verifiedProviderItems
         let count = verified.count
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.fluidGreen)
-                Text("Verified providers")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.secondaryText)
-                Text("(\(count))")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(self.theme.palette.tertiaryText)
-            }
-
+        return DatasheetSection(letter: "", title: "Verified Providers", trailing: "\(count) verified", topSpacing: 0) {
             if verified.isEmpty {
                 HStack(spacing: 10) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
+                    DatasheetStatusSquare(kind: .outline)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("No verified providers yet")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(self.palette.text)
                         Text("Set up a provider below and verify its connection")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 13))
+                            .foregroundStyle(self.palette.text2)
                     }
+                    Spacer()
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(self.theme.palette.contentBackground.opacity(0.5))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 1)
-                        )
-                )
+                .background(self.palette.surface)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
             } else {
-                LazyVStack(spacing: 10) {
+                VStack(spacing: 0) {
                     ForEach(verified) { item in
                         self.verifiedProviderRow(item)
                     }
@@ -489,10 +433,10 @@ extension AIEnhancementSettingsView {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle())
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .help(help)
     }
 
@@ -513,12 +457,12 @@ extension AIEnhancementSettingsView {
                         .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
             }
             .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle())
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .disabled(disabled)
         .opacity(opacity)
         .help(help)
@@ -527,45 +471,42 @@ extension AIEnhancementSettingsView {
     private func providerCard(_ item: ProviderItem) -> some View {
         let isExpanded = self.expandedProviderID == item.id
         let status = self.providerStatus(for: item)
-        let borderColor = isExpanded
-            ? self.theme.palette.accent.opacity(0.5)
-            : self.theme.palette.cardBorder.opacity(0.3)
-        let statusView = HStack(spacing: 5) {
-            if !status.icon.isEmpty {
-                Image(systemName: status.icon)
-                    .font(.system(size: 10))
-            }
-            Text(status.text)
-        }
-        .font(.caption2)
-        .foregroundStyle(status.color)
-
         return VStack(alignment: .leading, spacing: 0) {
             Button(action: { self.toggleProviderExpansion(item.id) }) {
-                HStack(alignment: .center, spacing: 10) {
-                    self.providerLogoView(for: item)
-                        .frame(width: 34, height: 34)
+                HStack(spacing: 10) {
+                    Text(item.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(self.palette.text)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 8) {
-                        Text(item.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(self.theme.palette.primaryText)
-
-                        statusView
+                    HStack(spacing: 6) {
+                        DatasheetStatusSquare(kind: status.kind)
+                        Text(status.text)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(self.palette.text2)
+                            .lineLimit(1)
                     }
+                    .frame(width: 170, alignment: .trailing)
 
-                    Spacer()
-
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary.opacity(0.7))
+                    HStack(spacing: 6) {
+                        Text(isExpanded ? "Close" : "Set up")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(self.palette.text2)
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(self.palette.text2)
+                    }
+                    .frame(width: 70, alignment: .trailing)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .frame(minHeight: 48)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+            }
 
             if !isExpanded,
                self.viewModel.connectionStatus(for: item.id) == .failed,
@@ -577,37 +518,24 @@ extension AIEnhancementSettingsView {
             }
 
             if isExpanded {
-                Divider()
-                    .background(self.theme.palette.separator.opacity(0.5))
-                    .padding(.horizontal, 14)
-
                 self.providerDetailsSection(for: item)
-                    .padding(14)
-                    .padding(.top, 4)
+                    .padding(12)
+                    .background(self.palette.field)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isExpanded ? self.theme.palette.elevatedCardBackground : self.theme.palette.cardBackground.opacity(0.7))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(borderColor, lineWidth: isExpanded ? 1.5 : 1)
-        )
     }
 
-    private func providerStatus(for item: ProviderItem) -> (text: String, color: Color, icon: String) {
+    private func providerStatus(for item: ProviderItem) -> (text: String, kind: DatasheetStatusSquareKind) {
         switch self.viewModel.connectionStatus(for: item.id) {
         case .success:
-            return ("Connection verified", Color.fluidGreen, "checkmark.circle.fill")
+            return ("Connection verified", .ink)
         case .failed:
-            return ("Connection failed", .red, "exclamationmark.circle.fill")
+            return ("Connection failed", .outline)
         case .testing:
-            return ("Verifying...", self.theme.palette.accent, "arrow.triangle.2.circlepath")
+            return ("Verifying…", .orange)
         case .unknown:
-            return ("Connection not tested", .orange, "exclamationmark.circle.fill")
+            return ("Connection not tested", .outline)
         }
     }
 
@@ -658,39 +586,39 @@ extension AIEnhancementSettingsView {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "textformat")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                             Text("Provider Name")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                         TextField("Custom Provider", text: nameBinding)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain).datasheetAIFieldChrome()
                             .font(.system(size: 13))
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "link")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                             Text("Base URL")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                         TextField("https://api.yourprovider.com/v1", text: baseURLBinding)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain).datasheetAIFieldChrome()
                             .font(.system(size: 13, design: .monospaced))
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("API Key")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                     HStack(alignment: .center, spacing: 8) {
                         SecureField("Enter API key", text: apiKeyBinding)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain).datasheetAIFieldChrome()
                             .font(.system(size: 13))
                             .frame(maxWidth: 200)
                             .onTapGesture {
@@ -704,15 +632,13 @@ extension AIEnhancementSettingsView {
                                     Image(systemName: websiteInfo.label.contains("Guide") ? "book.fill" : "key.fill")
                                         .font(.system(size: 10))
                                     Text(websiteInfo.label)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                 }
+                                .foregroundStyle(self.palette.text)
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(self.theme.palette.accent)
-                                )
-                                .foregroundStyle(.white)
+                                .padding(.vertical, 6)
+                                .background(self.palette.field)
+                                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                             }
                             .buttonStyle(.plain)
                         }
@@ -721,7 +647,7 @@ extension AIEnhancementSettingsView {
 
                 HStack(spacing: 8) {
                     Text("Model")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 50, alignment: .leading)
 
@@ -762,18 +688,15 @@ extension AIEnhancementSettingsView {
 
                 if let error = self.viewModel.fetchModelsError, !error.isEmpty {
                     HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                        DatasheetStatusSquare(kind: .orange)
                         Text(error)
-                            .font(.caption)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(self.palette.text2)
                     }
-                    .foregroundStyle(.red)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.red.opacity(0.1))
-                    )
+                    .background(self.palette.surface)
+                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
 
                 if canVerify {
@@ -787,27 +710,27 @@ extension AIEnhancementSettingsView {
                                     .fixedSize()
                             } else {
                                 Image(systemName: "checkmark.shield")
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 13))
                             }
                             Text(self.viewModel.isTestingConnection ? "Verifying..." : "Verify Connection")
                                 .font(.system(size: 13, weight: .semibold))
                         }
                     }
-                    .fluidButton(.accent, size: .small)
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
                     .disabled(self.viewModel.isTestingConnection)
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "info.circle")
-                            .font(.caption)
+                            .font(.system(size: 13))
                         Text(hasModels ? "Select a model to enable verification" : "Refresh models to enable verification")
-                            .font(.caption)
+                            .font(.system(size: 13))
                     }
                     .foregroundStyle(.secondary)
                 }
 
                 if isCustom {
                     Divider()
-                        .background(self.theme.palette.separator.opacity(0.5))
+                        .background(self.palette.ruleSoft.opacity(0.5))
 
                     Button(role: .destructive) {
                         self.viewModel.deleteCurrentProvider()
@@ -817,9 +740,9 @@ extension AIEnhancementSettingsView {
                             Image(systemName: "trash")
                             Text("Delete Provider")
                         }
-                        .font(.caption)
+                        .font(.system(size: 13))
                     }
-                    .fluidCompactButton(foreground: .red, borderColor: .red.opacity(0.6))
+                    .buttonStyle(.plain)
                 }
             }
         })
@@ -827,70 +750,54 @@ extension AIEnhancementSettingsView {
 
     private func providerErrorPreview(_ message: String, lineLimit: Int) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.red)
-                .padding(.top, 2)
+            DatasheetStatusSquare(kind: .orange)
+                .padding(.top, 4)
 
             Text(message)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.red.opacity(0.9))
+                .foregroundStyle(self.palette.text2)
                 .lineLimit(lineLimit)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.red.opacity(0.11))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.red.opacity(0.18), lineWidth: 1)
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     private var customProviderButton: some View {
         Button(action: { self.startCustomProvider() }) {
             HStack(alignment: .center, spacing: 14) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(self.theme.palette.accent.opacity(0.12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
-                        )
+                    Rectangle()
+                        .fill(self.palette.surface)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(self.theme.palette.accent)
+                        .foregroundStyle(self.palette.text)
                 }
                 .frame(width: 40, height: 40)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Add Custom Provider")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(self.theme.palette.primaryText)
+                        .foregroundStyle(self.palette.text)
                     Text("OpenAI-compatible endpoint")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(self.palette.text2)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary.opacity(0.7))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text2)
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(self.theme.palette.cardBackground.opacity(0.6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(self.theme.palette.accent.opacity(0.25), lineWidth: 1)
-                    )
-            )
+            .padding(12)
+            .frame(minHeight: 52)
+            .background(self.palette.surface)
+            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         }
         .buttonStyle(.plain)
     }
@@ -936,20 +843,15 @@ extension AIEnhancementSettingsView {
                 HStack(spacing: 8) {
                     Text(item.name)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(self.theme.palette.primaryText)
+                        .foregroundStyle(self.palette.text)
 
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.fluidGreen)
+                    DatasheetStatusSquare(kind: .ink)
 
                     if isSelected {
                         Text("Active")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(Color.fluidGreen.opacity(0.2)))
-                            .foregroundStyle(Color.fluidGreen)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .tracking(0.35)
+                            .foregroundStyle(self.palette.text2)
                     }
                 }
 
@@ -990,10 +892,10 @@ extension AIEnhancementSettingsView {
                         }
                     }) {
                         Text("Edit")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     }
-                    .buttonStyle(SquareIconButtonStyle())
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                     .frame(width: actionColumnWidth, height: AISettingsLayout.providerRowControlHeight)
                     .help("Edit provider")
                 }
@@ -1002,7 +904,7 @@ extension AIEnhancementSettingsView {
 
             if isEditing {
                 Divider()
-                    .background(self.theme.palette.separator.opacity(0.5))
+                    .background(self.palette.ruleSoft.opacity(0.5))
                     .padding(.vertical, 10)
 
                 self.editProviderSection
@@ -1012,7 +914,7 @@ extension AIEnhancementSettingsView {
                self.viewModel.selectedProviderID == item.id
             {
                 Divider()
-                    .background(self.theme.palette.separator.opacity(0.5))
+                    .background(self.palette.ruleSoft.opacity(0.5))
                     .padding(.vertical, 10)
 
                 self.reasoningConfigSection
@@ -1020,18 +922,8 @@ extension AIEnhancementSettingsView {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(self.theme.palette.cardBackground.opacity(0.7))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 0.8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.fluidGreen.opacity(0.9) : .clear, lineWidth: 2)
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(isSelected ? self.palette.text : self.palette.edge, lineWidth: 1) }
         // Verified rows always have interactive elements, don't use drawingGroup
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1055,11 +947,11 @@ extension AIEnhancementSettingsView {
 
     private func providerLogoView(for item: ProviderItem) -> some View {
         let name = self.providerLogoName(for: item)
-        let bgColor = self.providerBackgroundColor(for: item)
 
         return ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(bgColor)
+            Rectangle()
+                .fill(self.palette.surface)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
 
             if let name {
                 Image(name)
@@ -1068,47 +960,11 @@ extension AIEnhancementSettingsView {
                     .frame(width: 26, height: 26)
             } else {
                 Text(self.providerInitials(for: item))
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(self.theme.palette.primaryText)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(self.palette.text)
             }
         }
         .frame(width: 38, height: 38)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private func providerBackgroundColor(for item: ProviderItem) -> Color {
-        let id = item.id.lowercased()
-        let name = item.name.lowercased()
-
-        if id.contains("anthropic") || name.contains("anthropic") {
-            return Color(red: 0.85, green: 0.75, blue: 0.62) // Warm tan
-        }
-        if id.contains("openai") || name.contains("openai") {
-            return Color(red: 0.95, green: 0.95, blue: 0.95) // Light gray
-        }
-        if id.contains("google") || name.contains("google") || name.contains("gemini") {
-            return Color(red: 0.95, green: 0.95, blue: 0.97) // Soft white-blue
-        }
-        if id.contains("groq") || name.contains("groq") {
-            return Color(red: 0.95, green: 0.6, blue: 0.2) // Orange
-        }
-        if id.contains("cerebras") || name.contains("cerebras") {
-            return Color(red: 0.92, green: 0.92, blue: 0.94) // Light silver
-        }
-        if id.contains("openrouter") || name.contains("openrouter") {
-            return Color(red: 0.2, green: 0.2, blue: 0.25) // Dark slate
-        }
-        if id.contains("xai") || name.contains("xai") || name.contains("x.ai") {
-            return Color(red: 0.95, green: 0.95, blue: 0.95) // Light gray
-        }
-        if id.contains("ollama") || name.contains("ollama") {
-            return Color(red: 0.95, green: 0.95, blue: 0.95) // Light gray
-        }
-        if id.contains("lmstudio") || name.contains("lm studio") || name.contains("lmstudio") {
-            return Color(red: 0.15, green: 0.55, blue: 0.35) // Green
-        }
-        // Default fallback
-        return Color(red: 0.9, green: 0.9, blue: 0.92)
     }
 
     private func providerInitials(for item: ProviderItem) -> String {
@@ -1185,46 +1041,38 @@ extension AIEnhancementSettingsView {
             self.viewModel.openReasoningConfig()
         }) {
             Image(systemName: hasEnabledConfig ? "brain.fill" : "brain")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(hasEnabledConfig ? self.theme.palette.accent : self.theme.palette.primaryText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(hasEnabledConfig ? self.palette.accent : self.palette.text)
                 .frame(width: AISettingsLayout.providerRowControlHeight, height: AISettingsLayout.providerRowControlHeight)
         }
-        .buttonStyle(SquareIconButtonStyle(
-            foreground: hasEnabledConfig ? self.theme.palette.accent : nil,
-            borderColor: hasEnabledConfig ? self.theme.palette.accent.opacity(0.6) : nil
-        ))
+        .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
         .help("Configure reasoning parameters")
     }
 
     var promptsStepContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "text.bubble.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(self.theme.palette.accent)
-                Text("Advanced Prompts")
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
+        DatasheetSection(letter: "", title: "Prompt Routing", trailing: "DICTATE") {
+            HStack(alignment: .top, spacing: 8) {
+                Text("Choose where prompts run, then assign a default, custom prompt, or app override.")
+                    .font(.system(size: 13))
+                    .lineSpacing(2)
+                    .foregroundStyle(self.palette.text2)
+                Spacer(minLength: 8)
                 Button {
                     self.isPromptProfilesHelpPresented.toggle()
                 } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(self.theme.palette.secondaryText.opacity(0.78))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Circle())
+                    Image(systemName: "info")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(self.palette.text)
+                        .frame(width: 28, height: 28)
+                        .background(self.palette.field)
+                        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
                 .help("About prompt profiles")
                 .popover(isPresented: self.$isPromptProfilesHelpPresented, arrowEdge: .top) {
                     self.promptProfilesHelpPopover
                 }
-
-                Spacer()
             }
-
             self.advancedSettingsCard
         }
     }
@@ -1245,7 +1093,7 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Image(systemName: "pencil.circle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(self.theme.palette.accent)
+                    .foregroundStyle(self.palette.accent)
                 Text("Edit Provider")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
@@ -1257,14 +1105,14 @@ extension AIEnhancementSettingsView {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: "textformat")
-                                    .font(.caption)
+                                    .font(.system(size: 13))
                                     .foregroundStyle(.secondary)
                                 Text("Name")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             TextField("Provider name", text: self.$viewModel.editProviderName)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(.plain).datasheetAIFieldChrome()
                                 .font(.system(size: 13))
                         }
                         .frame(maxWidth: 200)
@@ -1272,14 +1120,14 @@ extension AIEnhancementSettingsView {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: "link")
-                                    .font(.caption)
+                                    .font(.system(size: 13))
                                     .foregroundStyle(.secondary)
                                 Text("Base URL")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             TextField("e.g., http://localhost:11434/v1", text: self.$viewModel.editProviderBaseURL)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(.plain).datasheetAIFieldChrome()
                                 .font(.system(size: 13, design: .monospaced))
                         }
                     }
@@ -1288,15 +1136,15 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "key")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("API Key")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     HStack(alignment: .center, spacing: 8) {
                         SecureField("Enter API key", text: apiKeyBinding)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain).datasheetAIFieldChrome()
                             .font(.system(size: 13))
                             .frame(maxWidth: 200)
                             .onTapGesture {
@@ -1310,15 +1158,13 @@ extension AIEnhancementSettingsView {
                                     Image(systemName: websiteInfo.label.contains("Guide") ? "book.fill" : "key.fill")
                                         .font(.system(size: 10))
                                     Text(websiteInfo.label)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                 }
+                                .foregroundStyle(self.palette.text)
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(self.theme.palette.accent)
-                                )
-                                .foregroundStyle(.white)
+                                .padding(.vertical, 6)
+                                .background(self.palette.field)
+                                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
                             }
                             .buttonStyle(.plain)
                         }
@@ -1337,11 +1183,11 @@ extension AIEnhancementSettingsView {
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                         Text("Save")
                     }
                 }
-                .fluidButton(.glass, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .ink))
                 .disabled(!isBuiltIn &&
                     (self.viewModel.editProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                         self.viewModel.editProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
@@ -1349,7 +1195,7 @@ extension AIEnhancementSettingsView {
                 Button("Cancel") {
                     self.viewModel.clearEditProviderDraft()
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
             }
 
             HStack(spacing: 10) {
@@ -1358,7 +1204,7 @@ extension AIEnhancementSettingsView {
                         self.viewModel.resetVerification(for: self.viewModel.selectedProviderID)
                         self.viewModel.clearEditProviderDraft()
                     }
-                    .fluidCompactButton(foreground: .red, borderColor: .red.opacity(0.6))
+                    .buttonStyle(.plain)
                 }
 
                 if !isBuiltIn {
@@ -1371,28 +1217,16 @@ extension AIEnhancementSettingsView {
                             Image(systemName: "trash")
                             Text("Delete Provider")
                         }
-                        .font(.caption)
+                        .font(.system(size: 13))
                     }
-                    .fluidCompactButton(foreground: .red, borderColor: .red.opacity(0.6))
+                    .buttonStyle(.plain)
                 }
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(self.theme.palette.elevatedCardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.35), lineWidth: 1)
-                )
-                .shadow(
-                    color: self.theme.metrics.cardShadow.color.opacity(self.theme.metrics.cardShadow.opacity * 0.6),
-                    radius: 8,
-                    x: 0,
-                    y: 4
-                )
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         .padding(.vertical, 4)
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
@@ -1402,16 +1236,15 @@ extension AIEnhancementSettingsView {
             Image(systemName: "apple.logo").font(.system(size: 14))
             Text("On-Device").fontWeight(.medium)
             Text("•").foregroundStyle(.secondary)
-            Image(systemName: "lock.shield.fill").font(.system(size: 12))
+            Image(systemName: "lock.shield.fill").font(.system(size: 13))
             Text("Private").fontWeight(.medium)
         }
-        .font(.caption).foregroundStyle(Color.fluidGreen)
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.fluidGreen.opacity(0.15))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(
-                Color.fluidGreen.opacity(0.3),
-                lineWidth: 1
-            )))
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(self.palette.text)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(self.palette.field)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
     }
 
     var appleIntelligenceModelRow: some View {
@@ -1438,9 +1271,9 @@ extension AIEnhancementSettingsView {
 
             if !ModelRepository.shared.isBuiltIn(self.viewModel.selectedProviderID) {
                 Button(action: { self.viewModel.deleteSelectedModel() }) {
-                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.caption)
+                    HStack(spacing: 4) { Image(systemName: "trash"); Text("Delete") }.font(.system(size: 13))
                 }
-                .fluidCompactButton(foreground: .red, borderColor: .red.opacity(0.6))
+                .buttonStyle(.plain)
                 .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
@@ -1449,7 +1282,7 @@ extension AIEnhancementSettingsView {
                     self.viewModel.showingAddModel = true
                     self.viewModel.newModelName = ""
                 }
-                .fluidCompactButton(isReady: true)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                 .frame(minWidth: AISettingsLayout.wideActionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
 
@@ -1458,12 +1291,9 @@ extension AIEnhancementSettingsView {
                     Image(systemName: self.viewModel.hasReasoningConfigForCurrentModel() ? "brain.fill" : "brain")
                     Text("Reasoning")
                 }
-                .font(.caption)
+                .font(.system(size: 13))
             }
-            .fluidCompactButton(
-                foreground: self.viewModel.hasReasoningConfigForCurrentModel() ? self.theme.palette.accent : nil,
-                borderColor: self.viewModel.hasReasoningConfigForCurrentModel() ? self.theme.palette.accent.opacity(0.6) : nil
-            )
+            .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
             .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
         }
     }
@@ -1475,21 +1305,21 @@ extension AIEnhancementSettingsView {
     var addModelSection: some View {
         HStack(spacing: 8) {
             TextField("Enter model name", text: self.$viewModel.newModelName)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain).datasheetAIFieldChrome()
                 .onSubmit {
                     if !self.viewModel.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         self.viewModel.addNewModel()
                     }
                 }
             Button("Add") { self.viewModel.addNewModel() }
-                .fluidCompactButton(isReady: true)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
                 .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 .disabled(self.viewModel.newModelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Cancel") {
                 self.viewModel.showingAddModel = false
                 self.viewModel.newModelName = ""
             }
-            .fluidButton(.compact, size: .compact)
+            .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
             .frame(minWidth: AISettingsLayout.compactActionMinWidth, minHeight: AISettingsLayout.controlHeight)
         }
         .padding(.leading, AISettingsLayout.rowLeadingIndent)
@@ -1500,10 +1330,10 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Image(systemName: "brain.head.profile")
                     .font(.system(size: 14))
-                    .foregroundStyle(self.theme.palette.accent)
+                    .foregroundStyle(self.palette.accent)
                 Text("Reasoning for \(self.viewModel.selectedModel)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(self.theme.palette.primaryText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(self.palette.text)
                 Spacer()
                 Button(action: { self.viewModel.showingReasoningConfig = false }) {
                     Image(systemName: "xmark")
@@ -1519,8 +1349,8 @@ extension AIEnhancementSettingsView {
                     .toggleStyle(.switch)
                     .controlSize(.small)
                 Text(self.viewModel.editingReasoningEnabled ? "Enabled" : "Disabled")
-                    .font(.caption)
-                    .foregroundStyle(self.viewModel.editingReasoningEnabled ? self.theme.palette.accent : .secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(self.viewModel.editingReasoningEnabled ? self.palette.accent : .secondary)
             }
 
             if self.viewModel.editingReasoningEnabled {
@@ -1528,7 +1358,7 @@ extension AIEnhancementSettingsView {
                     // Parameter type picker
                     HStack(spacing: 12) {
                         Text("Parameter")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .frame(width: 70, alignment: .trailing)
 
@@ -1575,12 +1405,12 @@ extension AIEnhancementSettingsView {
                     {
                         HStack(spacing: 12) {
                             Text("Name")
-                                .font(.caption)
+                                .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
                             TextField("e.g., thinking_budget", text: self.$viewModel.editingReasoningParamName)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption)
+                                .textFieldStyle(.plain).datasheetAIFieldChrome()
+                                .font(.system(size: 13))
                                 .frame(width: 140)
                         }
                     }
@@ -1588,7 +1418,7 @@ extension AIEnhancementSettingsView {
                     // Value picker/field
                     HStack(spacing: 12) {
                         Text("Value")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .frame(width: 70, alignment: .trailing)
 
@@ -1613,8 +1443,8 @@ extension AIEnhancementSettingsView {
                             .frame(width: 100)
                         } else {
                             TextField("value", text: self.$viewModel.editingReasoningParamValue)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.caption)
+                                .textFieldStyle(.plain).datasheetAIFieldChrome()
+                                .font(.system(size: 13))
                                 .frame(width: 100)
                         }
                     }
@@ -1625,27 +1455,20 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Button(action: { self.saveReasoningConfig() }) {
                     Text("Save")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
-                .fluidButton(.accent, size: .small)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
                 .frame(minWidth: 60, minHeight: 26)
 
                 Button("Cancel") { self.viewModel.showingReasoningConfig = false }
-                    .fluidButton(.compact, size: .compact)
-                    .font(.system(size: 12))
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .frame(minWidth: 60, minHeight: 26)
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(self.theme.palette.cardBackground.opacity(0.95))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.3), lineWidth: 1)
-                )
-                .shadow(color: self.theme.palette.accent.opacity(0.1), radius: 8, x: 0, y: 4)
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
@@ -1660,10 +1483,10 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 12) {
                 Button(action: { Task { await self.viewModel.testAPIConnection() } }) {
                     Text(self.viewModel.isTestingConnection ? "Verifying..." : "Verify Connection")
-                        .font(.caption)
+                        .font(.system(size: 13))
                         .fontWeight(.semibold)
                 }
-                .fluidCompactButton(isReady: true)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
                 .frame(minWidth: AISettingsLayout.primaryActionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 .disabled(self.viewModel.isTestingConnection ||
                     (!self.viewModel.isLocalEndpoint(self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
@@ -1673,18 +1496,18 @@ extension AIEnhancementSettingsView {
             // Connection Status Display
             if self.viewModel.connectionStatus == .success {
                 HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.fluidGreen).font(.caption)
-                    Text("Connection verified").font(.caption).foregroundStyle(Color.fluidGreen)
+                    DatasheetStatusSquare(kind: .ink)
+                    Text("Connection verified").font(.system(size: 13)).foregroundStyle(self.palette.text)
                 }
             } else if self.viewModel.connectionStatus == .failed {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).font(.caption)
+                    DatasheetStatusSquare(kind: .orange)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Connection failed").font(.caption).foregroundStyle(.red)
+                        Text("Connection failed").font(.system(size: 13)).foregroundStyle(self.palette.text)
                         if !self.viewModel.connectionErrorMessage.isEmpty {
                             Text(self.viewModel.connectionErrorMessage)
-                                .font(.caption2)
-                                .foregroundStyle(.red.opacity(0.8))
+                                .font(.system(size: 13))
+                                .foregroundStyle(self.palette.text2)
                                 .lineLimit(1)
                         }
                     }
@@ -1692,7 +1515,7 @@ extension AIEnhancementSettingsView {
             } else if self.viewModel.connectionStatus == .testing {
                 HStack(spacing: 8) {
                     ProgressView().frame(width: 16, height: 16)
-                    Text("Verifying...").font(.caption).foregroundStyle(self.theme.palette.accent)
+                    Text("Verifying...").font(.system(size: 13)).foregroundStyle(self.palette.accent)
                 }
             }
 
@@ -1708,9 +1531,9 @@ extension AIEnhancementSettingsView {
         HStack(spacing: 8) {
             Button(action: { self.viewModel.handleAPIKeyButtonTapped() }) {
                 Label("Add or Modify API Key", systemImage: "key.fill")
-                    .labelStyle(.titleAndIcon).font(.caption)
+                    .labelStyle(.titleAndIcon).font(.system(size: 13))
             }
-            .fluidCompactButton(isReady: true)
+            .buttonStyle(DatasheetAIButtonStyle(kind: .orange))
             .frame(minWidth: AISettingsLayout.primaryActionMinWidth, minHeight: AISettingsLayout.controlHeight)
 
             if let websiteInfo = ModelRepository.shared.providerWebsiteURL(for: self.viewModel.selectedProviderID),
@@ -1718,9 +1541,9 @@ extension AIEnhancementSettingsView {
             {
                 Button(action: { NSWorkspace.shared.open(url) }) {
                     Label(websiteInfo.label, systemImage: websiteInfo.label.contains("Download") ? "arrow.down.circle.fill" : (websiteInfo.label.contains("Guide") ? "book.fill" : "link"))
-                        .labelStyle(.titleAndIcon).font(.caption)
+                        .labelStyle(.titleAndIcon).font(.system(size: 13))
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
             }
         }
@@ -1731,13 +1554,13 @@ extension AIEnhancementSettingsView {
             Text("Enter \(self.viewModel.providerDisplayName(for: self.viewModel.selectedProviderID)) API Key")
                 .font(.headline)
             SecureField("API Key (optional for local endpoints)", text: self.$viewModel.newProviderApiKey)
-                .textFieldStyle(.roundedBorder).frame(width: 300)
+                .textFieldStyle(.plain).datasheetAIFieldChrome().frame(width: 300)
                 .onTapGesture {
                     self.viewModel.ensureKeychainAccessForAPIKeyEdit()
                 }
             HStack(spacing: 12) {
                 Button("Cancel") { self.viewModel.showAPIKeyEditor = false }
-                    .fluidButton(.compact, size: .compact)
+                    .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
                     .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 Button("OK") {
                     let trimmedKey = self.viewModel.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1749,7 +1572,7 @@ extension AIEnhancementSettingsView {
                     }
                     self.viewModel.showAPIKeyEditor = false
                 }
-                .fluidButton(.glass, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .ink))
                 .frame(minWidth: AISettingsLayout.actionMinWidth, minHeight: AISettingsLayout.controlHeight)
                 .disabled(!self.viewModel.isLocalEndpoint(self.viewModel.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) &&
                     self.viewModel.newProviderApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1764,7 +1587,7 @@ extension AIEnhancementSettingsView {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(self.theme.palette.accent)
+                    .foregroundStyle(self.palette.accent)
                 Text("Add Custom Provider")
                     .font(.system(size: 14, weight: .semibold))
             }
@@ -1773,28 +1596,28 @@ extension AIEnhancementSettingsView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "link")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("OpenAI-compatible base URL")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     TextField("https://api.yourprovider.com/v1", text: self.$viewModel.newProviderBaseURL)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain).datasheetAIFieldChrome()
                         .font(.system(size: 13, design: .monospaced))
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "key")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Text("API Key (optional for local endpoints)")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     SecureField("Enter API key", text: self.$viewModel.newProviderApiKey)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain).datasheetAIFieldChrome()
                         .font(.system(size: 13))
                         .onTapGesture {
                             self.viewModel.ensureKeychainAccessForAPIKeyEdit()
@@ -1806,11 +1629,11 @@ extension AIEnhancementSettingsView {
                 Button(action: { self.saveNewProvider() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                         Text("Save Provider")
                     }
                 }
-                .fluidButton(.glass, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .ink))
                 .disabled(self.viewModel.newProviderBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Button("Cancel") {
@@ -1820,25 +1643,13 @@ extension AIEnhancementSettingsView {
                     self.viewModel.newProviderApiKey = ""
                     self.viewModel.newProviderModels = ""
                 }
-                .fluidButton(.compact, size: .compact)
+                .buttonStyle(DatasheetAIButtonStyle(kind: .outline))
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(self.theme.palette.elevatedCardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(self.theme.palette.accent.opacity(0.35), lineWidth: 1)
-                )
-                .shadow(
-                    color: self.theme.metrics.cardShadow.color.opacity(self.theme.metrics.cardShadow.opacity * 0.6),
-                    radius: 8,
-                    x: 0,
-                    y: 4
-                )
-        )
+        .background(self.palette.surface)
+        .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
