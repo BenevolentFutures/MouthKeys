@@ -112,49 +112,7 @@ struct WelcomeView: View {
                         .padding(.top, 34)
 
                     VStack(alignment: .leading, spacing: 0) {
-                        HStack(spacing: 16) {
-                            Button {
-                                if self.asr.isRunning {
-                                    Task { await self.stopAndProcessTranscription() }
-                                } else {
-                                    self.startRecording()
-                                    self.markSetupTested()
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: self.asr.isRunning ? "stop.fill" : "mic.fill")
-                                    Text(self.asr.isRunning ? "STOP RECORDING" : "START RECORDING")
-                                }
-                                .frame(minWidth: 160)
-                            }
-                            .buttonStyle(DatasheetPrimaryButtonStyle())
-                            .disabled(!self.asr.isAsrReady && !self.asr.isRunning)
-
-                            DatasheetMonoLabel(text: "OR PRESS", color: self.palette.text2)
-                            Text(self.primaryShortcut.uppercased())
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(self.palette.text)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(self.palette.field)
-                                .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-
-                            Spacer(minLength: 8)
-                            HStack(spacing: 12) {
-                                if self.asr.isRunning {
-                                    HStack(spacing: 7) {
-                                        DatasheetStatusSquare(kind: .orange)
-                                        DatasheetMonoLabel(text: "Listening", color: self.palette.accent)
-                                    }
-                                } else if !self.asr.finalText.isEmpty {
-                                    DatasheetMonoLabel(text: "\(self.asr.finalText.count) Characters", color: self.palette.text2)
-                                }
-                                self.wordBoostReadout
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+                        self.playgroundActionRow
 
                         TextEditor(text: Binding(
                             get: { self.asr.finalText },
@@ -244,6 +202,82 @@ struct WelcomeView: View {
             .onDisappear {
                 self.pauseHotkeyPractice()
             }
+        }
+    }
+
+    private var playgroundActionRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                self.playgroundRecordingButton
+                self.playgroundShortcutPrompt
+                self.playgroundShortcutReadout
+                Spacer(minLength: 8)
+                self.playgroundStatusReadout
+            }
+            // Reserve the same wide layout for idle, recording and transcript states.
+            .frame(minWidth: 620)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 16) {
+                    self.playgroundRecordingButton
+                        .fixedSize(horizontal: true, vertical: false)
+                    self.playgroundShortcutPrompt
+                    self.playgroundShortcutReadout
+                    Spacer(minLength: 0)
+                }
+                self.playgroundStatusReadout
+                    .frame(maxWidth: .infinity, minHeight: 15, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) { Rectangle().fill(self.palette.rule).frame(height: 1) }
+    }
+
+    private var playgroundRecordingButton: some View {
+        Button {
+            if self.asr.isRunning {
+                Task { await self.stopAndProcessTranscription() }
+            } else {
+                self.startRecording()
+                self.markSetupTested()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: self.asr.isRunning ? "stop.fill" : "mic.fill")
+                Text(self.asr.isRunning ? "STOP RECORDING" : "START RECORDING")
+            }
+            .frame(minWidth: 160)
+        }
+        .buttonStyle(DatasheetPrimaryButtonStyle())
+        .disabled(!self.asr.isAsrReady && !self.asr.isRunning)
+    }
+
+    private var playgroundShortcutPrompt: some View {
+        DatasheetMonoLabel(text: "OR PRESS", color: self.palette.text2)
+    }
+
+    private var playgroundShortcutReadout: some View {
+        Text(self.primaryShortcut.uppercased())
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(self.palette.text)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(self.palette.field)
+            .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
+    }
+
+    private var playgroundStatusReadout: some View {
+        HStack(spacing: 12) {
+            if self.asr.isRunning {
+                HStack(spacing: 7) {
+                    DatasheetStatusSquare(kind: .orange)
+                    DatasheetMonoLabel(text: "Listening", color: self.palette.accent)
+                }
+            } else if !self.asr.finalText.isEmpty {
+                DatasheetMonoLabel(text: "\(self.asr.finalText.count) Characters", color: self.palette.text2)
+            }
+            self.wordBoostReadout
         }
     }
 
