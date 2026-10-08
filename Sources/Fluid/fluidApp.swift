@@ -25,12 +25,14 @@ struct FluidApp: App {
 
     var body: some Scene {
         WindowGroup(id: "main") {
-            AdaptiveAppTheme(accent: self.settings.accentColor) {
+            AdaptiveAppTheme(accent: DatasheetTheme.Palette.dark.accent) {
                 ContentView()
+                    .datasheetPalette()
                     .environmentObject(self.menuBarManager)
                     .environmentObject(self.appServices)
             }
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1000, height: 700)
         .commands {
             CommandGroup(replacing: .appSettings) {

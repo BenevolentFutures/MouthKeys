@@ -1783,6 +1783,52 @@ final class HotkeyShortcutTests: XCTestCase {
     }
 
     @MainActor
+    func testDatasheetInputReadoutFollowsPickWithUnchangedConnectedDevices() throws {
+        try self.withRestoredDefaults(keys: [
+            self.microphoneSelectionModeKey,
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let internalMic = Self.device(uid: "internal", name: "MacBook Pro Microphone")
+            let lapelMic = Self.device(uid: "lapel", name: "Hollyland Lapel Mic")
+            let connectedInputs = [internalMic, lapelMic]
+            let devices = FakeAudioDeviceManager(inputs: connectedInputs, defaultInputUID: internalMic.uid)
+            let settings = SettingsStore.shared
+            let center = NotificationCenter()
+
+            settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            settings.recordInputDeviceSelection(internalMic.uid, name: internalMic.name)
+
+            var readoutUID = settings.preferredInputDeviceUID ?? ""
+            let readout = DatasheetInputReadout.selectedInputUIDChanges(
+                settings: settings,
+                notificationCenter: center
+            ).sink { readoutUID = $0 }
+            let coordinator = MicrophonePreferenceCoordinator(
+                settings: settings,
+                devices: devices,
+                notificationCenter: center
+            )
+
+            coordinator.pick(lapelMic, source: "test")
+
+            XCTAssertEqual(readoutUID, lapelMic.uid)
+            XCTAssertEqual(
+                DatasheetInputReadout.name(
+                    selectedInputUID: readoutUID,
+                    connectedInputs: connectedInputs,
+                    savedPriority: settings.microphonePriority
+                ),
+                lapelMic.name
+            )
+            XCTAssertEqual(devices.listInputDevices().map(\.uid), connectedInputs.map(\.uid))
+            withExtendedLifetime(readout) {}
+        }
+    }
+
+    @MainActor
     func testMicrophonePickerRowsKeepTheirOrderAndMarkUnusableInputs() {
         let dead = AudioDevice.Device(
             id: 9, uid: "dead", name: "Gone Mic", hasInput: true, hasOutput: false,
@@ -2988,4 +3034,3 @@ final class EscapeCancelGateTests: XCTestCase {
         try await self.waitForTheRecordingToStop()
     }
 }
-

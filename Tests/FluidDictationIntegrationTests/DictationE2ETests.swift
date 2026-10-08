@@ -4792,6 +4792,161 @@ final class LapelMicBatteryTests: XCTestCase {
 /// shared settings. Render both appearances to compare against design/app-signal/shots/.
 @MainActor
 final class DatasheetWindowRenderTests: XCTestCase {
+    /// Exercise the production split shell inside both native hosting arrangements.
+    /// ImageRenderer/HStack galleries cannot expose AppKit sidebar glass or insets.
+    func testNativeMainWindowSidebarIsFlushAndConstrainedInBothHosts() throws {
+        for useController in [false, true] {
+            for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                for size in [NSSize(width: 1000, height: 700), NSSize(width: 800, height: 500)] {
+                    let view = VStack(spacing: 0) {
+                        Color.clear.frame(height: 40)
+                        DatasheetWindowSplitView(columnVisibility: .constant(.all), onSidebarWidthChange: { _ in }) {
+                            Text("Sidebar").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } detail: {
+                            Color.clear
+                        }
+                    }.ignoresSafeArea(.container)
+                    let window = NSWindow(
+                        contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+                        styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                        backing: .buffered, defer: false
+                    )
+                    window.isReleasedWhenClosed = false
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.appearance = NSAppearance(named: appearance)
+                    if useController {
+                        window.contentViewController = NSHostingController(rootView: view)
+                    } else {
+                        window.contentView = NSHostingView(rootView: view)
+                    }
+                    window.setFrame(NSRect(origin: NSPoint(x: -10000, y: -10000), size: size), display: false)
+                    defer {
+                        window.contentViewController = nil
+                        window.contentView = nil
+                        window.close()
+                    }
+                    let host = try XCTUnwrap(window.contentView)
+                    let deadline = Date().addingTimeInterval(0.15)
+                    repeat {
+                        host.layoutSubtreeIfNeeded()
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+                    } while Date() < deadline
+                    let split = try XCTUnwrap(self.nativeSplits(in: host).first)
+                    let controller = try XCTUnwrap(split.delegate as? NSSplitViewController)
+                    let sidebar = try XCTUnwrap(controller.splitViewItems.first).viewController.view
+                    let sidebarFrame = split.convert(sidebar.bounds, from: sidebar)
+                    let detail = try XCTUnwrap(controller.splitViewItems.last).viewController.view
+                    let detailFrame = split.convert(detail.bounds, from: detail)
+                    let message = "controller=\(useController) \(appearance.rawValue) \(size)"
+                    XCTAssertEqual(split.bounds.height, size.height - 40, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.minX, 0, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.minY, 0, accuracy: 0.5, message)
+                    XCTAssertEqual(sidebarFrame.height, split.bounds.height, accuracy: 0.5, message)
+                    XCTAssertGreaterThanOrEqual(sidebarFrame.width, 220, message)
+                    XCTAssertLessThanOrEqual(sidebarFrame.width, 300, message)
+                    XCTAssertEqual(detailFrame.minX, sidebarFrame.maxX + split.dividerThickness, accuracy: 0.5, message)
+                    XCTAssertFalse(window.isVisible)
+                    XCTAssertFalse(window.isKeyWindow)
+                }
+            }
+        }
+    }
+
+    private func nativeSplits(in view: NSView) -> [NSSplitView] {
+        if let split = view as? NSSplitView { return [split] }
+        return view.subviews.flatMap { self.nativeSplits(in: $0) }
+    }
+
+    func testNativeSplitPreservesStateEnvironmentAndBidirectionalCollapse() throws {
+        for useController in [false, true] {
+            let model = DatasheetNativeShellTestModel()
+            let sidebarState = DatasheetNativePaneReceipt()
+            let detailState = DatasheetNativePaneReceipt()
+            let root = DatasheetNativeShellTestView(model: model, sidebarState: sidebarState, detailState: detailState)
+            let window = NSWindow(
+                contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 700),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            if useController {
+                window.contentViewController = NSHostingController(rootView: root)
+            } else {
+                window.contentView = NSHostingView(rootView: root)
+            }
+            window.setFrame(NSRect(x: -10000, y: -10000, width: 1000, height: 700), display: false)
+            defer {
+                window.contentViewController = nil
+                window.contentView = nil
+                window.close()
+            }
+            let host = try XCTUnwrap(window.contentView)
+            self.settleNativeLayout(host)
+            let split = try XCTUnwrap(self.nativeSplits(in: host).first)
+            let controller = try XCTUnwrap(split.delegate as? DatasheetMainWindowSplitController)
+            let sidebarHost = controller.sidebarHost
+            let detailHost = controller.detailHost
+            let sidebarIdentity = try XCTUnwrap(sidebarState.identity)
+            let detailIdentity = try XCTUnwrap(detailState.identity)
+            XCTAssertEqual(sidebarHost.view.frame.width, 250, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, sidebarHost.view.frame.width, accuracy: 0.5)
+
+            sidebarState.increment?()
+            detailState.increment?()
+            model.label = "updated environment object"
+            model.isLight = true
+            self.settleNativeLayout(host)
+            for state in [sidebarState, detailState] {
+                XCTAssertEqual(state.count, 1)
+                XCTAssertEqual(state.label, model.label)
+                XCTAssertEqual(state.scheme, .light)
+                XCTAssertEqual(state.ruleColor, NSColor(DatasheetTheme.Palette.light.rule))
+            }
+            XCTAssertEqual(sidebarState.identity, sidebarIdentity)
+            XCTAssertEqual(detailState.identity, detailIdentity)
+            XCTAssertTrue(controller.sidebarHost === sidebarHost)
+            XCTAssertTrue(controller.detailHost === detailHost)
+            XCTAssertEqual(split.dividerColor, NSColor(DatasheetTheme.Palette.light.rule))
+
+            // A native collapse (including divider interaction) must update the SwiftUI strip.
+            controller.splitViewItems[0].isCollapsed = true
+            self.settleNativeLayout(host)
+            XCTAssertEqual(model.visibility, .detailOnly)
+            XCTAssertEqual(detailHost.view.frame.width, split.bounds.width, accuracy: 0.5)
+            // The custom title-strip binding must reopen that same native pane.
+            model.visibility = .all
+            self.settleNativeLayout(host)
+            XCTAssertFalse(controller.splitViewItems[0].isCollapsed)
+            XCTAssertEqual(sidebarState.identity, sidebarIdentity)
+            XCTAssertEqual(detailState.identity, detailIdentity)
+            XCTAssertEqual(sidebarState.count, 1)
+            XCTAssertEqual(detailState.count, 1)
+
+            // Stay above AppKit's intentional collapse threshold while testing minimum width.
+            split.setPosition(180, ofDividerAt: 0)
+            self.settleNativeLayout(host)
+            XCTAssertEqual(sidebarHost.view.frame.width, 220, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, 220, accuracy: 0.5)
+            split.setPosition(400, ofDividerAt: 0)
+            self.settleNativeLayout(host)
+            XCTAssertEqual(sidebarHost.view.frame.width, 300, accuracy: 0.5)
+            XCTAssertEqual(model.sidebarWidth, 300, accuracy: 0.5)
+            XCTAssertFalse(window.isVisible)
+            XCTAssertFalse(window.isKeyWindow)
+        }
+    }
+
+    private func settleNativeLayout(_ host: NSView) {
+        let deadline = Date().addingTimeInterval(0.15)
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+        } while Date() < deadline
+    }
+
     /// Native Menu sizes can differ from SwiftUI frames. Check the actual AppKit action
     /// surface without ordering a window, opening a menu, or sending any system input.
     func testPickerNativeActionCoversPaintedFieldInBothThemes() throws {
@@ -4858,11 +5013,56 @@ final class DatasheetWindowRenderTests: XCTestCase {
         return view.subviews.flatMap { self.nativePopups(in: $0) }
     }
 
+    func testControlHoverBracketsUseChipBoundsAndRespectDisabledState() {
+        XCTAssertEqual(DatasheetControlBracketPolicy.hoverSpec, DatasheetTheme.BracketSpec.chip)
+        XCTAssertEqual(DatasheetControlBracketPolicy.toggleSwitchSize, CGSize(width: 40, height: 20))
+        XCTAssertEqual(DatasheetTheme.BracketSpec.pill, DatasheetTheme.BracketSpec(gap: 3, length: 10, drop: DatasheetTheme.Metrics.dropRule))
+
+        XCTAssertTrue(DatasheetControlBracketPolicy.hoverIsVisible(isEnabled: true, isHovered: true))
+        XCTAssertFalse(DatasheetControlBracketPolicy.hoverIsVisible(isEnabled: false, isHovered: true))
+        XCTAssertFalse(DatasheetControlBracketPolicy.isVisible(rest: false, isEnabled: false, isHovered: true))
+        XCTAssertEqual(DatasheetControlBracketPolicy.opacity(rest: false, isEnabled: false, isHovered: true), 0)
+        XCTAssertTrue(DatasheetControlBracketPolicy.isVisible(rest: true, isEnabled: false, isHovered: true))
+        XCTAssertEqual(DatasheetControlBracketPolicy.opacity(rest: true, isEnabled: false, isHovered: true), 0.62)
+    }
+
+    func testFunctionKeyDisplayNamesCoverF13ThroughF19() {
+        let functionKeys: [(UInt16, String)] = [
+            (105, "F13"), (107, "F14"), (113, "F15"), (106, "F16"),
+            (64, "F17"), (79, "F18"), (80, "F19"),
+        ]
+        for (keyCode, expected) in functionKeys {
+            XCTAssertEqual(HotkeyShortcut.keyCodeToString(keyCode), expected)
+        }
+        XCTAssertEqual(HotkeyShortcut(keyCode: 79, modifierFlags: []).displayString, "F18")
+        XCTAssertEqual(HotkeyShortcut(keyCode: 80, modifierFlags: []).displayString, "F19")
+    }
+
+    func testGrinCropReservesJawAndChoosesDetailFromRenderedGeometry() {
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(2.29), .compact)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(2.3), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(4.59), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(4.6), .full)
+
+        let stamp = DatasheetGrinGeometry.layout(in: CGSize(width: 108, height: 62), displayScale: 1)
+        XCTAssertTrue(stamp.usesLargeMaster)
+        XCTAssertEqual(stamp.viewport.minX, 9.3, accuracy: 0.001)
+        XCTAssertEqual(stamp.viewport.minY, 20.2, accuracy: 0.001)
+        XCTAssertEqual(stamp.viewport.width, 45.4, accuracy: 0.001)
+        XCTAssertEqual(stamp.viewport.height, 26.3, accuracy: 0.001)
+        XCTAssertEqual(stamp.detailTier, .heavy)
+        XCTAssertEqual(
+            DatasheetGrinGeometry.layout(in: CGSize(width: 108, height: 62), displayScale: 2).detailTier,
+            .full
+        )
+        XCTAssertFalse(DatasheetGrinGeometry.layout(in: CGSize(width: 80, height: 70), displayScale: 1).usesLargeMaster)
+    }
+
     func testRendersEveryWindowPrimitiveInBothThemes() throws {
-        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(127), .compact)
-        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(128), .heavy)
-        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(255), .heavy)
-        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(256), .full)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(2.29), .compact)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(2.3), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(4.59), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelsPerUnit(4.6), .full)
 
         let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -4884,6 +5084,193 @@ final class DatasheetWindowRenderTests: XCTestCase {
                 try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-foundations.png"))
             }
         }
+    }
+
+    func testRendersWindowChromeAtDefaultAndMinimumSizesInBothThemes() throws {
+        let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let settings = SettingsStore.shared
+        let inputUID = settings.preferredInputDeviceUID
+        let input = settings.microphonePriority.first { $0.uid == inputUID }?.name
+            ?? inputUID
+            ?? "System Default"
+        let repositoryURL = MouthKeysLinks.newIssue
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let theme = appearance == .darkAqua ? "dark" : "light"
+            for (name, size) in [("1000x700", CGSize(width: 1000, height: 700)), ("800x500", CGSize(width: 800, height: 500))] {
+                let view = DatasheetWindowChromeGallery(
+                    size: size,
+                    theme: theme.uppercased(),
+                    themeAccessibilityLabel: "Theme: System · \(theme.capitalized)",
+                    engine: settings.selectedSpeechModel.displayName,
+                    input: input,
+                    hotkey: settings.primaryDictationShortcutDisplayString,
+                    version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
+                    repositoryURL: repositoryURL
+                )
+                .frame(width: size.width, height: size.height)
+                .datasheetPalette()
+                let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+                XCTAssertGreaterThan(rep.pixelsWide, 0)
+                XCTAssertGreaterThan(rep.pixelsHigh, 0)
+                let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+                attachment.name = "\(theme)-chrome-\(name).png"
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+                if let folder {
+                    try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-chrome-\(name).png"))
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class DatasheetNativeShellTestModel: ObservableObject {
+    @Published var visibility: NavigationSplitViewVisibility = .all
+    @Published var label = "initial environment object"
+    @Published var isLight = false
+    var sidebarWidth: CGFloat = 0
+}
+
+@MainActor
+private final class DatasheetNativePaneReceipt {
+    var identity: UUID?
+    var count = 0
+    var label = ""
+    var scheme: ColorScheme?
+    var ruleColor: NSColor?
+    var increment: (() -> Void)?
+}
+
+private struct DatasheetNativeShellTestView: View {
+    @ObservedObject var model: DatasheetNativeShellTestModel
+    let sidebarState: DatasheetNativePaneReceipt
+    let detailState: DatasheetNativePaneReceipt
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 40)
+            DatasheetWindowSplitView(columnVisibility: self.$model.visibility, onSidebarWidthChange: { self.model.sidebarWidth = $0 }) {
+                DatasheetNativeStatefulPane(receipt: self.sidebarState)
+            } detail: {
+                DatasheetNativeStatefulPane(receipt: self.detailState)
+            }
+        }
+        .ignoresSafeArea(.container)
+        .environmentObject(self.model)
+        .environment(\.datasheetPalette, self.model.isLight ? .light : .dark)
+        .environment(\.colorScheme, self.model.isLight ? .light : .dark)
+    }
+}
+
+private struct DatasheetNativeStatefulPane: View {
+    let receipt: DatasheetNativePaneReceipt
+    @State private var identity = UUID()
+    @State private var count = 0
+
+    var body: some View {
+        DatasheetNativeEnvironmentProbe(identity: self.identity, count: self.count, receipt: self.receipt, increment: { self.count += 1 })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct DatasheetNativeEnvironmentProbe: NSViewRepresentable {
+    let identity: UUID
+    let count: Int
+    let receipt: DatasheetNativePaneReceipt
+    let increment: () -> Void
+    @EnvironmentObject private var model: DatasheetNativeShellTestModel
+    @Environment(\.datasheetPalette) private var palette
+    @Environment(\.colorScheme) private var scheme
+
+    func makeNSView(context _: Context) -> NSView { NSView() }
+    func updateNSView(_: NSView, context _: Context) {
+        self.receipt.identity = self.identity
+        self.receipt.count = self.count
+        self.receipt.label = self.model.label
+        self.receipt.scheme = self.scheme
+        self.receipt.ruleColor = NSColor(self.palette.rule)
+        self.receipt.increment = self.increment
+    }
+}
+
+private struct DatasheetWindowChromeGallery: View {
+    let size: CGSize
+    let theme: String
+    let themeAccessibilityLabel: String
+    let engine: String
+    let input: String
+    let hotkey: String
+    let version: String
+    let repositoryURL: URL
+
+    @Environment(\.datasheetPalette) private var palette
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DatasheetWindowTitleStrip(
+                sidebarWidth: 250,
+                sidebarIsVisible: true,
+                section: "Configure",
+                index: "02",
+                title: "Voice Engine",
+                typingWPM: SettingsStore.shared.userTypingWPM,
+                theme: self.theme,
+                themeAccessibilityLabel: self.themeAccessibilityLabel,
+                sidebarToggleAction: {},
+                todayAction: {},
+                themeAction: {},
+                reportAction: {}
+            )
+
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            DatasheetNavRow(index: "00", title: "Getting Started", systemImage: "waveform.path", isSelected: false, action: {})
+                            DatasheetSidebarSectionHeader(title: "Configure")
+                            DatasheetNavRow(index: "01", title: "Settings", systemImage: "slider.horizontal.3", isSelected: false, action: {})
+                            DatasheetNavRow(index: "02", title: "Voice Engine", systemImage: "cpu", isSelected: true, action: {})
+                            DatasheetNavRow(index: "03", title: "Custom Dictionary", systemImage: "text.book.closed", isSelected: false, action: {})
+                            DatasheetSidebarSectionHeader(title: "Use", topSpacing: 10)
+                            DatasheetNavRow(index: "04", title: "Command Mode", systemImage: "terminal", isSelected: false, action: {})
+                            DatasheetNavRow(index: "05", title: "File Transcription", systemImage: "doc.text", isSelected: false, action: {})
+                            DatasheetSidebarSectionHeader(title: "Activity", topSpacing: 10)
+                            DatasheetNavRow(index: "06", title: "History", systemImage: "clock.arrow.circlepath", isSelected: false, action: {})
+                            DatasheetNavRow(index: "07", title: "Stats", systemImage: "chart.bar", isSelected: false, action: {})
+                            DatasheetSidebarSectionHeader(title: "Advanced", topSpacing: 10)
+                            DatasheetNavRow(index: "08", title: "AI Enhancement", systemImage: "sparkle", isSelected: false, action: {})
+                            DatasheetSidebarSectionHeader(title: "Help", topSpacing: 10)
+                            DatasheetNavRow(index: "09", title: "Feedback", systemImage: "bubble.left", isSelected: false, action: {})
+                        }
+                        .padding(.top, 14)
+                        .padding(.bottom, 10)
+                    }
+
+                    DatasheetSidebarStamp(
+                        version: self.version,
+                        engine: self.engine,
+                        input: self.input,
+                        hotkey: self.hotkey,
+                        jaw: DatasheetMenuBarMark.listeningJaw(from: DatasheetOverlayModel.shared.trace),
+                        repositoryURL: self.repositoryURL
+                    )
+                }
+                .frame(width: 250)
+                .background(self.palette.sidebar)
+
+                Rectangle().fill(self.palette.rule).frame(width: 1)
+                self.palette.surface
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: self.size.width, height: self.size.height)
+        .background(self.palette.surface)
     }
 }
 

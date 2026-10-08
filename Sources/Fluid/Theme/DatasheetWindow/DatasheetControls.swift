@@ -1,5 +1,23 @@
 import SwiftUI
 
+enum DatasheetControlBracketPolicy {
+    static let hoverSpec = DatasheetTheme.BracketSpec.chip
+    static let toggleSwitchSize = CGSize(width: 40, height: 20)
+
+    static func hoverIsVisible(isEnabled: Bool, isHovered: Bool) -> Bool {
+        isEnabled && isHovered
+    }
+
+    static func isVisible(rest: Bool, isEnabled: Bool, isHovered: Bool) -> Bool {
+        rest || self.hoverIsVisible(isEnabled: isEnabled, isHovered: isHovered)
+    }
+
+    static func opacity(rest: Bool, isEnabled: Bool, isHovered: Bool) -> Double {
+        if self.hoverIsVisible(isEnabled: isEnabled, isHovered: isHovered) { return 1 }
+        return rest ? 0.62 : 0
+    }
+}
+
 enum DatasheetStatusSquareKind {
     case ink
     case orange
@@ -78,19 +96,7 @@ struct DatasheetToggleStyle: ToggleStyle {
             configuration.isOn.toggle()
         } label: {
             HStack(spacing: 10) {
-                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                    Rectangle()
-                        .fill(configuration.isOn ? self.palette.invBackground : self.palette.field)
-                        .overlay {
-                            Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
-                        }
-                        .frame(width: 40, height: 20)
-
-                    Rectangle()
-                        .fill(configuration.isOn ? self.palette.surface : self.palette.text2)
-                        .frame(width: 12, height: 12)
-                        .padding(4)
-                }
+                DatasheetToggleSwitch(isOn: configuration.isOn)
 
                 Text(configuration.isOn ? "ON" : "OFF")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -112,6 +118,39 @@ struct DatasheetToggleStyle: ToggleStyle {
             }
             .toggleStyle(.switch)
         }
+    }
+}
+
+private struct DatasheetToggleSwitch: View {
+    let isOn: Bool
+
+    @Environment(\.datasheetPalette) private var palette
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack(alignment: self.isOn ? .trailing : .leading) {
+            Rectangle()
+                .fill(self.isOn ? self.palette.invBackground : self.palette.field)
+                .overlay {
+                    Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+                }
+                .frame(width: DatasheetControlBracketPolicy.toggleSwitchSize.width, height: DatasheetControlBracketPolicy.toggleSwitchSize.height)
+
+            Rectangle()
+                .fill(self.isOn ? self.palette.surface : self.palette.text2)
+                .frame(width: 12, height: 12)
+                .padding(4)
+        }
+        .datasheetBracket(
+            DatasheetControlBracketPolicy.hoverSpec,
+            visible: DatasheetControlBracketPolicy.hoverIsVisible(isEnabled: self.isEnabled, isHovered: self.isHovered)
+        )
+        .onHover { self.isHovered = DatasheetControlBracketPolicy.hoverIsVisible(isEnabled: self.isEnabled, isHovered: $0) }
+        .onChange(of: self.isEnabled) { _, enabled in
+            if !enabled { self.isHovered = false }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -431,6 +470,7 @@ struct DatasheetBracketed<Content: View>: View {
     let content: Content
 
     @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
 
     init(rest: Bool, @ViewBuilder content: () -> Content) {
         self.rest = rest
@@ -440,10 +480,21 @@ struct DatasheetBracketed<Content: View>: View {
     var body: some View {
         self.content
             .datasheetBracket(
-                .pill,
-                visible: self.rest || self.isHovered,
-                opacity: self.isHovered ? 1 : (self.rest ? 0.62 : 0)
+                DatasheetControlBracketPolicy.hoverSpec,
+                visible: DatasheetControlBracketPolicy.isVisible(
+                    rest: self.rest,
+                    isEnabled: self.isEnabled,
+                    isHovered: self.isHovered
+                ),
+                opacity: DatasheetControlBracketPolicy.opacity(
+                    rest: self.rest,
+                    isEnabled: self.isEnabled,
+                    isHovered: self.isHovered
+                )
             )
-            .onHover { self.isHovered = $0 }
+            .onHover { self.isHovered = DatasheetControlBracketPolicy.hoverIsVisible(isEnabled: self.isEnabled, isHovered: $0) }
+            .onChange(of: self.isEnabled) { _, enabled in
+                if !enabled { self.isHovered = false }
+            }
     }
 }

@@ -61,6 +61,6 @@ extension Color {
     }
 
     static var fluidGreen: Color {
-        SettingsStore.shared.accentColor
+        DatasheetTheme.Palette.dark.accent
     }
 }
