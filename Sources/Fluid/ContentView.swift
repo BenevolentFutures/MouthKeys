@@ -231,6 +231,8 @@ struct ContentView: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.datasheetPalette) private var datasheetPalette
+    @Environment(\.colorScheme) private var colorScheme
     @State private var hotkeyManager: GlobalHotkeyManager? = nil
     @State private var hotkeyManagerInitialized: Bool = false
 
@@ -335,6 +337,7 @@ struct ContentView: View {
     @State private var savedProviders: [SettingsStore.SavedProvider] = []
     @State private var selectedProviderID: String = SettingsStore.shared.selectedProviderID
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var datasheetSidebarWidth: CGFloat = 250
     @State private var microphoneSettingsScrollRequest = 0
 
     var body: some View {
@@ -343,13 +346,23 @@ struct ContentView: View {
                 if self.settings.shouldShowOnboarding {
                     self.onboardingOnlyView
                 } else {
-                    NavigationSplitView(columnVisibility: self.$columnVisibility) {
-                        self.sidebarView
-                            .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
-                    } detail: {
-                        self.detailView
+                    VStack(spacing: 0) {
+                        self.mainWindowTitleStrip
+
+                        NavigationSplitView(columnVisibility: self.$columnVisibility) {
+                            self.sidebarView
+                                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
+                        } detail: {
+                            self.detailView
+                        }
+                        .navigationSplitViewStyle(.balanced)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .navigationSplitViewStyle(.balanced)
+                    .background(self.datasheetPalette.surface)
+                    .onPreferenceChange(DatasheetSidebarWidthPreferenceKey.self) { width in
+                        guard width > 0 else { return }
+                        self.datasheetSidebarWidth = min(300, max(220, width))
+                    }
                 }
             }
         )
@@ -394,21 +407,6 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .settingsBackupDidRestore)) { _ in
                 self.reloadSettingsStateAfterBackupRestore()
-            }
-            .toolbar {
-                if !self.settings.shouldShowOnboarding {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        self.todayStatsButton
-
-                        self.themePreferenceButton
-
-                        Button(action: self.openIssueReportingPage) {
-                            Image(systemName: "ladybug.fill")
-                        }
-                        .help("Report an issue")
-                        .accessibilityLabel("Report an issue")
-                    }
-                }
             }
             .toolbar(removing: .sidebarToggle)
             .overlay(alignment: .center) {}
@@ -1253,74 +1251,135 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        List(selection: self.$selectedSidebarItem) {
-            Section {
-                self.sidebarNavigationLink(.preferences, title: "Settings", systemImage: "gearshape.fill")
-                self.sidebarNavigationLink(.voiceEngine, title: "Voice Engine", systemImage: "waveform")
-                self.sidebarNavigationLink(.customDictionary, title: "Custom Dictionary", systemImage: "text.book.closed.fill")
-            } header: {
-                self.sidebarSectionHeader("Configure")
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    self.sidebarNavigationRow(.welcome, index: "00", title: "Getting Started", systemImage: "waveform.path")
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(self.datasheetPalette.rule).frame(height: 1)
+                        }
+                        .padding(.bottom, 10)
+
+                    self.sidebarSectionHeader("Configure")
+                    self.sidebarNavigationRow(.preferences, index: "01", title: "Settings", systemImage: "slider.horizontal.3")
+                    self.sidebarNavigationRow(.voiceEngine, index: "02", title: "Voice Engine", systemImage: "cpu")
+                    self.sidebarNavigationRow(.customDictionary, index: "03", title: "Custom Dictionary", systemImage: "text.book.closed")
+
+                    self.sidebarSectionHeader("Use", topSpacing: 10)
+                    self.sidebarNavigationRow(.commandMode, index: "04", title: "Command Mode", systemImage: "terminal")
+                    self.sidebarNavigationRow(.meetingTools, index: "05", title: "File Transcription", systemImage: "doc.text")
+
+                    self.sidebarSectionHeader("Activity", topSpacing: 10)
+                    self.sidebarNavigationRow(.history, index: "06", title: "History", systemImage: "clock.arrow.circlepath")
+                    self.sidebarNavigationRow(.stats, index: "07", title: "Stats", systemImage: "chart.bar")
+
+                    self.sidebarSectionHeader("Advanced", topSpacing: 10)
+                    self.sidebarNavigationRow(.aiEnhancements, index: "08", title: "AI Enhancement", systemImage: "sparkle")
+
+                    self.sidebarSectionHeader("Help", topSpacing: 10)
+                    self.sidebarNavigationRow(.feedback, index: "09", title: "Feedback", systemImage: "bubble.left")
+                }
+                .padding(.top, 14)
+                .padding(.bottom, 10)
             }
 
-            Section {
-                self.sidebarNavigationLink(.commandMode, title: "Command Mode", systemImage: "terminal.fill")
-                self.sidebarNavigationLink(.meetingTools, title: "File Transcription", systemImage: "doc.text.fill")
-            } header: {
-                self.sidebarSectionHeader("Use")
-            }
-
-            Section {
-                self.sidebarNavigationLink(.history, title: "History", systemImage: "clock.arrow.circlepath")
-                self.sidebarNavigationLink(.stats, title: "Stats", systemImage: "chart.bar.fill")
-            } header: {
-                self.sidebarSectionHeader("Activity")
-            }
-
-            Section {
-                self.sidebarNavigationLink(.aiEnhancements, title: "AI Enhancement", systemImage: "brain")
-            } header: {
-                self.sidebarSectionHeader("Advanced")
-            }
-
-            Section {
-                self.sidebarNavigationLink(.welcome, title: "Getting Started", systemImage: "house.fill")
-                self.sidebarNavigationLink(.feedback, title: "Feedback", systemImage: "envelope.fill")
-            } header: {
-                self.sidebarSectionHeader("Help")
-            }
+            self.sidebarStamp
         }
-        .listStyle(.sidebar)
-        .animation(nil, value: self.selectedSidebarItem)
-        .navigationTitle("MouthKeys")
-        .tint(self.theme.palette.accent)
-    }
-
-    private func sidebarSectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(self.theme.typography.sidebarSection)
-            .foregroundStyle(.secondary)
-            .textCase(nil)
-            .padding(.top, self.theme.metrics.spacing.sm)
-            .padding(.bottom, self.theme.metrics.spacing.xs)
-    }
-
-    private func sidebarNavigationLink(_ item: SidebarItem, title: String, systemImage: String) -> some View {
-        NavigationLink(value: item) {
-            Label(title, systemImage: systemImage)
-                .font(self.theme.typography.sidebarItem)
-                .frame(minHeight: 24, alignment: .leading)
-                .padding(.vertical, self.theme.metrics.spacing.xs / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(self.datasheetPalette.sidebar)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: DatasheetSidebarWidthPreferenceKey.self, value: geometry.size.width)
+            }
         }
     }
 
-    private var themePreferenceButton: some View {
-        Button {
-            self.settings.themePreference = self.nextThemePreference(after: self.settings.themePreference)
-        } label: {
-            Image(systemName: self.settings.themePreference.systemImageName)
+    private func sidebarSectionHeader(_ title: String, topSpacing: CGFloat = 0) -> some View {
+        DatasheetSidebarSectionHeader(title: title, topSpacing: topSpacing)
+    }
+
+    private func sidebarNavigationRow(
+        _ item: SidebarItem,
+        index: String,
+        title: String,
+        systemImage: String
+    ) -> some View {
+        DatasheetNavRow(
+            index: index,
+            title: title,
+            systemImage: systemImage,
+            isSelected: (self.selectedSidebarItem ?? .welcome) == item
+        ) {
+            self.selectedSidebarItem = item
         }
-        .help("Theme: \(self.settings.themePreference.displayName)")
-        .accessibilityLabel("Theme")
+    }
+
+    private var mainWindowTitleStrip: some View {
+        let route = self.titleStripRoute
+        let effectiveTheme = self.colorScheme == .light ? "Light" : "Dark"
+        let themeName = effectiveTheme.uppercased()
+        let themeAccessibilityLabel = self.settings.themePreference == .system
+            ? "Theme: System · \(effectiveTheme)"
+            : "Theme: \(self.settings.themePreference.displayName)"
+
+        return DatasheetWindowTitleStrip(
+            sidebarWidth: self.columnVisibility == .detailOnly ? 0 : self.datasheetSidebarWidth,
+            section: route.section,
+            index: route.index,
+            title: route.title,
+            typingWPM: self.settings.userTypingWPM,
+            theme: themeName,
+            themeAccessibilityLabel: themeAccessibilityLabel,
+            todayAction: { self.selectedSidebarItem = .stats },
+            themeAction: {
+                self.settings.themePreference = self.nextThemePreference(after: self.settings.themePreference)
+            },
+            reportAction: self.openIssueReportingPage
+        )
+    }
+
+    private var titleStripRoute: (section: String, index: String, title: String) {
+        switch self.selectedSidebarItem ?? .welcome {
+        case .welcome: ("Start", "00", "Getting Started")
+        case .preferences: ("Configure", "01", "Settings")
+        case .voiceEngine: ("Configure", "02", "Voice Engine")
+        case .customDictionary: ("Configure", "03", "Custom Dictionary")
+        case .commandMode: ("Use", "04", "Command Mode")
+        case .meetingTools: ("Use", "05", "File Transcription")
+        case .history: ("Activity", "06", "History")
+        case .stats: ("Activity", "07", "Stats")
+        case .aiEnhancements: ("Advanced", "08", "AI Enhancement")
+        case .feedback: ("Help", "09", "Feedback")
+        case .rewriteMode: ("Mode", "—", "Rewrite Mode")
+        }
+    }
+
+    private var sidebarStamp: some View {
+        TimelineView(.periodic(from: .now, by: 0.125)) { context in
+            DatasheetSidebarStamp(
+                version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
+                engine: self.settings.selectedSpeechModel.displayName,
+                input: self.selectedInputName,
+                hotkey: self.settings.primaryDictationShortcutDisplayString,
+                jaw: DatasheetMenuBarMark.listeningJaw(
+                    from: DatasheetOverlayModel.shared.trace,
+                    at: context.date.timeIntervalSinceReferenceDate
+                ),
+                repositoryURL: MouthKeysLinks.newIssue
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+            )
+        }
+    }
+
+    private var selectedInputName: String {
+        if let selectedInput = self.inputDevices.first(where: { $0.uid == self.selectedInputUID }) {
+            return selectedInput.name
+        }
+        if let savedInput = self.settings.microphonePriority.first(where: { $0.uid == self.selectedInputUID }) {
+            return savedInput.name
+        }
+        return self.selectedInputUID.isEmpty ? "System Default" : self.selectedInputUID
     }
 
     private func nextThemePreference(after preference: SettingsStore.ThemePreference) -> SettingsStore.ThemePreference {
@@ -1331,15 +1390,9 @@ struct ContentView: View {
         }
     }
 
-    private var todayStatsButton: some View {
-        TodayStatsToolbarButton(typingWPM: self.settings.userTypingWPM) {
-            self.selectedSidebarItem = .stats
-        }
-    }
-
     private var detailView: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            self.datasheetPalette.surface
                 .ignoresSafeArea()
 
             self.detailContent
@@ -4654,36 +4707,6 @@ private extension ContentView {
         }
 
         self.refreshDevices()
-    }
-}
-
-private struct TodayStatsToolbarButton: View {
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
-
-    let typingWPM: Int
-    let action: () -> Void
-
-    var body: some View {
-        let summary = self.historyStore.todaySummary
-        let timeSaved = summary.formattedTimeSaved(typingWPM: self.typingWPM)
-        let hasActivity = summary.words > 0
-
-        return Button(action: self.action) {
-            HStack(spacing: 4) {
-                Image(systemName: hasActivity ? "waveform" : "chart.bar.fill")
-                if hasActivity {
-                    Text("\(summary.words) words")
-                    Text("·")
-                        .foregroundStyle(.secondary)
-                    Text(timeSaved)
-                } else {
-                    Text("Today")
-                }
-            }
-            .font(.system(size: 12, weight: .medium))
-        }
-        .help(hasActivity ? "Today: \(summary.words) words · \(timeSaved) saved - view stats" : "View your stats")
-        .accessibilityLabel("Today stats")
     }
 }
 

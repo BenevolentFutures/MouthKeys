@@ -28,22 +28,34 @@ These components have no independent `SettingsStore` binding. The consuming scre
 
 | Current screen / control | Current binding or effect | New target | Status |
 |---|---|---|---|
-| Sidebar: Getting Started | `selectedSidebarItem = .welcome` | `00 Getting Started` | Move/restyle |
-| Sidebar: Settings | `selectedSidebarItem = .preferences` | `01 Settings` | Move/restyle |
-| Sidebar: Voice Engine | `selectedSidebarItem = .voiceEngine` | `02 Voice Engine` | Move/restyle |
-| Sidebar: Custom Dictionary | `selectedSidebarItem = .customDictionary` | `03 Custom Dictionary` | Move/restyle |
-| Sidebar: Command Mode | `selectedSidebarItem = .commandMode` | `04 Command Mode` | Move/restyle |
-| Sidebar: File Transcription | `selectedSidebarItem = .meetingTools` | `05 File Transcription` | Move/restyle |
-| Sidebar: History | `selectedSidebarItem = .history` | `06 History` | Move/restyle |
-| Sidebar: Stats | `selectedSidebarItem = .stats` | `07 Stats` | Move/restyle |
-| Sidebar: AI Enhancement | `selectedSidebarItem = .aiEnhancements` | `08 AI Enhancement` | Move/restyle |
-| Sidebar: Feedback | `selectedSidebarItem = .feedback` | `09 Feedback` | Move/restyle |
+| Sidebar: Getting Started | `selectedSidebarItem = .welcome` | `00 Getting Started` | Wired; real-path pending |
+| Sidebar: Settings | `selectedSidebarItem = .preferences` | `01 Settings` | Wired; real-path pending |
+| Sidebar: Voice Engine | `selectedSidebarItem = .voiceEngine` | `02 Voice Engine` | Wired; real-path pending |
+| Sidebar: Custom Dictionary | `selectedSidebarItem = .customDictionary` | `03 Custom Dictionary` | Wired; real-path pending |
+| Sidebar: Command Mode | `selectedSidebarItem = .commandMode` | `04 Command Mode` | Wired; real-path pending |
+| Sidebar: File Transcription | `selectedSidebarItem = .meetingTools` | `05 File Transcription` | Wired; real-path pending |
+| Sidebar: History | `selectedSidebarItem = .history` | `06 History` | Wired; real-path pending |
+| Sidebar: Stats | `selectedSidebarItem = .stats` | `07 Stats` | Wired; real-path pending |
+| Sidebar: AI Enhancement | `selectedSidebarItem = .aiEnhancements` | `08 AI Enhancement` | Wired; real-path pending |
+| Sidebar: Feedback | `selectedSidebarItem = .feedback` | `09 Feedback` | Wired; real-path pending |
 | Sidebar grouping | Existing `SidebarItem` routes; `.rewriteMode` has no row and remains unrouted | Configure, Use, Activity, Advanced, Help groups | Restyle; keep rewrite unrouted |
-| Toolbar: Today / word count | `TodayStatsToolbarButton`; routes to `.stats` | Fixed 40 pt title strip | Move/restyle |
-| Toolbar: Theme | `settings.themePreference`, cycles system/light/dark | Theme control | Restyle |
-| Toolbar: Report | Existing feedback/report route | Report control | Restyle |
-| Settings: Accent Color | `settings.accentColorOption` | No new control | Removed by decision |
-| Window size and navigation keyboard shortcuts | 800 × 500 minimum; no screen-jump shortcuts | Window shell and sidebar | Preserve minimum; prototype number keys stay prototype-only |
+| Title strip: Today / word count / time saved | `TranscriptionHistoryStore.shared.todaySummary`; routes to `.stats`; preserves WPM calculation and empty state | Fixed 40 pt title strip | Wired to live summary/action; real-path pending |
+| Title strip: Theme | `settings.themePreference`; cycles system/light/dark | Fixed theme cell with current effective scheme | Wired; preserves preference cycle; real-path pending |
+| Title strip: Report | `openIssueReportingPage()` → `MouthKeysLinks.newIssue` | Report cell | Wired to same URL/action; real-path pending |
+| Sidebar stamp: version / engine / input / hotkey | Bundle version, `selectedSpeechModel`, reconciled input selection, `primaryDictationShortcutDisplayString` | Bottom-left stamp; jaw follows the existing overlay trace | Wired to current values; no prototype fixture values copied |
+| Settings: Accent Color | `settings.accentColorOption` | No new control | Picker removed; stored key retained. Main app accent is Datasheet orange. `AutomaticDictionaryCorrectionOverlay.accent` still reads the stored setting under its separate ownership boundary. |
+| Main window shell | WindowGroup and `MenuBarManager.createAndShowMainWindow()` are both main hosts | 40 pt chrome strip; system traffic lights; 1000 × 700 default; 800 × 500 minimum | Both hosts wired; real-path pending |
+| Window size and navigation keyboard shortcuts | 800 × 500 minimum; no screen-jump shortcuts | 220–300 pt sidebar, ideal 250 pt; no new shortcut | Minimum preserved; prototype number keys stay prototype-only |
+| Bracket follow-up (PR58-r1 finding 4) | Shared `DatasheetBracketed` controls and toggle switch; overlay keeps `.pill` | `.chip` brackets (2 pt gap, 6 pt arms, no drop); toggle bracket covers only its 40 × 20 switch | Wired; overlay defaults and tooth coordinates untouched |
+| Grin follow-up (PR58-r1 finding 6) | `DatasheetGrin(jaw:)` in main-window stamp | Viewport crops to tooth bounds plus 1-unit pad and 3-unit jaw travel; tier follows rendered pixels per unit | Wired; jaw travel remains reserved at rest |
+
+### Chrome states omitted by the prototype
+
+- `SidebarItem.rewriteMode` remains an internal selection with no navigation row or new route. Its existing detail behavior and mode-transition side effects are unchanged.
+- `settings.shouldShowOnboarding` still selects the current onboarding-only view. The main-window strip and sidebar are shown only after onboarding, and no onboarding screen body is restyled in this phase.
+- Status-menu navigation, pending `.aiEnhancements` / `.history` routes, microphone-settings scroll requests, and selection-driven mode transitions continue through their existing handlers.
+- The existing detail screens retain all current states and controls while lanes A–F convert them. Phase 1 changes only the shell and its bindings; the prototype's screen content is not used as a substitute for current product state.
+- The shell reads the actual history summary, current theme preference, selected speech model, reconciled input device, installed bundle version, and configured dictation shortcuts. Empty history remains an em dash readout; no prototype counts or device names are introduced.
 
 ## A — Settings
 
