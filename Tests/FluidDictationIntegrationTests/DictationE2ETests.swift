@@ -2,6 +2,7 @@
 import Combine
 import Foundation
 import SwiftUI
+import Vision
 import XCTest
 
 @MainActor
@@ -5743,5 +5744,452 @@ private enum DatasheetLaneDCommandPreferences {
         }
         // The body constructs services/views and returns only after its hosts are dismantled.
         return try body()
+    }
+}
+
+/// Lane C screen renders for comparison with the binding prototype in both appearances.
+/// These install the actual screen Views in an unordered native host. Explicit dictionary
+/// and regional-offer fixtures are synthetic; credential/model lifecycle loading is skipped.
+/// The normal Debug walkthrough is a separate gate, including real actions and persistence.
+@MainActor
+final class DatasheetContentLaneCRenderTests: XCTestCase {
+    private var fixtureWidth: CGFloat = 960
+    private var dictionaryRenderHeight: CGFloat { self.fixtureWidth < 700 ? 3400 : 2400 }
+
+    private var outputFolder: URL? {
+        ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+    }
+
+    func testCoherePreviewEnumeratesSupportedLanguagesInBothThemesAtMinimumAndDefaultWidths() throws {
+        let settings = SettingsStore.shared
+        let viewModel = VoiceEngineSettingsViewModel(settings: settings, appServices: AppServices.shared)
+        let savedPreview = viewModel.previewSpeechModel
+        let savedWidth = self.fixtureWidth
+        defer {
+            viewModel.previewSpeechModel = savedPreview
+            self.fixtureWidth = savedWidth
+        }
+        viewModel.previewSpeechModel = .cohereTranscribeSixBit
+        let codes = try XCTUnwrap(SettingsStore.SpeechModel.cohereTranscribeSixBit.supportedLanguageCodes)
+            .components(separatedBy: ", ")
+        XCTAssertEqual(codes.count, 14)
+
+        for width in [CGFloat(549), CGFloat(749)] {
+            self.fixtureWidth = width
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                let theme: AppTheme = appearance == .aqua ? .light : .dark
+                // Install the actual screen body so its palette is resolved inside the View.
+                // Preview selection is in-memory only; lifecycle, downloads and actions stay idle.
+                let view = VoiceEngineSettingsView(
+                    viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true
+                )
+                .padding(14)
+                .frame(width: width, height: 720, alignment: .topLeading)
+                .appTheme(theme)
+                .datasheetPalette()
+                let rep = try self.renderNative(view, appearance: appearance, height: 720)
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = false
+                try VNImageRequestHandler(cgImage: try XCTUnwrap(rep.cgImage)).perform([request])
+                let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+                let tokens = Set(text.components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty })
+                for code in codes {
+                    XCTAssertTrue(tokens.contains(code), "\(appearance.rawValue) w\(width): missing supported code \(code); OCR=\(text)")
+                }
+                if let outputFolder = self.outputFolder {
+                    let name = "cohere-preview-\(appearance == .aqua ? "light" : "dark")-w\(Int(width)).png"
+                    try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent(name))
+                }
+            }
+        }
+    }
+
+    /// No SettingsStore/AppServices instance, cache, defaults, menu opening or system input.
+    /// Complete production-row composition is also checked by the retained source-extracted
+    /// RED/GREEN matrix; this guards the real field's native geometry, value and disabled hit path.
+    func testModelLanguageFieldKeepsLongValuesAndNativeHitSurfaceInInversePalettes() throws {
+        let font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        func textWidth(_ value: String) -> CGFloat {
+            (value as NSString).size(withAttributes: [.font: font]).width
+        }
+        let longestCohere = try XCTUnwrap(SettingsStore.CohereLanguage.allCases.max {
+            textWidth($0.displayName) < textWidth($1.displayName)
+        })
+        let longestNemotron = try XCTUnwrap(SettingsStore.NemotronLanguage.allCases.max {
+            textWidth($0.compactDisplayName) < textWidth($1.compactDisplayName)
+        })
+        let germanNemotron = try XCTUnwrap(SettingsStore.NemotronLanguage.supportedLanguage(rawValue: "de-DE"))
+        var cases: [(String, AnyView)] = []
+        for language in [SettingsStore.CohereLanguage.german, longestCohere] {
+            cases.append((language.displayName, AnyView(DatasheetSpeechModelLanguageField(
+                value: language.displayName, selection: .constant(language),
+                choices: SettingsStore.CohereLanguage.allCases, itemTitle: { $0.displayName }
+            ))))
+        }
+        for language in [germanNemotron, longestNemotron] {
+            cases.append((language.compactDisplayName, AnyView(DatasheetSpeechModelLanguageField(
+                value: language.compactDisplayName, selection: .constant(language),
+                choices: SettingsStore.NemotronLanguage.allCases, itemTitle: { $0.displayName }
+            ))))
+        }
+
+        let enhanced = NSSelectorFromString("accessibilitySetValue:forAttribute:")
+        let originalManual = self.languageFieldAXAttribute(NSApp, "AXManualAccessibility") ?? NSNumber(value: false)
+        let originalEnhanced = self.languageFieldAXAttribute(NSApp, "AXEnhancedUserInterface") ?? NSNumber(value: false)
+        _ = NSApp.perform(enhanced, with: NSNumber(value: true), with: "AXManualAccessibility")
+        _ = NSApp.perform(enhanced, with: NSNumber(value: true), with: "AXEnhancedUserInterface")
+        defer {
+            _ = NSApp.perform(enhanced, with: originalEnhanced, with: "AXEnhancedUserInterface")
+            _ = NSApp.perform(enhanced, with: originalManual, with: "AXManualAccessibility")
+        }
+
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+            let fieldPalette = appearance == .darkAqua ? DatasheetTheme.Palette.light : .dark
+            for (value, field) in cases {
+                for blocked in [false, true] {
+                    let view = field.environment(\.datasheetPalette, fieldPalette)
+                        .disabled(blocked).padding(20)
+                        .frame(width: 220, height: 72, alignment: .topLeading)
+                        .background(fieldPalette.surface).environment(\.colorScheme, scheme)
+                    let host = NSHostingView(rootView: view)
+                    let window = NSWindow(
+                        contentRect: NSRect(x: -10000, y: -10000, width: 220, height: 72),
+                        styleMask: .borderless, backing: .buffered, defer: false
+                    )
+                    window.isReleasedWhenClosed = false
+                    window.appearance = NSAppearance(named: appearance)
+                    window.contentView = host
+                    defer { window.contentView = nil; window.close() }
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertFalse(window.isVisible)
+                    XCTAssertFalse(window.isKeyWindow)
+                    let popup = try XCTUnwrap(self.languageFieldPopups(in: host).first)
+                    let native = try XCTUnwrap(popup.superview)
+                    let painted = host.convert(native.bounds, from: native)
+                    XCTAssertEqual(painted, NSRect(x: 20, y: 20, width: 180, height: 32))
+                    XCTAssertEqual(popup.isEnabled, !blocked)
+                    XCTAssertGreaterThanOrEqual(painted.width, textWidth(value) + 40, "Full value needs text, insets and disclosure: \(value)")
+                    for y in [CGFloat(0.05), 0.5, 0.95] {
+                        for x in [CGFloat(0.02), 0.5, 0.98] {
+                            let point = NSPoint(x: painted.minX + painted.width * x, y: painted.minY + painted.height * y)
+                            XCTAssertEqual(host.hitTest(host.convert(point, to: host.superview)) === popup, !blocked)
+                        }
+                    }
+                    let accessible = self.languageFieldAXNodes(host).filter {
+                        ["AXMenuButton", "AXPopUpButton"].contains($0["AXRole"] ?? "")
+                    }
+                    XCTAssertEqual(accessible.count, 1)
+                    let menu = try XCTUnwrap(accessible.first)
+                    XCTAssertEqual(menu["AXValue"], value)
+                    XCTAssertTrue([menu["AXTitle"], menu["AXDescription"]].contains("Model language"))
+                    XCTAssertEqual(menu["AXEnabled"], blocked ? "0" : "1")
+
+                    let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: rep)
+                    let background = try XCTUnwrap(NSColor(fieldPalette.field).usingColorSpace(.sRGB))
+                    let sx = CGFloat(rep.pixelsWide) / host.bounds.width
+                    let sy = CGFloat(rep.pixelsHigh) / host.bounds.height
+                    var ink = 0
+                    // Exclude the border and disclosure: these pixels must come from the value.
+                    for y in Int(28 * sy)..<Int(45 * sy) {
+                        for x in Int(32 * sx)..<Int((32 + textWidth(value)) * sx) {
+                            let color = try XCTUnwrap(rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                            if abs(color.redComponent - background.redComponent)
+                                + abs(color.greenComponent - background.greenComponent)
+                                + abs(color.blueComponent - background.blueComponent) > 1.2
+                            { ink += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(ink, 30, "\(appearance.rawValue) \(value) blocked=\(blocked): readable value ink")
+                }
+            }
+        }
+    }
+
+    private func languageFieldPopups(in view: NSView) -> [NSPopUpButton] {
+        if let popup = view as? NSPopUpButton { return [popup] }
+        return view.subviews.flatMap { self.languageFieldPopups(in: $0) }
+    }
+
+    private func languageFieldAXAttribute(_ object: Any, _ name: String) -> Any? {
+        if let element = object as? NSAccessibilityProtocol {
+            switch name {
+            case "AXRole": return element.accessibilityRole()?.rawValue
+            case "AXDescription": return element.accessibilityLabel()
+            case "AXValue": return element.accessibilityValue()
+            case "AXEnabled": return NSNumber(value: element.isAccessibilityEnabled())
+            case "AXChildren": return element.accessibilityChildren()
+            default: break
+            }
+        }
+        let selector = NSSelectorFromString("accessibilityAttributeValue:")
+        guard let object = object as? NSObject, object.responds(to: selector) else { return nil }
+        return object.perform(selector, with: name)?.takeUnretainedValue()
+    }
+
+    private func languageFieldAXNodes(_ object: Any, depth: Int = 0) -> [[String: String]] {
+        guard depth < 15 else { return [] }
+        var node: [String: String] = [:]
+        for key in ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXEnabled"] {
+            if let value = self.languageFieldAXAttribute(object, key) { node[key] = String(describing: value) }
+        }
+        let children = self.languageFieldAXAttribute(object, "AXChildren") as? [Any] ?? []
+        return (node.isEmpty ? [] : [node]) + children.flatMap { self.languageFieldAXNodes($0, depth: depth + 1) }
+    }
+
+    func testRendersLaneCScreensInBothThemes() throws {
+        let settings = SettingsStore.shared
+        let appServices = AppServices.shared
+        let voiceViewModel = VoiceEngineSettingsViewModel(settings: settings, appServices: appServices)
+        let menuBarManager = MenuBarManager()
+        let promptTest = DictationPromptTestCoordinator.shared
+        let aiViewModel = AIEnhancementSettingsViewModel(
+            settings: settings,
+            menuBarManager: menuBarManager,
+            promptTest: promptTest
+        )
+        aiViewModel.refreshProviderItems()
+        XCTAssertTrue(aiViewModel.providerAPIKeys.isEmpty, "The render fixture must not load provider credentials")
+
+        for width in [CGFloat(960), CGFloat(749), CGFloat(549)] {
+            self.fixtureWidth = width
+            for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                let themeName = (appearance == .darkAqua ? "dark" : "light") + (width == 960 ? "" : "-w\(Int(width))")
+                let appTheme = appearance == .darkAqua ? AppTheme.dark : AppTheme.light
+
+                let voiceEngine = VoiceEngineSettingsView(
+                    viewModel: voiceViewModel,
+                    settings: settings,
+                    theme: appTheme,
+                    skipsLifecycleForRender: true
+                )
+                .padding(14)
+                .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
+                .appTheme(appTheme)
+                .datasheetPalette()
+                try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
+                do {
+                    let fullVoice = VoiceEngineSettingsView(viewModel: voiceViewModel, settings: settings, theme: appTheme, skipsLifecycleForRender: true)
+                        .padding(14)
+                        .frame(width: width, height: 3200, alignment: .topLeading)
+                        .appTheme(appTheme)
+                        .datasheetPalette()
+                    try self.render(fullVoice, name: "\(themeName)-voice-engine-full.png", appearance: appearance, height: 3200)
+                }
+                try self.renderDownloadProgress(
+                    viewModel: voiceViewModel, settings: settings, theme: appTheme,
+                    appearance: appearance, name: "\(themeName)-voice-engine-download.png"
+                )
+
+                let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
+                    .environmentObject(appServices)
+                    .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(dictionary, name: "\(themeName)-custom-dictionary.png", appearance: appearance)
+
+                for (stateName, state) in [
+                    ("manual", DatasheetDictionaryRenderState.manual),
+                    ("empty", .empty),
+                    ("training-error", .trainingError),
+                ] {
+                    let dictionaryState = CustomDictionaryView(datasheetRenderFixture: true, renderState: state)
+                        .environmentObject(appServices)
+                        .frame(width: self.fixtureWidth, height: self.dictionaryRenderHeight, alignment: .topLeading)
+                        .appTheme(appTheme)
+                        .datasheetPalette()
+                    try self.render(dictionaryState, name: "\(themeName)-dictionary-\(stateName)-full.png", appearance: appearance, height: self.dictionaryRenderHeight)
+                }
+                let fullDictionary = CustomDictionaryView(datasheetRenderFixture: true)
+                    .environmentObject(appServices)
+                    .frame(width: self.fixtureWidth, height: self.dictionaryRenderHeight, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(fullDictionary, name: "\(themeName)-dictionary-training-full.png", appearance: appearance, height: self.dictionaryRenderHeight)
+
+                let providers = self.aiScreen(
+                    viewModel: aiViewModel,
+                    settings: settings,
+                    promptTest: promptTest,
+                    theme: appTheme,
+                    section: .providers
+                )
+                try self.render(providers, name: "\(themeName)-ai-providers.png", appearance: appearance)
+                let expandedProvider = self.aiScreen(
+                    viewModel: aiViewModel, settings: settings, promptTest: promptTest,
+                    theme: appTheme, section: .providers, expandedProviderID: "openai", height: 1800
+                )
+                try self.render(expandedProvider, name: "\(themeName)-ai-provider-expanded-full.png", appearance: appearance, height: 1800)
+
+                let advancedPrompts = self.aiScreen(
+                    viewModel: aiViewModel,
+                    settings: settings,
+                    promptTest: promptTest,
+                    theme: appTheme,
+                    section: .advancedPrompts
+                )
+                try self.render(advancedPrompts, name: "\(themeName)-ai-advanced-prompts.png", appearance: appearance)
+
+                let feedback = FeedbackView()
+                    .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(feedback, name: "\(themeName)-feedback.png", appearance: appearance)
+                let populatedFeedback = FeedbackView(initialMessage: "Synthetic layout check. Nothing submitted.", includeSystemInfo: false)
+                    .frame(width: self.fixtureWidth, height: 1400, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(populatedFeedback, name: "\(themeName)-feedback-populated-full.png", appearance: appearance, height: 1400)
+
+                let regionalOffer = FillerWordsEditor(renderingRegionalOffer: true)
+                    .frame(width: min(800, self.fixtureWidth - 40), alignment: .topLeading)
+                    .padding(20)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(regionalOffer, name: "\(themeName)-regional-filler-offer.png", appearance: appearance)
+            }
+        }
+    }
+
+    private func aiScreen(
+        viewModel: AIEnhancementSettingsViewModel,
+        settings: SettingsStore,
+        promptTest: DictationPromptTestCoordinator,
+        theme: AppTheme,
+        section: AIEnhancementConfigurationSection,
+        expandedProviderID: String? = nil,
+        height: CGFloat = 720
+    ) -> some View {
+        let view = AIEnhancementSettingsView(
+            viewModel: viewModel,
+            settings: settings,
+            promptTest: promptTest,
+            theme: theme,
+            activeShortcutRecordingTarget: .constant(nil),
+            shortcutRecordingMessage: .constant(nil),
+            initialConfigurationSection: section,
+            initialExpandedProviderID: expandedProviderID,
+            skipsLifecycleForRender: true
+        )
+        return ScrollView(.vertical, showsIndicators: false) {
+            view.padding(14)
+        }
+        .frame(width: self.fixtureWidth, height: height, alignment: .topLeading)
+        .appTheme(theme)
+        .datasheetPalette()
+    }
+
+    private func renderDownloadProgress(
+        viewModel: VoiceEngineSettingsViewModel, settings: SettingsStore, theme: AppTheme,
+        appearance: NSAppearance.Name, name: String
+    ) throws {
+        let asr = viewModel.asr
+        let savedID = asr.downloadingModelId
+        let savedDownloading = asr.isDownloadingModel
+        let savedPhase = asr.modelPreparationPhase
+        let savedProgress = asr.downloadProgress
+        let savedPreview = viewModel.previewSpeechModel
+        defer {
+            asr.downloadingModelId = savedID
+            asr.isDownloadingModel = savedDownloading
+            asr.modelPreparationPhase = savedPhase
+            asr.downloadProgress = savedProgress
+            viewModel.previewSpeechModel = savedPreview
+        }
+        asr.downloadingModelId = SettingsStore.SpeechModel.parakeetTDT.id
+        asr.isDownloadingModel = true
+        asr.modelPreparationPhase = .downloading
+        asr.downloadProgress = 0.42
+        viewModel.previewSpeechModel = .parakeetTDT
+        let view = VoiceEngineSettingsView(
+            viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true
+        )
+        .padding(14)
+        .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
+        .appTheme(theme)
+        .datasheetPalette()
+        try self.render(view, name: name, appearance: appearance)
+        let fullView = VoiceEngineSettingsView(viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true)
+            .padding(14)
+            .frame(width: self.fixtureWidth, height: 3200, alignment: .topLeading)
+            .appTheme(theme)
+            .datasheetPalette()
+        try self.render(fullView, name: name.replacingOccurrences(of: ".png", with: "-full.png"), appearance: appearance, height: 3200)
+    }
+
+    private func render<V: View>(_ view: V, name: String, appearance: NSAppearance.Name, height: CGFloat = 720) throws {
+        let rep = try self.renderNative(view, appearance: appearance, height: height)
+        XCTAssertGreaterThan(rep.pixelsWide, 0, name)
+        XCTAssertGreaterThan(rep.pixelsHigh, 0, name)
+
+        // Probe the surfaces owned by the installed parent View, rather than the wrapper's
+        // background or nested primitives. Extracting speechRecognitionCard/aiConfigurationCard
+        // before installation freezes these two panels to the default dark palette in light.
+        if self.fixtureWidth == 960, name.contains("voice-engine") {
+            self.assertPanelPalette(rep, region: CGRect(x: 60, y: 170, width: 820, height: 90), appearance: appearance, name: name)
+        } else if self.fixtureWidth == 960, name.contains("ai-") {
+            self.assertPanelPalette(rep, region: CGRect(x: 60, y: 160, width: 820, height: 40), appearance: appearance, name: name)
+        }
+
+        let attachment = XCTAttachment(data: try XCTUnwrap(rep.representation(using: .png, properties: [:])), uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        self.add(attachment)
+
+        if let outputFolder = self.outputFolder {
+            try DatasheetRenderStage.write(rep, to: outputFolder.appendingPathComponent(name))
+        }
+    }
+
+    private func renderNative<V: View>(_ view: V, appearance: NSAppearance.Name, height: CGFloat) throws -> NSBitmapImageRep {
+        let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
+        let surface = appearance == .darkAqua ? DatasheetTheme.Palette.dark.surface : DatasheetTheme.Palette.light.surface
+        let host = NSHostingView(rootView: view.background(surface).environment(\.colorScheme, scheme))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: self.fixtureWidth, height: height),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible, "Native fixtures must never be ordered on screen")
+        XCTAssertFalse(window.isKeyWindow)
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    private func assertPanelPalette(
+        _ rep: NSBitmapImageRep, region: CGRect, appearance: NSAppearance.Name, name: String
+    ) {
+        let scaleX = CGFloat(rep.pixelsWide) / rep.size.width
+        let scaleY = CGFloat(rep.pixelsHigh) / rep.size.height
+        var bright = 0
+        var sampled = 0
+        for y in stride(from: Int(region.minY * scaleY), to: Int(region.maxY * scaleY), by: 4) {
+            for x in stride(from: Int(region.minX * scaleX), to: Int(region.maxX * scaleX), by: 4) {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                sampled += 1
+                if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.8 {
+                    bright += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(sampled, 100, name)
+        let fraction = Double(bright) / Double(max(sampled, 1))
+        if appearance == .aqua {
+            XCTAssertGreaterThan(fraction, 0.7, "\(name): parent panel must print on paper, bright fraction=\(fraction)")
+        } else {
+            XCTAssertLessThan(fraction, 0.3, "\(name): parent panel must use dark surface, bright fraction=\(fraction)")
+        }
     }
 }
