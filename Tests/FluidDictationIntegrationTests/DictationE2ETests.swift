@@ -4786,3 +4786,182 @@ final class LapelMicBatteryTests: XCTestCase {
         }
     }
 }
+
+/// A quiet, offscreen gallery for the main-window Datasheet primitives. The gallery deliberately
+/// keeps each control in a representative state without clicking, opening a window, or touching
+/// shared settings. Render both appearances to compare against design/app-signal/shots/.
+@MainActor
+final class DatasheetWindowRenderTests: XCTestCase {
+    func testRendersEveryWindowPrimitiveInBothThemes() throws {
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(127), .compact)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(128), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(255), .heavy)
+        XCTAssertEqual(DatasheetGrinDetailTier.forPixelWidth(256), .full)
+
+        let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let theme = appearance == .darkAqua ? "dark" : "light"
+            let view = DatasheetWindowFoundationGallery()
+                .frame(width: 940, height: 1680, alignment: .topLeading)
+                .environment(\.displayScale, 1)
+                .datasheetPalette()
+            let rep = try DatasheetRenderStage.render(view, appearance: appearance)
+            XCTAssertGreaterThan(rep.pixelsWide, 0)
+            XCTAssertGreaterThan(rep.pixelsHigh, 0)
+            let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "\(theme)-foundations.png"
+            attachment.lifetime = .keepAlways
+            self.add(attachment)
+            if let folder {
+                try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-foundations.png"))
+            }
+        }
+    }
+}
+
+private struct DatasheetWindowFoundationGallery: View {
+    @Environment(\.datasheetPalette) private var palette
+    @State private var isEnabled = true
+    @State private var selection = "PUSH"
+    @State private var sliderValue = 0.62
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DatasheetSheetHeader(
+                placard: "FOUNDATIONS / PHASE 00",
+                title: "Datasheet primitives",
+                lede: "Reusable window parts, drawn from shared theme tokens."
+            ) {
+                DatasheetBracketed(rest: false) {
+                    Button("DESIGN NOTES") {}
+                        .buttonStyle(.plain)
+                        .padding(8)
+                }
+            }
+
+            DatasheetSection(letter: "A", title: "Rows and controls", trailing: "6 CONTROLS", note: "State widths stay fixed as values change.") {
+                DatasheetRow(label: "Enable streaming preview", help: "Show live text while dictating.") {
+                    Toggle("Streaming preview", isOn: self.$isEnabled)
+                        .toggleStyle(DatasheetToggleStyle())
+                }
+                DatasheetRow(label: "Activation mode") {
+                    DatasheetSegmented(
+                        selection: self.$selection,
+                        choices: [
+                            .init(value: "PUSH", title: "PUSH"),
+                            .init(value: "TOGGLE", title: "TOGGLE"),
+                        ],
+                        cellWidth: 76
+                    )
+                }
+                DatasheetRow(label: "Overlay size") {
+                    DatasheetPicker(title: "Overlay size", value: "Medium", detail: "DEFAULT") {
+                        Button("Small") {}
+                        Button("Medium") {}
+                        Button("Large") {}
+                    }
+                }
+                DatasheetRow(label: "Input sensitivity") {
+                    DatasheetSlider(value: self.$sliderValue, in: 0...1, step: 0.01, label: "Input sensitivity", width: 180) {
+                        "\(Int($0 * 100))%"
+                    }
+                }
+                DatasheetRow(label: "Dictation shortcut", showsBottomRule: false) {
+                    DatasheetHotkeyWell {
+                        HStack(spacing: 5) {
+                            DatasheetBracketed(rest: false) {
+                                Text("⌥")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 3)
+                                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+                            }
+                            Text("SPACE")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                    }
+                }
+                DatasheetRow(label: "Dependent control", help: "Indented and dimmed while its parent option is off.", indent: true, dimmed: true, showsBottomRule: false) {
+                    DatasheetStatusSquare(kind: .outline)
+                }
+            }
+
+            DatasheetSection(letter: "B", title: "Status and tables") {
+                HStack(spacing: 24) {
+                    Text("Ready")
+                    HStack(spacing: 8) {
+                        DatasheetStatusSquare(kind: .ink)
+                        DatasheetStatusSquare(kind: .orange)
+                        DatasheetStatusSquare(kind: .outline)
+                    }
+                    DatasheetMeter(value: 7, count: 10)
+                }
+                .frame(height: 46)
+                DatasheetTableRow(isSelected: true, action: {}) {
+                    HStack {
+                        Text("01")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        Text("Selected table row")
+                        Spacer()
+                        Text("READY")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    }
+                }
+                HStack(spacing: 16) {
+                    DatasheetBracketed(rest: true) {
+                        Button("REST BRACKET") {}
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+                    }
+                    Text("Status squares · ink, orange, outline")
+                        .font(.system(size: 12))
+                        .foregroundStyle(self.palette.text2)
+                }
+                .padding(.vertical, 14)
+            }
+
+            DatasheetSection(letter: "C", title: "Empty state") {
+                DatasheetEmptyState(
+                    placard: "00 ENTRIES",
+                    title: "No history yet",
+                    message: "Your transcriptions will appear here. Press the dictation key and start talking.",
+                    actionTitle: "Open Playground",
+                    action: {},
+                    illustration: { DatasheetGrin().frame(width: 120, height: 74) }
+                )
+                .frame(height: 440)
+            }
+
+            DatasheetSection(letter: "D", title: "Grin detail tiers") {
+                HStack(alignment: .bottom, spacing: 24) {
+                    grinSample("COMPACT", width: 52, scale: 1, jaw: 0)
+                    grinSample("HEAVY", width: 82, scale: 2, jaw: 1.5)
+                    grinSample("FULL", width: 132, scale: 2, jaw: 3)
+                }
+                .padding(.vertical, 12)
+            }
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.palette.surface)
+        .foregroundStyle(self.palette.text)
+    }
+
+    private func grinSample(_ title: String, width: CGFloat, scale: CGFloat, jaw: CGFloat) -> some View {
+        VStack(spacing: 8) {
+            DatasheetGrin(jaw: jaw)
+                .frame(width: width, height: width * 0.72)
+                .environment(\.displayScale, scale)
+            Text(title)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .tracking(0.6)
+                .foregroundStyle(self.palette.text2)
+        }
+        .frame(width: width + 24)
+    }
+}

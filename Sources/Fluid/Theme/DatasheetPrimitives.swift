@@ -37,6 +37,7 @@ struct DatasheetBracketShape: Shape {
 private struct DatasheetBracketOverlay: ViewModifier {
     let spec: DatasheetTheme.BracketSpec
     let isVisible: Bool
+    let opacity: Double
     @Environment(\.datasheetPalette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -63,8 +64,9 @@ private struct DatasheetBracketOverlay: ViewModifier {
                 bottom: -(outset + self.spec.drop),
                 trailing: -outset
             ))
-            .opacity(self.isVisible ? 1 : 0)
+            .opacity(self.isVisible ? self.opacity : 0)
             .animation(self.reduceMotion ? nil : .linear(duration: DatasheetTheme.Motion.bracketFade), value: self.isVisible)
+            .animation(self.reduceMotion ? nil : .linear(duration: DatasheetTheme.Motion.bracketFade), value: self.opacity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
@@ -109,8 +111,8 @@ private struct DatasheetSurface: ViewModifier {
 
 extension View {
     /// A selection bracket outside this view's frame, shown only while `visible`.
-    func datasheetBracket(_ spec: DatasheetTheme.BracketSpec, visible: Bool) -> some View {
-        self.modifier(DatasheetBracketOverlay(spec: spec, isVisible: visible))
+    func datasheetBracket(_ spec: DatasheetTheme.BracketSpec, visible: Bool, opacity: Double = 1) -> some View {
+        self.modifier(DatasheetBracketOverlay(spec: spec, isVisible: visible, opacity: opacity))
     }
 
     /// A chip's outside bracket while the pointer is over this control: for a button that has no

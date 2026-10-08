@@ -48,8 +48,14 @@ enum DatasheetTheme {
         /// Chip glyphs at rest, and disabled.
         let glyph: Color
         let glyphOff: Color
-        /// Table rules inside the history card.
+        /// Section rules and table edges in the main window. This matches `edge`.
         let rule: Color
+        /// Hairlines between main-window rows and grid marks in empty states.
+        let ruleSoft: Color
+        /// The window's sidebar margin.
+        let sidebar: Color
+        /// Main-window fields and hotkey wells.
+        let field: Color
         /// Pressed and latched chips, hovered history rows.
         let invBackground: Color
         let invForeground: Color
@@ -77,6 +83,9 @@ enum DatasheetTheme {
             glyph: Color.white.opacity(0.85),
             glyphOff: Color.white.opacity(0.28),
             rule: DatasheetTheme.rgb(0x2C2E33),
+            ruleSoft: DatasheetTheme.rgb(0x1F2024),
+            sidebar: DatasheetTheme.rgb(0x0C0D0F),
+            field: DatasheetTheme.rgb(0x0C0D0F),
             invBackground: .white,
             invForeground: DatasheetTheme.rgb(0x111214),
             invForeground2: DatasheetTheme.rgb(0x111214).opacity(0.62),
@@ -102,6 +111,9 @@ enum DatasheetTheme {
             glyph: DatasheetTheme.rgb(0x111214),
             glyphOff: DatasheetTheme.rgb(0x111214).opacity(0.28),
             rule: DatasheetTheme.rgb(0x111214),
+            ruleSoft: DatasheetTheme.rgb(0xD3D4D8),
+            sidebar: DatasheetTheme.rgb(0xF7F7F8),
+            field: .white,
             invBackground: DatasheetTheme.rgb(0x111214),
             invForeground: .white,
             invForeground2: Color.white.opacity(0.66),
