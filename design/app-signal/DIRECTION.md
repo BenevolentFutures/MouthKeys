@@ -2,7 +2,7 @@
 
 **Status: direction accepted by Atin, round 2 (2026-10-02).** Round 1: "Holy shit. This looks sick." All five round 1 decisions accepted. Round 2 adds the grin as a literal logo. No Swift was touched.
 
-**Build:** ready to start, not started; every open question answered by Atin 2026-10-07. Plan: [`BUILDPLAN.md`](BUILDPLAN.md). Orchestrator prompt and launch command: [`BUILD-PROMPT.md`](BUILD-PROMPT.md) (Sol orchestrates, Grok implements).
+**Build:** ready to start, not started; every open question answered by Atin 2026-10-07. Plan: [`BUILDPLAN.md`](BUILDPLAN.md). Orchestrator prompt and launch command: [`BUILD-PROMPT.md`](BUILD-PROMPT.md) (Sol orchestrates, Luna implements).
 
 Prototype: [`index.html`](index.html), self-contained (double-click, or `./serve.sh` for Safari, which renders SF Mono). Screenshots of every screen in both themes: [`shots/`](shots/), regenerated with `python3 shoot.py` (headless WebKit, nothing on screen).
 

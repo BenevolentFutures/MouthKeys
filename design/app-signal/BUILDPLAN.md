@@ -77,4 +77,4 @@ Settled; the build does not reopen them:
 2. The round 2 grin is approved as prototyped (decision 6): tileless and themed (ink on white in light mode), the stamp bottom-left on every screen, outline grins only in the two empty states.
 3. Command Mode keeps its honest "not ready" banner for a straight-dictation user.
 4. PR #57 merged before the build: no "Allow in c11" row, and a Q for Question Mark toggle the prototype never drew (rules 1 and 2).
-5. Seats: Codex on Sol (`gpt-6.1-sol`, high) orchestrates; Grok Build on `grok-4.7` (high) implements every phase and lane; reviews come from another family (Astra by default). Details in `BUILD-PROMPT.md`.
+5. Seats (changed 2026-10-08): Codex on Sol (`gpt-6.1-sol`, high) orchestrates; Codex on Luna (`gpt-6-luna`, max, fast mode, via the saved c11 config "Luna Fast Max") implements every phase and lane; Astra reviews. Details in `BUILD-PROMPT.md`.
