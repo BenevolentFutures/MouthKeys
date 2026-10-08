@@ -393,13 +393,14 @@ struct CustomDictionaryView: View {
     // MARK: - Page Header
 
     private var pageHeader: some View {
-        DatasheetSheetHeader(
+        DatasheetContentHeader(
             placard: "03 / Configure",
             title: "Custom Dictionary",
             lede: "Correct recurring mistakes and teach the voice engine the words you use."
         ) {
             HStack(spacing: self.theme.metrics.spacing.sm) {
                 self.automaticLearningToggle
+                    .fixedSize(horizontal: true, vertical: false)
                 self.headerAction("Import", icon: "square.and.arrow.down", action: self.importDictionary)
                 self.headerAction("Export", icon: "square.and.arrow.up", action: self.exportDictionary)
             }
@@ -669,97 +670,109 @@ struct CustomDictionaryView: View {
     }
 
     private var trainingRecorderPanel: some View {
-        HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 9) {
-                Text("TRAINING STEPS")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundStyle(self.palette.text2)
-
-                if self.trainingAlreadyCorrectWithoutReplacement {
-                    Text("\(self.trainingTargetReference) is already recognized correctly.")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(self.palette.text)
-                } else if self.trainingFinalOutputIsReady {
-                    Text(
-                        self.activePronunciationMatching
-                            ? "Voice profile for \(self.trainingTargetReference) captured 3 times."
-                            : "MouthKeys recognized \(self.trainingTargetReference) 3 times in a row."
-                    )
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(self.palette.text)
-                } else {
-                    VStack(alignment: .leading, spacing: 0) {
-                        self.trainingInstruction(number: 1, text: "Type the correct word you want to teach in the box above.")
-                        self.trainingInstruction(number: 2, text: "Press Start once.")
-                        self.trainingInstruction(
-                            number: 3,
-                            text: "Say \(self.trainingTargetReference) naturally, then pause. MouthKeys records and listens again automatically."
-                        )
-                self.trainingInstruction(
-                    number: 4,
-                    text: self.activePronunciationMatching
-                        ? "Repeat 3 times to teach MouthKeys how your voice sounds."
-                        : "Keep repeating it until the meter reaches 3/3."
-                )
-                    }
-                }
-
-                if !self.trainingVariants.isEmpty {
-                    self.trainingHeardSection
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 18) {
+                self.trainingInstructions
+                Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
+                self.trainingReadinessControls.frame(width: 248, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 600, idealWidth: 600, maxWidth: .infinity)
 
-            Rectangle()
-                .fill(self.palette.ruleSoft)
-                .frame(width: 1)
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("READINESS")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .tracking(0.5)
-                        .foregroundStyle(self.palette.text2)
-                }
-
-                DictionaryTrainingReadinessRing(
-                    progress: self.trainingReadinessProgress,
-                    total: CustomDictionaryTrainingMerge.readyCoveredCount,
-                    isReady: self.trainingFinalOutputIsReady || self.trainingAlreadyCorrectWithoutReplacement
-                )
-
-                Text(self.trainingReadinessCaption)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(self.palette.text2)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                self.trainingFinalOutputPanel
-
-                Button {
-                    Task { await self.toggleAutomaticTraining() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: self.trainingRecorderIsStop ? "stop.fill" : "mic.fill")
-                        Text(self.trainingRecorderButtonTitle.uppercased())
-                    }
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .tracking(0.4)
-                    .foregroundStyle(self.palette.invForeground)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 34)
-                    .background(self.palette.accent)
-                    .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
-                }
-                .buttonStyle(.plain)
-                .disabled(!self.canUseTrainingRecorderButton)
-                .opacity(self.canUseTrainingRecorderButton ? 1 : 0.45)
+            VStack(alignment: .leading, spacing: 18) {
+                self.trainingInstructions
+                Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+                self.trainingReadinessControls
             }
-            .frame(width: 248, alignment: .topLeading)
         }
         .padding(14)
         .background(self.palette.surface)
         .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+    }
+
+    private var trainingInstructions: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("TRAINING STEPS")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundStyle(self.palette.text2)
+
+            if self.trainingAlreadyCorrectWithoutReplacement {
+                Text("\(self.trainingTargetReference) is already recognized correctly.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(self.palette.text)
+            } else if self.trainingFinalOutputIsReady {
+                Text(
+                    self.activePronunciationMatching
+                        ? "Voice profile for \(self.trainingTargetReference) captured 3 times."
+                        : "MouthKeys recognized \(self.trainingTargetReference) 3 times in a row."
+                )
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(self.palette.text)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    self.trainingInstruction(number: 1, text: "Type the correct word you want to teach in the box above.")
+                    self.trainingInstruction(number: 2, text: "Press Start once.")
+                    self.trainingInstruction(
+                        number: 3,
+                        text: "Say \(self.trainingTargetReference) naturally, then pause. MouthKeys records and listens again automatically."
+                    )
+                    self.trainingInstruction(
+                        number: 4,
+                        text: self.activePronunciationMatching
+                            ? "Repeat 3 times to teach MouthKeys how your voice sounds."
+                            : "Keep repeating it until the meter reaches 3/3."
+                    )
+                }
+            }
+
+            if !self.trainingVariants.isEmpty {
+                self.trainingHeardSection
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var trainingReadinessControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("READINESS")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundStyle(self.palette.text2)
+            }
+
+            DictionaryTrainingReadinessRing(
+                progress: self.trainingReadinessProgress,
+                total: CustomDictionaryTrainingMerge.readyCoveredCount,
+                isReady: self.trainingFinalOutputIsReady || self.trainingAlreadyCorrectWithoutReplacement
+            )
+
+            Text(self.trainingReadinessCaption)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(self.palette.text2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            self.trainingFinalOutputPanel
+
+            Button {
+                Task { await self.toggleAutomaticTraining() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: self.trainingRecorderIsStop ? "stop.fill" : "mic.fill")
+                    Text(self.trainingRecorderButtonTitle.uppercased())
+                }
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.4)
+                .foregroundStyle(self.palette.invForeground)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(self.palette.accent)
+                .overlay { Rectangle().strokeBorder(self.palette.edge, lineWidth: 1) }
+            }
+            .buttonStyle(.plain)
+            .disabled(!self.canUseTrainingRecorderButton)
+            .opacity(self.canUseTrainingRecorderButton ? 1 : 0.45)
+        }
     }
 
     private var trainingReadinessCaption: String {
@@ -2895,7 +2908,7 @@ struct DictionaryEntryRow: View {
             Text(self.entry.triggers.joined(separator: ", "))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(self.palette.text2)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "arrow.right")
@@ -2906,7 +2919,7 @@ struct DictionaryEntryRow: View {
             Text(CustomDictionaryManualEntry.replacementDisplayText(self.entry.replacement))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(self.palette.text)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 2) {
@@ -2954,7 +2967,7 @@ private struct PunctuationDictionaryRuleRow: View {
             Text(self.rule.aliases.joined(separator: ", "))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(self.palette.text2)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -2967,7 +2980,7 @@ private struct PunctuationDictionaryRuleRow: View {
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundStyle(self.palette.text)
                 .frame(width: 60, alignment: .leading)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 2) {
                 Button {

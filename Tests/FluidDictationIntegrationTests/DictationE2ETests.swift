@@ -5443,6 +5443,9 @@ private struct DatasheetWindowFoundationGallery: View {
 /// The normal Debug walkthrough is a separate gate, including real actions and persistence.
 @MainActor
 final class DatasheetContentLaneCRenderTests: XCTestCase {
+    private var fixtureWidth: CGFloat = 960
+    private var dictionaryRenderHeight: CGFloat { self.fixtureWidth < 700 ? 3400 : 2400 }
+
     private var outputFolder: URL? {
         ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map {
             URL(fileURLWithPath: $0, isDirectory: true)
@@ -5463,92 +5466,103 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         aiViewModel.refreshProviderItems()
         XCTAssertTrue(aiViewModel.providerAPIKeys.isEmpty, "The render fixture must not load provider credentials")
 
-        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
-            let themeName = appearance == .darkAqua ? "dark" : "light"
-            let appTheme = appearance == .darkAqua ? AppTheme.dark : AppTheme.light
+        for width in [CGFloat(960), CGFloat(749), CGFloat(549)] {
+            self.fixtureWidth = width
+            for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+                let themeName = (appearance == .darkAqua ? "dark" : "light") + (width == 960 ? "" : "-w\(Int(width))")
+                let appTheme = appearance == .darkAqua ? AppTheme.dark : AppTheme.light
 
-            let voiceEngine = VoiceEngineSettingsView(
-                viewModel: voiceViewModel,
-                settings: settings,
-                theme: appTheme,
-                skipsLifecycleForRender: true
-            )
-            .padding(14)
-            .frame(width: 960, height: 720, alignment: .topLeading)
-            .appTheme(appTheme)
-            .datasheetPalette()
-            try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
-            try self.renderDownloadProgress(
-                viewModel: voiceViewModel, settings: settings, theme: appTheme,
-                appearance: appearance, name: "\(themeName)-voice-engine-download.png"
-            )
-
-            let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
-                .environmentObject(appServices)
-                .frame(width: 960, height: 720, alignment: .topLeading)
+                let voiceEngine = VoiceEngineSettingsView(
+                    viewModel: voiceViewModel,
+                    settings: settings,
+                    theme: appTheme,
+                    skipsLifecycleForRender: true
+                )
+                .padding(14)
+                .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
                 .appTheme(appTheme)
                 .datasheetPalette()
-            try self.render(dictionary, name: "\(themeName)-custom-dictionary.png", appearance: appearance)
+                try self.render(voiceEngine, name: "\(themeName)-voice-engine.png", appearance: appearance)
+                if width < 960 {
+                    let fullVoice = VoiceEngineSettingsView(viewModel: voiceViewModel, settings: settings, theme: appTheme, skipsLifecycleForRender: true)
+                        .padding(14)
+                        .frame(width: width, height: 3200, alignment: .topLeading)
+                        .appTheme(appTheme)
+                        .datasheetPalette()
+                    try self.render(fullVoice, name: "\(themeName)-voice-engine-full.png", appearance: appearance, height: 3200)
+                }
+                try self.renderDownloadProgress(
+                    viewModel: voiceViewModel, settings: settings, theme: appTheme,
+                    appearance: appearance, name: "\(themeName)-voice-engine-download.png"
+                )
 
-            for (stateName, state) in [
-                ("manual", DatasheetDictionaryRenderState.manual),
-                ("empty", .empty),
-                ("training-error", .trainingError),
-            ] {
-                let dictionaryState = CustomDictionaryView(datasheetRenderFixture: true, renderState: state)
+                let dictionary = CustomDictionaryView(datasheetRenderFixture: true)
                     .environmentObject(appServices)
-                    .frame(width: 960, height: 2400, alignment: .topLeading)
+                    .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
                     .appTheme(appTheme)
                     .datasheetPalette()
-                try self.render(dictionaryState, name: "\(themeName)-dictionary-\(stateName)-full.png", appearance: appearance, height: 2400)
+                try self.render(dictionary, name: "\(themeName)-custom-dictionary.png", appearance: appearance)
+
+                for (stateName, state) in [
+                    ("manual", DatasheetDictionaryRenderState.manual),
+                    ("empty", .empty),
+                    ("training-error", .trainingError),
+                ] {
+                    let dictionaryState = CustomDictionaryView(datasheetRenderFixture: true, renderState: state)
+                        .environmentObject(appServices)
+                        .frame(width: self.fixtureWidth, height: self.dictionaryRenderHeight, alignment: .topLeading)
+                        .appTheme(appTheme)
+                        .datasheetPalette()
+                    try self.render(dictionaryState, name: "\(themeName)-dictionary-\(stateName)-full.png", appearance: appearance, height: self.dictionaryRenderHeight)
+                }
+                let fullDictionary = CustomDictionaryView(datasheetRenderFixture: true)
+                    .environmentObject(appServices)
+                    .frame(width: self.fixtureWidth, height: self.dictionaryRenderHeight, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(fullDictionary, name: "\(themeName)-dictionary-training-full.png", appearance: appearance, height: self.dictionaryRenderHeight)
+
+                let providers = self.aiScreen(
+                    viewModel: aiViewModel,
+                    settings: settings,
+                    promptTest: promptTest,
+                    theme: appTheme,
+                    section: .providers
+                )
+                try self.render(providers, name: "\(themeName)-ai-providers.png", appearance: appearance)
+                let expandedProvider = self.aiScreen(
+                    viewModel: aiViewModel, settings: settings, promptTest: promptTest,
+                    theme: appTheme, section: .providers, expandedProviderID: "openai", height: 1800
+                )
+                try self.render(expandedProvider, name: "\(themeName)-ai-provider-expanded-full.png", appearance: appearance, height: 1800)
+
+                let advancedPrompts = self.aiScreen(
+                    viewModel: aiViewModel,
+                    settings: settings,
+                    promptTest: promptTest,
+                    theme: appTheme,
+                    section: .advancedPrompts
+                )
+                try self.render(advancedPrompts, name: "\(themeName)-ai-advanced-prompts.png", appearance: appearance)
+
+                let feedback = FeedbackView()
+                    .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(feedback, name: "\(themeName)-feedback.png", appearance: appearance)
+                let populatedFeedback = FeedbackView(initialMessage: "Synthetic layout check. Nothing submitted.", includeSystemInfo: false)
+                    .frame(width: self.fixtureWidth, height: 1400, alignment: .topLeading)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(populatedFeedback, name: "\(themeName)-feedback-populated-full.png", appearance: appearance, height: 1400)
+
+                let regionalOffer = FillerWordsEditor(renderingRegionalOffer: true)
+                    .frame(width: min(800, self.fixtureWidth - 40), alignment: .topLeading)
+                    .padding(20)
+                    .appTheme(appTheme)
+                    .datasheetPalette()
+                try self.render(regionalOffer, name: "\(themeName)-regional-filler-offer.png", appearance: appearance)
             }
-            let fullDictionary = CustomDictionaryView(datasheetRenderFixture: true)
-                .environmentObject(appServices)
-                .frame(width: 960, height: 2400, alignment: .topLeading)
-                .appTheme(appTheme)
-                .datasheetPalette()
-            try self.render(fullDictionary, name: "\(themeName)-dictionary-training-full.png", appearance: appearance, height: 2400)
-
-            let providers = self.aiScreen(
-                viewModel: aiViewModel,
-                settings: settings,
-                promptTest: promptTest,
-                theme: appTheme,
-                section: .providers
-            )
-            try self.render(providers, name: "\(themeName)-ai-providers.png", appearance: appearance)
-            let expandedProvider = self.aiScreen(
-                viewModel: aiViewModel, settings: settings, promptTest: promptTest,
-                theme: appTheme, section: .providers, expandedProviderID: "openai", height: 1800
-            )
-            try self.render(expandedProvider, name: "\(themeName)-ai-provider-expanded-full.png", appearance: appearance, height: 1800)
-
-            let advancedPrompts = self.aiScreen(
-                viewModel: aiViewModel,
-                settings: settings,
-                promptTest: promptTest,
-                theme: appTheme,
-                section: .advancedPrompts
-            )
-            try self.render(advancedPrompts, name: "\(themeName)-ai-advanced-prompts.png", appearance: appearance)
-
-            let feedback = FeedbackView()
-                .frame(width: 960, height: 720, alignment: .topLeading)
-                .appTheme(appTheme)
-                .datasheetPalette()
-            try self.render(feedback, name: "\(themeName)-feedback.png", appearance: appearance)
-            let populatedFeedback = FeedbackView(initialMessage: "Synthetic layout check. Nothing submitted.", includeSystemInfo: false)
-                .frame(width: 960, height: 1400, alignment: .topLeading)
-                .appTheme(appTheme)
-                .datasheetPalette()
-            try self.render(populatedFeedback, name: "\(themeName)-feedback-populated-full.png", appearance: appearance, height: 1400)
-
-            let regionalOffer = FillerWordsEditor(renderingRegionalOffer: true)
-                .frame(width: 840, alignment: .topLeading)
-                .padding(20)
-                .appTheme(appTheme)
-                .datasheetPalette()
-            try self.render(regionalOffer, name: "\(themeName)-regional-filler-offer.png", appearance: appearance)
         }
     }
 
@@ -5575,7 +5589,7 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         return ScrollView(.vertical, showsIndicators: false) {
             view.padding(14)
         }
-        .frame(width: 960, height: height, alignment: .topLeading)
+        .frame(width: self.fixtureWidth, height: height, alignment: .topLeading)
         .appTheme(theme)
         .datasheetPalette()
     }
@@ -5606,7 +5620,7 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
             viewModel: viewModel, settings: settings, theme: theme, skipsLifecycleForRender: true
         )
         .padding(14)
-        .frame(width: 960, height: 720, alignment: .topLeading)
+        .frame(width: self.fixtureWidth, height: 720, alignment: .topLeading)
         .appTheme(theme)
         .datasheetPalette()
         try self.render(view, name: name, appearance: appearance)
@@ -5620,9 +5634,9 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         // Probe the surfaces owned by the installed parent View, rather than the wrapper's
         // background or nested primitives. Extracting speechRecognitionCard/aiConfigurationCard
         // before installation freezes these two panels to the default dark palette in light.
-        if name.contains("voice-engine") {
+        if self.fixtureWidth == 960, name.contains("voice-engine") {
             self.assertPanelPalette(rep, region: CGRect(x: 60, y: 170, width: 820, height: 90), appearance: appearance, name: name)
-        } else if name.contains("ai-") {
+        } else if self.fixtureWidth == 960, name.contains("ai-") {
             self.assertPanelPalette(rep, region: CGRect(x: 60, y: 160, width: 820, height: 40), appearance: appearance, name: name)
         }
 
@@ -5641,7 +5655,7 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         let surface = appearance == .darkAqua ? DatasheetTheme.Palette.dark.surface : DatasheetTheme.Palette.light.surface
         let host = NSHostingView(rootView: view.background(surface).environment(\.colorScheme, scheme))
         let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 960, height: height),
+            contentRect: NSRect(x: -10000, y: -10000, width: self.fixtureWidth, height: height),
             styleMask: .borderless, backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false

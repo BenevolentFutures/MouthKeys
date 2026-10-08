@@ -49,3 +49,33 @@ struct VoiceEngineSettingsView: View {
             }
     }
 }
+
+/// Content-lane headers keep their controls labelled when the native detail is narrow.
+/// The shared header remains unchanged; compact actions get their own row below its rule.
+struct DatasheetContentHeader<Actions: View>: View {
+    let placard: String
+    let title: String
+    let lede: String?
+    let minimumInlineWidth: CGFloat
+    let actions: Actions
+
+    init(placard: String, title: String, lede: String? = nil, minimumInlineWidth: CGFloat = 620, @ViewBuilder actions: () -> Actions) {
+        self.placard = placard
+        self.title = title
+        self.lede = lede
+        self.minimumInlineWidth = minimumInlineWidth
+        self.actions = actions()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            DatasheetSheetHeader(placard: self.placard, title: self.title, lede: self.lede) { self.actions }
+                .frame(minWidth: self.minimumInlineWidth, idealWidth: self.minimumInlineWidth, maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 0) {
+                DatasheetSheetHeader(placard: self.placard, title: self.title, lede: self.lede)
+                self.actions.padding(.bottom, 26)
+            }
+        }
+    }
+}

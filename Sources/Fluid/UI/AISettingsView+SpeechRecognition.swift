@@ -18,7 +18,7 @@ extension VoiceEngineSettingsView {
 
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                DatasheetSheetHeader(
+                DatasheetContentHeader(
                     placard: "02 / Configure",
                     title: "Voice Engine",
                     lede: "Click a row to preview. Press Activate to load the model."
@@ -152,16 +152,34 @@ extension VoiceEngineSettingsView {
             .padding(.horizontal, 18)
             .padding(.vertical, 18)
 
-            HStack(spacing: 0) {
-                self.specCell("Download Size", value: model.downloadSize)
-                self.specDivider
-                self.specCell("Languages", value: model.languageSupport)
-                self.specDivider
-                self.meterCell("Speed", value: speed)
-                self.specDivider
-                self.meterCell("Accuracy", value: accuracy)
-                self.specDivider
-                self.specCell("Runs On", value: model.requiresAppleSilicon ? "Apple Silicon" : "macOS")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    self.specCell("Download Size", value: model.downloadSize)
+                    self.specDivider
+                    self.specCell("Languages", value: model.languageSupport)
+                    self.specDivider
+                    self.meterCell("Speed", value: speed)
+                    self.specDivider
+                    self.meterCell("Accuracy", value: accuracy)
+                    self.specDivider
+                    self.specCell("Runs On", value: model.requiresAppleSilicon ? "Apple Silicon" : "macOS")
+                }
+                .frame(minWidth: 700)
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        self.specCell("Download Size", value: model.downloadSize)
+                        self.specDivider
+                        self.specCell("Languages", value: model.languageSupport)
+                        self.specDivider
+                        self.specCell("Runs On", value: model.requiresAppleSilicon ? "Apple Silicon" : "macOS")
+                    }
+                    Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
+                    HStack(spacing: 0) {
+                        self.meterCell("Speed", value: speed)
+                        self.specDivider
+                        self.meterCell("Accuracy", value: accuracy)
+                    }
+                }
             }
             .overlay(alignment: .top) {
                 Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
@@ -203,13 +221,21 @@ extension VoiceEngineSettingsView {
     }
 
     private var modelTableHeader: some View {
-        HStack(spacing: 10) {
-            self.monoLabel("Model").frame(maxWidth: .infinity, alignment: .leading)
-            self.monoLabel("Size").frame(width: 72, alignment: .leading)
-            self.monoLabel("Languages").frame(width: 112, alignment: .leading)
-            self.monoLabel("Speed").frame(width: 42, alignment: .trailing)
-            self.monoLabel("Acc").frame(width: 42, alignment: .trailing)
-            self.monoLabel("State").frame(width: 136, alignment: .trailing)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                self.monoLabel("Model").frame(maxWidth: .infinity, alignment: .leading)
+                self.monoLabel("Size").frame(width: 72, alignment: .leading)
+                self.monoLabel("Languages").frame(width: 112, alignment: .leading)
+                self.monoLabel("Speed").frame(width: 42, alignment: .trailing)
+                self.monoLabel("Acc").frame(width: 42, alignment: .trailing)
+                self.monoLabel("State").frame(width: 136, alignment: .trailing)
+            }
+            .frame(minWidth: 720)
+            HStack {
+                self.monoLabel("Model / Specifications")
+                Spacer(minLength: 0)
+                self.monoLabel("State").frame(width: 136, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 34)
@@ -228,32 +254,55 @@ extension VoiceEngineSettingsView {
         let rowText = isSelected ? self.palette.invForeground : self.palette.text
         let metaText = isSelected ? self.palette.invForeground2 : self.palette.text2
 
-        return HStack(spacing: 10) {
-            DatasheetStatusSquare(kind: self.statusKind(isActive: isActive, model: model))
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                DatasheetStatusSquare(kind: self.statusKind(isActive: isActive, model: model))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.humanReadableName)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(rowText)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.humanReadableName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(rowText)
+                        .lineLimit(1)
 
-                self.monoLabel(self.speechModelSubtitle(for: model), color: metaText)
+                    self.monoLabel(self.speechModelSubtitle(for: model), color: metaText)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                self.monoLabel(model.downloadSize, color: metaText)
+                    .frame(width: 72, alignment: .leading)
                     .lineLimit(1)
+                self.monoLabel(model.languageSupport, color: metaText)
+                    .frame(width: 112, alignment: .leading)
+                    .lineLimit(1)
+                self.monoLabel("\(Int(model.speedPercent * 100))", color: metaText)
+                    .frame(width: 42, alignment: .trailing)
+                self.monoLabel("\(Int(model.accuracyPercent * 100))", color: metaText)
+                    .frame(width: 42, alignment: .trailing)
+                self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive)
+                    .frame(width: 136, alignment: .trailing)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            self.monoLabel(model.downloadSize, color: metaText)
-                .frame(width: 72, alignment: .leading)
-                .lineLimit(1)
-            self.monoLabel(model.languageSupport, color: metaText)
-                .frame(width: 112, alignment: .leading)
-                .lineLimit(1)
-            self.monoLabel("\(Int(model.speedPercent * 100))", color: metaText)
-                .frame(width: 42, alignment: .trailing)
-            self.monoLabel("\(Int(model.accuracyPercent * 100))", color: metaText)
-                .frame(width: 42, alignment: .trailing)
-            self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive)
-                .frame(width: 136, alignment: .trailing)
+            .frame(minWidth: 720)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    DatasheetStatusSquare(kind: self.statusKind(isActive: isActive, model: model))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.humanReadableName)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(rowText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        self.monoLabel(self.speechModelSubtitle(for: model), color: metaText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    self.modelAction(for: model, isActive: isActive, isConfiguredActive: isConfiguredActive)
+                        .frame(width: 136, alignment: .trailing)
+                }
+                Text("Size: \(model.downloadSize) · Languages: \(model.languageSupport) · Speed: \(Int(model.speedPercent * 100)) · Accuracy: \(Int(model.accuracyPercent * 100))")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(metaText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 10)
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 56)

@@ -218,13 +218,23 @@ private struct FeedbackFigure: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                self.placard("Fig. 1  ·  MouthKeys · the keycap grin")
-                Spacer()
-                self.placard("Plan view · scale 6.4 : 1")
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    self.placard("Fig. 1  ·  MouthKeys · the keycap grin")
+                    Spacer()
+                    self.placard("Plan view · scale 6.4 : 1")
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 34)
+                .frame(minWidth: 620)
+                VStack(alignment: .leading, spacing: 8) {
+                    self.placard("Fig. 1  ·  MouthKeys · the keycap grin")
+                    self.placard("Plan view · scale 6.4 : 1")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 34)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
             }
@@ -253,21 +263,23 @@ private struct FeedbackFigure: View {
                         dimensions.addLine(to: CGPoint(x: size.width * 0.57, y: size.height * 0.86))
                         dimensions.move(to: CGPoint(x: size.width * 0.20, y: size.height * 0.49))
                         dimensions.addLine(to: CGPoint(x: size.width * 0.57, y: size.height * 0.49))
-                        dimensions.move(to: CGPoint(x: size.width * 0.54, y: size.height * 0.35))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.26))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.26))
-                        dimensions.move(to: CGPoint(x: size.width * 0.54, y: size.height * 0.52))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.52))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.52))
-                        dimensions.move(to: CGPoint(x: size.width * 0.48, y: size.height * 0.67))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.70))
-                        dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.70))
+                        if size.width >= 700 {
+                            dimensions.move(to: CGPoint(x: size.width * 0.54, y: size.height * 0.35))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.26))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.26))
+                            dimensions.move(to: CGPoint(x: size.width * 0.54, y: size.height * 0.52))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.52))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.52))
+                            dimensions.move(to: CGPoint(x: size.width * 0.48, y: size.height * 0.67))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.65, y: size.height * 0.70))
+                            dimensions.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.70))
+                        }
                         context.stroke(dimensions, with: .color(self.palette.text2), lineWidth: 1)
                     }
 
                     DatasheetGrin()
-                        .frame(width: size.width * 0.46, height: size.height * 0.60)
-                        .position(x: size.width * 0.38, y: size.height * 0.50)
+                        .frame(width: size.width * (size.width < 700 ? 0.64 : 0.46), height: size.height * 0.60)
+                        .position(x: size.width * (size.width < 700 ? 0.50 : 0.38), y: size.height * 0.50)
 
                     Text("21.3")
                         .font(.system(size: 10, design: .monospaced))
@@ -276,52 +288,84 @@ private struct FeedbackFigure: View {
                         .position(x: size.width * 0.13, y: size.height * 0.49)
 
                     self.teethLabel("01     02     03     04     05     06     07")
-                        .position(x: size.width * 0.38, y: size.height * 0.18)
+                        .position(x: size.width * (size.width < 700 ? 0.50 : 0.38), y: size.height * 0.18)
                     self.teethLabel("08     09     10     11     12     13     14")
-                        .position(x: size.width * 0.38, y: size.height * 0.78)
+                        .position(x: size.width * (size.width < 700 ? 0.50 : 0.38), y: size.height * 0.78)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        self.callout("KEYCAP · PLAN VIEW", detail: "FACE INSET 0.22  ·  4 CHAMFERS")
-                        self.callout("BITE 3.0  ·  SMILE 2.5", detail: nil)
-                        HStack(spacing: 6) {
-                            Rectangle().fill(self.palette.accent).frame(width: 6, height: 6)
-                            self.callout("TOOTH 12 · GOLD", detail: "THE ONE COLOUR · #FF4F1F")
-                        }
+                    if size.width >= 700 {
+                        self.figureCallouts
+                            .frame(width: size.width * 0.28, alignment: .leading)
+                            .position(x: size.width * 0.80, y: size.height * 0.48)
                     }
-                    .frame(width: size.width * 0.28, alignment: .leading)
-                    .position(x: size.width * 0.80, y: size.height * 0.48)
 
                     self.placard("43.4  ·  7 KEYS × 6.4 PITCH")
-                        .position(x: size.width * 0.38, y: size.height * 0.89)
+                        .position(x: size.width * (size.width < 700 ? 0.50 : 0.38), y: size.height * 0.89)
                 }
             }
             .frame(height: 250)
 
-            HStack(spacing: 0) {
-                self.placard("DWG MK-001")
-                    .frame(width: 92, alignment: .leading)
-                self.ruleDivider
-                self.placard("REV \(self.revision)")
-                    .frame(width: 100, alignment: .leading)
-                self.ruleDivider
-                Link("MIT · github.com/BenevolentFutures/MouthKeys ↗", destination: self.repositoryURL)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .tracking(0.3)
-                    .foregroundStyle(self.palette.text2)
-                    .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                Color.clear.frame(minWidth: 700).frame(height: 0)
+                self.figureCallouts
                     .frame(maxWidth: .infinity, alignment: .leading)
-                self.ruleDivider
-                self.placard("SHEET 09 / 09")
-                    .frame(width: 102, alignment: .trailing)
+                    .padding(16)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 30)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    self.placard("DWG MK-001")
+                        .frame(width: 92, alignment: .leading)
+                    self.ruleDivider
+                    self.placard("REV \(self.revision)")
+                        .frame(width: 100, alignment: .leading)
+                    self.ruleDivider
+                    Link("MIT · github.com/BenevolentFutures/MouthKeys ↗", destination: self.repositoryURL)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .tracking(0.3)
+                        .foregroundStyle(self.palette.text2)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    self.ruleDivider
+                    self.placard("SHEET 09 / 09")
+                        .frame(width: 102, alignment: .trailing)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 30)
+                .frame(minWidth: 740)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        self.placard("DWG MK-001")
+                        Spacer(minLength: 0)
+                        self.placard("REV \(self.revision)")
+                        Spacer(minLength: 0)
+                        self.placard("SHEET 09 / 09")
+                    }
+                    Link("MIT · github.com/BenevolentFutures/MouthKeys ↗", destination: self.repositoryURL)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .tracking(0.3)
+                        .foregroundStyle(self.palette.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+            }
             .overlay(alignment: .top) {
                 Rectangle().fill(self.palette.ruleSoft).frame(height: 1)
             }
         }
         .overlay {
             Rectangle().strokeBorder(self.palette.edge, lineWidth: 1)
+        }
+    }
+
+    private var figureCallouts: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            self.callout("KEYCAP · PLAN VIEW", detail: "FACE INSET 0.22  ·  4 CHAMFERS")
+            self.callout("BITE 3.0  ·  SMILE 2.5", detail: nil)
+            HStack(spacing: 6) {
+                Rectangle().fill(self.palette.accent).frame(width: 6, height: 6)
+                self.callout("TOOTH 12 · GOLD", detail: "THE ONE COLOUR · #FF4F1F")
+            }
         }
     }
 
