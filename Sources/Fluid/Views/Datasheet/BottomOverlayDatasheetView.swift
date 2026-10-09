@@ -95,9 +95,9 @@ struct BottomOverlayView: View {
     enum ChipRole {
         /// History: live whenever the overlay is, except during the delivered hold.
         case history
-        /// Cancel: live while recording or on a notice. After the stop it acts only while SEND shows
-        /// (it then drops the Return); otherwise it could only hide the overlay while the paste
-        /// still went out, so it rests.
+        /// Cancel: always live. While recording it cancels the dictation; after the stop it first
+        /// drops a pending Return (while SEND shows), otherwise it cancels the paste and dismisses
+        /// the pill (the text still goes to History). A stuck transcription can always be closed.
         case cancel
         /// Copy and Reprocess: live only while listening or on a notice; dimmed while transcribing.
         case historyAction
@@ -109,14 +109,11 @@ struct BottomOverlayView: View {
 
     /// Inert: the chip looks at rest but acts on nothing. During the delivered hold no chip may
     /// re-fire a paste or copy; Copy and Reprocess wait until the final pass is done.
-    /// `cancelHasWork`: after the stop, Cancel can still drop a pending Return, or dismiss a pill
-    /// whose Return it already dropped.
-    static func isChipInert(_ role: ChipRole, display: Display, cancelHasWork: Bool = false) -> Bool {
+    static func isChipInert(_ role: ChipRole, display: Display) -> Bool {
         switch display {
         case .delivered, .idle: return true
-        case .stopped: return role == .historyAction || (role == .cancel && !cancelHasWork)
-        case .transcribing: return role == .cancel && !cancelHasWork
-        case .listening, .notice, .noticeRow: return false
+        case .stopped: return role == .historyAction
+        case .transcribing, .listening, .notice, .noticeRow: return false
         }
     }
 
@@ -128,11 +125,8 @@ struct BottomOverlayView: View {
         }
     }
 
-    /// After the stop, Cancel acts while it still has something to do: drop a pending Return, or,
-    /// once dropped, dismiss the pill (the text still pastes; it is already on its way).
     private func isInert(_ role: ChipRole) -> Bool {
-        let cancelHasWork = self.canCancelSend || self.model.stopPlacard == .noSend
-        return Self.isChipInert(role, display: self.display, cancelHasWork: cancelHasWork)
+        Self.isChipInert(role, display: self.display)
     }
 
     private func isEnabled(_ role: ChipRole) -> Bool {
@@ -216,6 +210,12 @@ struct BottomOverlayView: View {
                 }
                 if self.display == .notice {
                     self.contentState.clearAIProcessingFailure()
+                }
+                // After the stop, with no Return left to drop: cancel this dictation's paste and
+                // dismiss the pill, however long its transcription is taking.
+                if self.display == .stopped || self.display == .transcribing, !self.canCancelSend {
+                    self.contentState.onDismissStoppedDictationRequested?()
+                    return
                 }
                 self.contentState.onCancelRequested?()
             }

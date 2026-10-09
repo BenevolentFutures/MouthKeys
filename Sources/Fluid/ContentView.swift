@@ -2210,6 +2210,8 @@ struct ContentView: View {
                 }
             }
         }
+        DictationStopDismissal.begin(trace.id)
+        defer { DictationStopDismissal.end(trace.id) }
         // No whole-app UI rebuild until the text is handed off (see ASRService.holdsStopUIRefresh).
         let uiRefreshHold = self.asr.holdStopUIRefresh()
         defer { self.asr.releaseStopUIRefresh(uiRefreshHold) }
@@ -2620,7 +2622,17 @@ struct ContentView: View {
         // The fixture benchmark stops at the handoff: it must never restore focus to, or type
         // into, whatever app has focus on this Mac.
         let isBenchmark = trace.trigger == .benchmark
-        let shouldTypeExternally = shouldPersistOutputs && !isFluidFrontmost && !isBenchmark
+        // Cancel was clicked on the stopped pill: the text stays in History, nothing is typed.
+        // From here on the paste is committed and a later Cancel only dismisses the pill.
+        let wasDismissedAfterStop = DictationStopDismissal.end(trace.id)
+        if wasDismissedAfterStop {
+            traceOutcome = "dismissed_after_stop"
+            DebugLogger.shared.info("Dictation dismissed after stop: not typed, kept in History", source: "ContentView")
+            if spokenSend.shouldSend {
+                BottomOverlayWindowController.shared.spokenSendDecided(.noReturn)
+            }
+        }
+        let shouldTypeExternally = shouldPersistOutputs && !isFluidFrontmost && !isBenchmark && !wasDismissedAfterStop
         if isBenchmark {
             trace.mark(.handoff)
             traceOutcome = "benchmark_handoff"
@@ -2703,7 +2715,7 @@ struct ContentView: View {
             }
         }
 
-        if !didTypeExternally, !shouldShowAIProcessingFailure, !didRequestOverlayHideOnStop {
+        if !didTypeExternally, !shouldShowAIProcessingFailure, !didRequestOverlayHideOnStop, !wasDismissedAfterStop {
             if route == .onboardingSandbox, isPracticeStop, self.overlayHoldsForOutcome,
                self.overlayLifecycleID == overlayLifecycleAtStop
             {
@@ -2985,6 +2997,8 @@ struct ContentView: View {
                 }
                 await self.reprocessDictationText(text)
             }
+        } catch is SpeechModelMissingError {
+            DebugLogger.shared.info("Actions: kept dictation not reprocessed; no speech model is installed", source: "ContentView")
         } catch {
             DebugLogger.shared.error("Actions: kept dictation could not be transcribed: \(error.localizedDescription)", source: "ContentView")
             ASRService.transcriptionTimeoutHandler(.reprocessUnavailable)
@@ -3509,7 +3523,9 @@ struct ContentView: View {
             }
         }
 
-        // Pre-load model in background while recording (avoids 10s freeze on stop)
+        // Pre-load model in background while recording (avoids 10s freeze on stop). Load only:
+        // a missing model is refused at start with the voice-model card, never downloaded here.
+        guard self.asr.hasSpeechModelForDictation else { return captureStart }
         Task {
             do {
                 DebugLogger.shared.debug("ContentView: pre-load model task started", source: "ContentView")
@@ -3655,6 +3671,11 @@ struct ContentView: View {
         }
         NotchContentState.shared.onCancelRequested = {
             _ = self.handleCancelShortcut()
+        }
+        NotchContentState.shared.onDismissStoppedDictationRequested = {
+            let droppedPaste = DictationStopDismissal.dismissActiveStop()
+            DebugLogger.shared.info("OVERLAY_CANCEL after_stop droppedPaste=\(droppedPaste)", source: "ContentView")
+            NotchOverlayManager.shared.hide()
         }
         self.attachSpokenSend()
         NotchContentState.shared.onDictationPromptSelectionRequested = { selection in
@@ -4761,5 +4782,35 @@ struct CardAppearAnimation: ViewModifier {
             .scaleEffect(self.appear ? 1.0 : 0.96)
             .opacity(self.appear ? 1.0 : 0)
             .animation(.spring(response: 0.8, dampingFraction: 0.75, blendDuration: 0.2).delay(self.delay), value: self.appear)
+    }
+}
+
+/// The Cancel chip on a stopped or transcribing pill. One stop runs at a time; until it hands the
+/// text off, a dismissal drops its paste (the text still goes to History).
+@MainActor
+enum DictationStopDismissal {
+    private static var activeStopID: Int?
+    private static var dismissedStopID: Int?
+
+    static func begin(_ stopID: Int) {
+        self.activeStopID = stopID
+        self.dismissedStopID = nil
+    }
+
+    /// Marks the stop in flight as dismissed. False when no stop is waiting for its handoff.
+    @discardableResult
+    static func dismissActiveStop() -> Bool {
+        guard let stopID = self.activeStopID else { return false }
+        self.dismissedStopID = stopID
+        return true
+    }
+
+    /// Ends the stop's dismissable window; returns whether it was dismissed.
+    @discardableResult
+    static func end(_ stopID: Int) -> Bool {
+        guard self.activeStopID == stopID else { return false }
+        self.activeStopID = nil
+        defer { self.dismissedStopID = nil }
+        return self.dismissedStopID == stopID
     }
 }

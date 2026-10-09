@@ -9,6 +9,7 @@ struct DatasheetCardContent: Equatable {
         case copy
         case reprocess
         case openSystemSettings
+        case download
         case none
 
         var title: String {
@@ -16,6 +17,7 @@ struct DatasheetCardContent: Equatable {
             case .copy: "Copy"
             case .reprocess: "Reprocess"
             case .openSystemSettings: "Open System Settings"
+            case .download: "Download"
             case .none: ""
             }
         }
@@ -25,6 +27,7 @@ struct DatasheetCardContent: Equatable {
             case .copy: "doc.on.doc"
             case .reprocess: "arrow.clockwise"
             case .openSystemSettings: "gearshape"
+            case .download: "arrow.down.circle"
             case .none: ""
             }
         }
@@ -147,6 +150,7 @@ struct DatasheetCardBody: View {
         case .copy: "Copy the transcription to the clipboard"
         case .reprocess: "Transcribe the kept audio again"
         case .openSystemSettings: self.content.isMicrophoneOff ? "Privacy & Security › Microphone" : "Privacy & Security › Accessibility"
+        case .download: "Download the voice model in the background"
         case .none: ""
         }
     }

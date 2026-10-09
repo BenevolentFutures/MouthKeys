@@ -185,6 +185,9 @@ class NotchContentState: ObservableObject {
     var onOpenPreferencesRequested: (() -> Void)?
     /// Called when the user requests cancelling the current recording or overlay session.
     var onCancelRequested: (() -> Void)?
+    /// Called when the Cancel chip is clicked on a stopped or transcribing pill: cancel that
+    /// dictation's paste and dismiss the pill.
+    var onDismissStoppedDictationRequested: (() -> Void)?
     /// Called when the user picks a specific entry from the overlay's history menu to re-insert.
     var onHistoryEntryPasteRequested: ((TranscriptionHistoryEntry) -> Void)?
 
