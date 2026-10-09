@@ -4,6 +4,12 @@ macOS dictation app, forked from FluidVoice (see `UPSTREAM.md`). The product is 
 
 Atin dictates into Claude Code in c11 all day with the installed app. Text delivery into c11 and Ghostty (forced Reliable Paste) must never regress.
 
+## Private software, pushed to done
+
+MouthKeys is open source (public repo, mouthkeys.com, a DMG per release), but in practice it is still private software: Atin is its user. The public surface does not make it a released product with live users, so set the autonomy dial to pre-release. Make the calls yourself and push every change all the way through: branch, build, test, a fresh-context review, PR, merge, without stopping to ask. Ask only for what Atin alone can do or decide (a permission prompt, a feel or sound check, a real product fork).
+
+Three things still wait for Atin, and they are about his machine, not the public: installing (below), anything that touches the installed app (below), and `scripts/release.sh publish` (after he has dictated with the new build).
+
 ## Identity
 
 | | Installed (Release) | Debug build and test host |
