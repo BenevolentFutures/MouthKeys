@@ -1,11 +1,11 @@
 import AppKit
 
-/// The menu bar mark (DESIGN.md §10): a 22 x 16 square-cornered template image. The grin at
-/// rest: four square-ended teeth a jaw, the bite smiling. While listening the lower jaw opens with
-/// the level at 8 Hz (still during Spoken Send's countdown) and a solid square stands beside it;
-/// while transcribing the jaw is closed and the square is outlined. The width never changes. On
-/// hover, and while the menu is open, a bracket draws inside the box (the menu bar has no room
-/// outside it).
+/// The menu bar mark (DESIGN.md §10): a 15 x 16 square-cornered template image, the mouth alone.
+/// Four square-ended teeth a jaw, the bite smiling, the app icon's gold tooth (third lower) drawn
+/// hollow, since a template image cannot be orange. While listening the lower jaw opens with the
+/// level at 8 Hz (still during Spoken Send's countdown); otherwise it is closed. The width never
+/// changes. On hover, and while the menu is open, a bracket draws inside the box (the menu bar has
+/// no room outside it).
 enum DatasheetMenuBarMark {
     enum Kind: Equatable {
         case idle
@@ -13,15 +13,17 @@ enum DatasheetMenuBarMark {
         case transcribing
     }
 
-    static let size = NSSize(width: 22, height: 16)
+    static let size = NSSize(width: 15, height: 16)
     /// The furthest the lower jaw opens, in points.
     static let maxJaw: CGFloat = 2
+    /// The lower tooth drawn hollow: the app icon's gold tooth at 16 px.
+    static let goldTooth = 2
 
     private static var cache: [String: NSImage] = [:]
 
-    static func image(kind: Kind, jaw: CGFloat = 0, bracket: Bool) -> NSImage {
+    static func image(jaw: CGFloat = 0, bracket: Bool) -> NSImage {
         let jaw = min(max(jaw.rounded(), 0), self.maxJaw)
-        let key = "\(kind)|\(Int(jaw))|\(bracket)"
+        let key = "\(Int(jaw))|\(bracket)"
         if let cached = self.cache[key] { return cached }
         let image = NSImage(size: self.size, flipped: true) { _ in
             NSColor.black.set()
@@ -31,17 +33,15 @@ enum DatasheetMenuBarMark {
             for (index, x) in [2, 5, 8, 11].map({ CGFloat($0) }).enumerated() {
                 let outer = index == 0 || index == 3
                 NSBezierPath(rect: NSRect(x: x, y: 2, width: 2, height: outer ? 4 : 5)).fill()
-                NSBezierPath(rect: NSRect(x: x, y: (outer ? 7 : 8) + jaw, width: 2, height: outer ? 3 : 4)).fill()
-            }
-            switch kind {
-            case .idle:
-                break
-            case .listening:
-                NSBezierPath(rect: NSRect(x: 15, y: 5, width: 6, height: 6)).fill()
-            case .transcribing:
-                let outline = NSBezierPath(rect: NSRect(x: 15.75, y: 5.75, width: 4.5, height: 4.5))
-                outline.lineWidth = 1.5
-                outline.stroke()
+                let lower = NSRect(x: x, y: (outer ? 7 : 8) + jaw, width: 2, height: outer ? 3 : 4)
+                if index == self.goldTooth {
+                    // A half-point edge inside the tooth's own rect: one device pixel at 2x.
+                    let outline = NSBezierPath(rect: lower.insetBy(dx: 0.25, dy: 0.25))
+                    outline.lineWidth = 0.5
+                    outline.stroke()
+                } else {
+                    NSBezierPath(rect: lower).fill()
+                }
             }
             if bracket {
                 let path = NSBezierPath()
@@ -50,8 +50,8 @@ enum DatasheetMenuBarMark {
                 path.lineJoinStyle = .miter
                 let corners: [[NSPoint]] = [
                     [NSPoint(x: 0.75, y: 4.75), NSPoint(x: 0.75, y: 0.75), NSPoint(x: 4.75, y: 0.75)],
-                    [NSPoint(x: 17.25, y: 0.75), NSPoint(x: 21.25, y: 0.75), NSPoint(x: 21.25, y: 4.75)],
-                    [NSPoint(x: 21.25, y: 11.25), NSPoint(x: 21.25, y: 15.25), NSPoint(x: 17.25, y: 15.25)],
+                    [NSPoint(x: 10.25, y: 0.75), NSPoint(x: 14.25, y: 0.75), NSPoint(x: 14.25, y: 4.75)],
+                    [NSPoint(x: 14.25, y: 11.25), NSPoint(x: 14.25, y: 15.25), NSPoint(x: 10.25, y: 15.25)],
                     [NSPoint(x: 4.75, y: 15.25), NSPoint(x: 0.75, y: 15.25), NSPoint(x: 0.75, y: 11.25)],
                 ]
                 for corner in corners {

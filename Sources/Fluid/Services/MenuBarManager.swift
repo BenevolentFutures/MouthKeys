@@ -384,7 +384,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         // Track processing state to prevent hide during AI refinement
         self.isProcessingActive = processing
         self.updateMenuItemsText()
-        // The outlined square only once the final pass is slow (this call is deferred 250 ms).
+        // Transcribing (jaw closed) only once the final pass is slow (this call is deferred 250 ms).
         if processing, !self.isRecording {
             self.markKind = .transcribing
             self.applyMark()
@@ -683,7 +683,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     /// Sets the mark for the current state. Never while a stop pipeline runs: a status item image
     /// change is a WindowServer round trip, so it waits for the handoff (a slow final pass keeps
-    /// the listening mark until then instead of showing the outlined square).
+    /// the listening mark until then).
     private func applyMark() {
         guard let button = self.statusItem?.button else { return }
         if StopPipelineWindowWork.isHeld {
@@ -697,7 +697,6 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             return
         }
         let image = DatasheetMenuBarMark.image(
-            kind: self.markKind,
             jaw: self.markKind == .listening ? self.markJaw : 0,
             bracket: self.isMarkHovered || self.isMenuOpen
         )
