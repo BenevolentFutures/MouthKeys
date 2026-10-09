@@ -19,7 +19,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     private var statusMenuItem: NSMenuItem?
     private var headerView: DatasheetMenuHeaderRow?
     private var toggleDictationMenuItem: NSMenuItem?
+    private var toggleDictationRow: DatasheetMenuRowView?
     private var hotkeysPausedMenuItem: NSMenuItem?
+    private var hotkeysPausedRow: DatasheetMenuRowView?
     private var headerRefreshTimer: Timer?
 
     // The Datasheet menu bar mark (DESIGN.md §10).
@@ -36,9 +38,6 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     /// Start / Stop Dictation from the menu: the same toggle as the dictation hotkey.
     var onToggleDictationRequested: (() -> Void)?
-    private var copyLastTranscriptMenuItem: NSMenuItem?
-    private var microphoneMenuItem: NSMenuItem?
-    private var microphoneSubmenu: NSMenu?
 
     // References to app state
     private weak var asrService: ASRService?
@@ -706,93 +705,81 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
     }
 
-    /// The menu (DESIGN.md §10): a plain NSMenu under a mono uppercase header. Start Dictation
-    /// with its hotkey, the microphone, History…, then the items the app already had (Copy Last
-    /// Transcript, Custom Dictionary, Open MouthKeys), Settings… and Quit.
+    /// The menu (DESIGN.md §10), in Datasheet Mono: the MOUTHKEYS header with the state, Start
+    /// Dictation with its hotkey, Settings…, MouthKeys on GitHub, a rule, Quit. Each row is a drawn
+    /// view on the sheet's surface that inverts while highlighted. The overlay carries the
+    /// microphone, history and copy (Atin, 2026-10-09).
     private func buildMenuStructure() {
         guard let menu = menu else { return }
 
         menu.removeAllItems()
 
-        let header = DatasheetMenuHeaderRow(frame: NSRect(x: 0, y: 0, width: 262, height: 24))
+        let header = DatasheetMenuHeaderRow(frame: NSRect(x: 0, y: 0, width: DatasheetMenuRowView.width, height: 30))
         let headerItem = NSMenuItem()
         headerItem.view = header
         headerItem.isEnabled = false
         menu.addItem(headerItem)
         self.headerView = header
         self.statusMenuItem = headerItem
-        menu.addItem(.separator())
+        menu.addItem(Self.ruleItem())
 
-        let toggleItem = NSMenuItem(title: "Start Dictation", action: #selector(toggleDictation), keyEquivalent: "")
-        toggleItem.target = self
+        let (toggleItem, toggleRow) = self.rowItem(
+            "Start Dictation", action: #selector(toggleDictation), recordMark: false
+        )
         menu.addItem(toggleItem)
         self.toggleDictationMenuItem = toggleItem
+        self.toggleDictationRow = toggleRow
 
         // Shown only while configured hotkeys cannot fire for lack of permission, so they never
         // look lost (2026-10-02: a stale Accessibility grant left them silently dead).
-        let pausedItem = NSMenuItem(title: "", action: #selector(resolveHotkeysPaused), keyEquivalent: "")
-        pausedItem.target = self
+        let (pausedItem, pausedRow) = self.rowItem("Hotkeys Paused", action: #selector(resolveHotkeysPaused))
         pausedItem.isHidden = true
         menu.addItem(pausedItem)
         self.hotkeysPausedMenuItem = pausedItem
+        self.hotkeysPausedRow = pausedRow
 
-        let microphoneSubmenu = NSMenu(title: "Microphone")
-        let microphoneMenuItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
-        microphoneMenuItem.submenu = microphoneSubmenu
-        menu.addItem(microphoneMenuItem)
-        self.microphoneMenuItem = microphoneMenuItem
-        self.microphoneSubmenu = microphoneSubmenu
-
-        let historyItem = NSMenuItem(title: "History…", action: #selector(openHistory), keyEquivalent: "")
-        historyItem.target = self
-        menu.addItem(historyItem)
-
-        let copyLastTranscriptItem = NSMenuItem(
-            title: "Copy Last Transcript",
-            action: #selector(copyLastTranscript(_:)),
-            keyEquivalent: ""
-        )
-        copyLastTranscriptItem.target = self
-        menu.addItem(copyLastTranscriptItem)
-        self.copyLastTranscriptMenuItem = copyLastTranscriptItem
-
-        let customDictionaryItem = NSMenuItem(
-            title: "Custom Dictionary",
-            action: #selector(openCustomDictionary),
-            keyEquivalent: ""
-        )
-        customDictionaryItem.target = self
-        menu.addItem(customDictionaryItem)
-
-        let openItem = NSMenuItem(title: "Open MouthKeys", action: #selector(openMainWindow), keyEquivalent: "")
-        openItem.target = self
-        menu.addItem(openItem)
-
-        let repositoryItem = NSMenuItem(
-            title: "MouthKeys on GitHub ↗",
-            action: #selector(openRepository),
-            keyEquivalent: ""
-        )
-        repositoryItem.target = self
-        menu.addItem(repositoryItem)
-
-        let preferencesItem = NSMenuItem(title: "Settings…", action: #selector(openPreferences), keyEquivalent: ",")
-        preferencesItem.target = self
+        let (preferencesItem, _) = self.rowItem("Settings…", action: #selector(openPreferences), detail: .text("⌘,"))
+        preferencesItem.keyEquivalent = ","
         preferencesItem.keyEquivalentModifierMask = [.command]
         menu.addItem(preferencesItem)
 
-        menu.addItem(.separator())
+        let (repositoryItem, _) = self.rowItem("MouthKeys on GitHub", action: #selector(openRepository), detail: .text("↗"))
+        menu.addItem(repositoryItem)
 
-        let quitItem = NSMenuItem(
-            title: "Quit MouthKeys",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
+        menu.addItem(Self.ruleItem())
+
+        let (quitItem, _) = self.rowItem(
+            "Quit MouthKeys", action: #selector(NSApplication.terminate(_:)), target: NSApp, detail: .text("⌘Q")
         )
-        quitItem.target = NSApp
+        quitItem.keyEquivalent = "q"
+        quitItem.keyEquivalentModifierMask = [.command]
         menu.addItem(quitItem)
 
         // Now update the text content
         self.updateMenuItemsText()
+    }
+
+    /// A view-backed row. The title is not drawn (the view draws the row) but names the item for
+    /// accessibility and key handling.
+    private func rowItem(
+        _ title: String,
+        action: Selector,
+        target: AnyObject? = nil,
+        detail: DatasheetMenuRowView.Detail = .none,
+        recordMark: Bool? = nil
+    ) -> (NSMenuItem, DatasheetMenuRowView) {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = target ?? self
+        let row = DatasheetMenuRowView(label: title, detail: detail, recordMark: recordMark)
+        item.view = row
+        return (item, row)
+    }
+
+    private static func ruleItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        item.view = DatasheetMenuRuleView()
+        item.isEnabled = false
+        return item
     }
 
     private func updateMenu() {
@@ -818,27 +805,23 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
         self.headerView?.stateText = state
         self.headerView?.isLive = live
-        self.toggleDictationMenuItem?.attributedTitle = Self.titleWithDetail(
-            live ? "Stop Dictation" : "Start Dictation",
-            detail: SettingsStore.shared.primaryDictationShortcutDisplayString
-        )
-        // The microphone's name only while the menu is open: looking it up can touch Core Audio,
-        // and this runs on every recording change and processing update.
-        if self.isMenuOpen {
-            self.microphoneMenuItem?.attributedTitle = Self.titleWithDetail(
-                "Microphone",
-                detail: BottomOverlayWindowController.currentMicrophoneName()
-            )
+        // The label is left-aligned and the keycap right-anchored, so the row never shifts.
+        // This runs every second while the menu is open: set only what changed.
+        let toggleTitle = live ? "Stop Dictation" : "Start Dictation"
+        if self.toggleDictationMenuItem?.title != toggleTitle {
+            self.toggleDictationMenuItem?.title = toggleTitle
         }
-        self.copyLastTranscriptMenuItem?.isEnabled = self.canCopyLastTranscript
-        self.microphoneMenuItem?.isEnabled = true
+        self.toggleDictationRow?.label = toggleTitle
+        self.toggleDictationRow?.recordMark = live
+        let shortcut = SettingsStore.shared.primaryDictationShortcutDisplayString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.toggleDictationRow?.detail = shortcut.isEmpty ? .none : .keycap(shortcut)
         if let pausedItem = self.hotkeysPausedMenuItem {
             let tapState = AccessibilityTrustMonitor.shared.hotkeyTapState
-            pausedItem.isHidden = !tapState.isPausedForPermission
-            pausedItem.attributedTitle = Self.titleWithDetail(
-                "Hotkeys Paused",
-                detail: tapState == .failedTrusted ? "Relaunch MouthKeys" : "Needs Accessibility…"
-            )
+            if pausedItem.isHidden == tapState.isPausedForPermission {
+                pausedItem.isHidden = !tapState.isPausedForPermission
+            }
+            self.hotkeysPausedRow?.detail = .text(tapState == .failedTrusted ? "Relaunch" : "Accessibility")
         }
     }
 
@@ -856,36 +839,26 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
     }
 
-    /// A menu row with a secondary detail right-aligned after a tab ("Start Dictation  ⌥Space").
-    private static func titleWithDetail(_ title: String, detail: String) -> NSAttributedString {
-        let font = NSFont.menuFont(ofSize: 0)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 236)]
-        let result = NSMutableAttributedString(string: title, attributes: [.font: font, .paragraphStyle: paragraph])
-        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            result.append(NSAttributedString(string: "\t" + trimmed, attributes: [
-                .font: font,
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .paragraphStyle: paragraph,
-            ]))
-        }
-        return result
-    }
-
     func menuWillOpen(_ menu: NSMenu) {
         if menu === self.menu {
             AnalyticsService.shared.recordAppActivity()
             self.isMenuOpen = true
             self.applyMark()
             self.updateMenuItemsText()
-            self.refreshMicrophoneMenu()
             self.headerRefreshTimer?.invalidate()
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateMenuItemsText() }
             }
             RunLoop.main.add(timer, forMode: .common)
             self.headerRefreshTimer = timer
+        }
+    }
+
+    /// Arrow keys move the highlight without the pointer: redraw the rows so the invert follows.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard menu === self.menu else { return }
+        for row in menu.items.compactMap({ $0.view as? DatasheetMenuRowView }) {
+            row.needsDisplay = true
         }
     }
 
@@ -899,109 +872,6 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     @objc private func toggleDictation() {
         self.onToggleDictationRequested?()
-    }
-
-    @objc private func openHistory() {
-        self.openMainWindow()
-        AppNavigationRouter.shared.request(.history)
-    }
-
-    private func refreshMicrophoneMenu() {
-        guard let submenu = self.microphoneSubmenu else { return }
-
-        submenu.removeAllItems()
-        let loadingItem = NSMenuItem(title: "Loading...", action: nil, keyEquivalent: "")
-        loadingItem.isEnabled = false
-        submenu.addItem(loadingItem)
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let inputDevices = AudioDevice.listInputDevicesRefreshingLiveness()
-            let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.populateMicrophoneMenu(
-                    inputDevices: inputDevices,
-                    defaultInputUID: defaultInputUID
-                )
-            }
-        }
-    }
-
-    private func populateMicrophoneMenu(inputDevices: [AudioDevice.Device], defaultInputUID: String?) {
-        guard let submenu = self.microphoneSubmenu else { return }
-
-        submenu.removeAllItems()
-
-        guard !inputDevices.isEmpty else {
-            let emptyItem = NSMenuItem(title: "No microphones found", action: nil, keyEquivalent: "")
-            emptyItem.isEnabled = false
-            submenu.addItem(emptyItem)
-            return
-        }
-
-        let microphonePreferenceCoordinator = AppServices.shared.microphonePreferenceCoordinator
-        let currentUID = microphonePreferenceCoordinator.reconcileMicrophoneSelection(
-            availableInputs: inputDevices,
-            defaultInputUID: defaultInputUID
-        )?.uid
-
-        guard SettingsStore.shared.microphonePriority.isEmpty == false else {
-            let emptyItem = NSMenuItem(title: "No microphones in priority", action: nil, keyEquivalent: "")
-            emptyItem.isEnabled = false
-            submenu.addItem(emptyItem)
-            return
-        }
-
-        let devicesByUID = Dictionary(
-            inputDevices.map { ($0.uid, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        for (index, entry) in SettingsStore.shared.microphonePriority.enumerated() {
-            guard let device = devicesByUID[entry.uid],
-                  microphonePreferenceCoordinator.isInputDeviceAvailable(device)
-            else {
-                let item = NSMenuItem(
-                    title: "\(index + 1). \(entry.name) (Unavailable)",
-                    action: nil,
-                    keyEquivalent: ""
-                )
-                item.isEnabled = false
-                submenu.addItem(item)
-                continue
-            }
-            let title = "\(index + 1). \(device.name)"
-            let item = NSMenuItem(title: title, action: #selector(selectMicrophone(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = device
-            item.state = device.uid == currentUID ? .on : .off
-            submenu.addItem(item)
-        }
-    }
-
-    private var canCopyLastTranscript: Bool {
-        !self.isProcessingActive && TranscriptionHistoryStore.shared.latestClipboardText != nil
-    }
-
-    @objc private func copyLastTranscript(_ sender: Any?) {
-        guard self.canCopyLastTranscript,
-              let text = TranscriptionHistoryStore.shared.latestClipboardText
-        else {
-            DebugLogger.shared.info("Menu action: Copy last transcript requested but history is empty", source: "MenuBarManager")
-            return
-        }
-
-        _ = ClipboardService.copyToClipboard(text)
-        DebugLogger.shared.info("Menu action: Copied latest transcription to clipboard", source: "MenuBarManager")
-    }
-
-    @objc private func selectMicrophone(_ sender: NSMenuItem) {
-        guard let device = sender.representedObject as? AudioDevice.Device else { return }
-
-        // Mid-dictation too: capture moves to the picked microphone and the recording goes on.
-        AppServices.shared.microphonePreferenceCoordinator.pick(device, source: "menu_bar")
-
-        self.refreshMicrophoneMenu()
     }
 
     @objc private func openMainWindow() {
@@ -1065,10 +935,6 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         NSWorkspace.shared.open(repositoryURL)
-    }
-
-    @objc private func openCustomDictionary() {
-        self.openNavigationDestination(.customDictionary)
     }
 
     private func openNavigationDestination(_ destination: MenuBarNavigationDestination) {
@@ -1214,53 +1080,39 @@ private final class DatasheetMenuHeaderRow: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 262, height: 24)
+        NSSize(width: DatasheetMenuRowView.width, height: 30)
+    }
+
+    override var allowsVibrancy: Bool {
+        false
     }
 
     override func layout() {
         super.layout()
-        self.markView.frame = NSRect(x: 10, y: 4, width: 22, height: 16)
+        // The grin centres over the rows' record square; MOUTHKEYS lines up with their labels.
+        self.markView.frame = NSRect(
+            x: DatasheetMenuRowView.markCentreX - 11, y: (self.bounds.height - 16) / 2, width: 22, height: 16
+        )
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let name = self.attributed(
-            "MOUTHKEYS",
-            font: .monospacedSystemFont(ofSize: 10, weight: .medium),
-            color: .secondaryLabelColor
-        )
-        name.draw(at: NSPoint(x: 40, y: (self.bounds.height - name.size().height) / 2))
+        let colors = DatasheetMenuColors(appearance: self.effectiveAppearance)
+        colors.surface.setFill()
+        self.bounds.fill()
 
-        let statusSquareSize: CGFloat = self.isLive ? 6 : 0
-        let statusGap: CGFloat = self.isLive ? 8 : 0
-        let right = self.bounds.width - 12 - statusSquareSize - statusGap
-        let stateRect = NSRect(x: 112, y: 2, width: max(0, right - 112), height: self.bounds.height - 4)
-        self.attributed(
-            self.stateText,
-            font: .monospacedSystemFont(ofSize: 10, weight: .regular),
-            color: .secondaryLabelColor,
-            alignment: .right
-        ).draw(in: stateRect)
+        let name = DatasheetMenuColors.label("MouthKeys", size: 10.5, weight: .semibold, color: colors.text)
+        name.draw(at: NSPoint(x: DatasheetMenuRowView.labelX, y: (self.bounds.height - name.size().height) / 2))
+
+        // The state keeps its place: the live square's slot is reserved at rest.
+        let right = self.bounds.width - 14 - 6 - 8
+        let state = DatasheetMenuColors.label(self.stateText, size: 10, weight: .regular, color: colors.text2)
+        let stateSize = state.size()
+        state.draw(at: NSPoint(x: right - stateSize.width, y: (self.bounds.height - stateSize.height) / 2))
 
         if self.isLive {
             DatasheetTheme.AppKitColors.accent.setFill()
-            NSBezierPath(rect: NSRect(x: self.bounds.width - 18, y: 9, width: 6, height: 6)).fill()
+            NSBezierPath(rect: NSRect(x: self.bounds.width - 20, y: self.bounds.midY - 3, width: 6, height: 6)).fill()
         }
-    }
-
-    private func attributed(
-        _ string: String,
-        font: NSFont,
-        color: NSColor,
-        alignment: NSTextAlignment = .left
-    ) -> NSAttributedString {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = alignment
-        paragraph.lineBreakMode = .byTruncatingTail
-        return NSAttributedString(string: string, attributes: [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraph,
-        ])
     }
 }
 

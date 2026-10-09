@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// The menu bar mark (DESIGN.md §10): a 21 x 22 square-cornered template image, the mouth alone,
 /// as tall as the status bar (22 pt) allows with the jaw wide open.
@@ -143,5 +144,220 @@ final class DatasheetMenuHeaderView: NSView {
             .kern: 0.6,
             .foregroundColor: color,
         ])
+    }
+}
+
+/// The status menu's colors (DESIGN.md §10), from the Datasheet palette for the menu's own
+/// appearance: rows draw the sheet's surface and invert while highlighted.
+struct DatasheetMenuColors {
+    let surface: NSColor
+    let text: NSColor
+    let text2: NSColor
+    let rule: NSColor
+    let edge: NSColor
+    let invBackground: NSColor
+    let invForeground: NSColor
+    let invForeground2: NSColor
+
+    init(appearance: NSAppearance) {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
+        self.surface = NSColor(palette.surface)
+        self.text = NSColor(palette.text)
+        self.text2 = isDark ? NSColor(palette.text2) : NSColor(palette.text2).withAlphaComponent(0.62)
+        self.rule = isDark ? NSColor(palette.rule) : NSColor(palette.rule).withAlphaComponent(0.18)
+        self.edge = NSColor(palette.edge)
+        self.invBackground = NSColor(palette.invBackground)
+        self.invForeground = NSColor(palette.invForeground)
+        self.invForeground2 = NSColor(palette.invForeground2)
+    }
+
+    /// Mono uppercase, tracked +0.06 em (DESIGN.md §3).
+    static func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: text.uppercased(), attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
+            .kern: size * 0.06,
+            .foregroundColor: color,
+        ])
+    }
+}
+
+/// One status menu row in Datasheet Mono: an optional record square under the header's grin, a
+/// mono uppercase label in line with MOUTHKEYS, and a mono detail or keycap at the right. The row
+/// inverts while highlighted, by the pointer or the arrow keys. The view draws everything; the
+/// item's title stays for accessibility.
+final class DatasheetMenuRowView: NSView {
+    enum Detail: Equatable {
+        case none
+        case text(String)
+        case keycap(String)
+    }
+
+    static let height: CGFloat = 26
+    static let width: CGFloat = 262
+    /// Labels start in line with the header's MOUTHKEYS; marks centre under its grin.
+    static let labelX: CGFloat = 40
+    static let markCentreX: CGFloat = 21
+
+    var label: String {
+        didSet { if self.label != oldValue { self.needsDisplay = true } }
+    }
+
+    var detail: Detail {
+        didSet { if self.detail != oldValue { self.needsDisplay = true } }
+    }
+
+    /// nil: no mark. false: an outlined record square. true: solid orange, while recording.
+    var recordMark: Bool? {
+        didSet { if self.recordMark != oldValue { self.needsDisplay = true } }
+    }
+
+    init(label: String, detail: Detail = .none, recordMark: Bool? = nil) {
+        self.label = label
+        self.detail = detail
+        self.recordMark = recordMark
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: Self.height))
+        self.autoresizingMask = [.width]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+
+    /// Renders and tests set this; in the menu the item's highlight decides.
+    var isHighlightForced: Bool?
+
+    var isHighlighted: Bool {
+        if let forced = self.isHighlightForced { return forced }
+        guard let item = self.enclosingMenuItem else { return false }
+        return item.isHighlighted && item.isEnabled
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let colors = DatasheetMenuColors(appearance: self.effectiveAppearance)
+        let highlighted = self.isHighlighted
+        let enabled = self.enclosingMenuItem?.isEnabled ?? true
+        (highlighted ? colors.invBackground : colors.surface).setFill()
+        self.bounds.fill()
+        let foreground = highlighted ? colors.invForeground : (enabled ? colors.text : colors.text2)
+        let foreground2 = highlighted ? colors.invForeground2 : colors.text2
+
+        if let live = self.recordMark {
+            let square = NSRect(x: Self.markCentreX - 4, y: self.bounds.midY - 4, width: 8, height: 8)
+            if live {
+                DatasheetTheme.AppKitColors.accent.setFill()
+                square.fill()
+            } else {
+                foreground.setStroke()
+                let outline = NSBezierPath(rect: square.insetBy(dx: 0.5, dy: 0.5))
+                outline.lineWidth = 1
+                outline.stroke()
+            }
+        }
+
+        let right = self.bounds.width - 14
+        var labelLimit = right - Self.labelX
+        switch self.detail {
+        case .none:
+            break
+        case let .text(text):
+            let detail = DatasheetMenuColors.label(text, size: 10, weight: .regular, color: foreground2)
+            let size = detail.size()
+            detail.draw(at: NSPoint(x: right - size.width, y: (self.bounds.height - size.height) / 2))
+            labelLimit -= size.width + 12
+        case let .keycap(text):
+            let cap = DatasheetMenuColors.label(text, size: 10, weight: .medium, color: foreground)
+            let size = cap.size()
+            let box = NSRect(x: right - size.width - 12, y: self.bounds.midY - 8, width: size.width + 12, height: 16)
+            (highlighted ? colors.invForeground2 : colors.edge).setStroke()
+            let edge = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            edge.lineWidth = 1
+            edge.stroke()
+            cap.draw(at: NSPoint(x: box.minX + 6, y: (self.bounds.height - size.height) / 2))
+            labelLimit -= box.width + 12
+        }
+
+        let label = NSMutableAttributedString(
+            attributedString: DatasheetMenuColors.label(self.label, size: 11, weight: .medium, color: foreground)
+        )
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        label.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: label.length))
+        let size = label.size()
+        label.draw(in: NSRect(x: Self.labelX, y: (self.bounds.height - size.height) / 2, width: max(0, labelLimit), height: size.height))
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in self.trackingAreas {
+            self.removeTrackingArea(area)
+        }
+        self.addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+
+    // The menu moves the highlight; redraw on both edges so the invert follows the pointer.
+    override func mouseEntered(with event: NSEvent) {
+        self.needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        self.needsDisplay = true
+    }
+
+    /// A view-backed item does not fire on its own: close the menu, then send the item's action
+    /// on the next turn, once the menu is gone (Settings… raises a window).
+    override func mouseUp(with event: NSEvent) {
+        guard let item = self.enclosingMenuItem, item.isEnabled, let menu = item.menu else { return }
+        menu.cancelTracking()
+        DispatchQueue.main.async {
+            let index = menu.index(of: item)
+            if index >= 0 { menu.performActionForItem(at: index) }
+        }
+    }
+}
+
+/// A 1 px rule across the status menu, on the sheet's surface.
+final class DatasheetMenuRuleView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        self.autoresizingMask = [.width]
+    }
+
+    convenience init() {
+        self.init(frame: NSRect(x: 0, y: 0, width: DatasheetMenuRowView.width, height: 9))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override var allowsVibrancy: Bool {
+        false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let colors = DatasheetMenuColors(appearance: self.effectiveAppearance)
+        colors.surface.setFill()
+        self.bounds.fill()
+        colors.rule.setFill()
+        NSRect(x: 0, y: 4, width: self.bounds.width, height: 1).fill()
     }
 }

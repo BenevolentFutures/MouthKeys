@@ -3007,6 +3007,63 @@ final class DatasheetOverlayRenderTests: XCTestCase {
         }
     }
 
+    /// The status menu's rows (DESIGN.md §10): the sheet's surface at rest, inverted while
+    /// highlighted, in both appearances; the longest row's label and detail fit side by side.
+    func testStatusMenuRowsDrawDatasheetMono() throws {
+        func render(_ view: NSView, appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
+            view.appearance = NSAppearance(named: appearance)
+            let size = view.bounds.size
+            let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            rep.size = size
+            NSGraphicsContext.saveGraphicsState()
+            let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep))
+            context.cgContext.translateBy(x: 0, y: size.height)
+            context.cgContext.scaleBy(x: 1, y: -1)
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context.cgContext, flipped: true)
+            NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance { view.draw(view.bounds) }
+            NSGraphicsContext.restoreGraphicsState()
+            return rep
+        }
+        func assertColor(_ rep: NSBitmapImageRep, _ expected: Color, _ message: String) {
+            let pixel = rep.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)
+            let target = NSColor(expected).usingColorSpace(.sRGB)
+            for (a, b) in [(pixel?.redComponent, target?.redComponent), (pixel?.greenComponent, target?.greenComponent), (pixel?.blueComponent, target?.blueComponent)] {
+                XCTAssertEqual(a ?? -1, b ?? -2, accuracy: 0.02, message)
+            }
+        }
+
+        for (appearance, palette, theme) in [(NSAppearance.Name.darkAqua, DatasheetTheme.Palette.dark, "dark"), (.aqua, .light, "light")] {
+            let row = DatasheetMenuRowView(label: "Start Dictation", detail: .keycap("Right ⌥"), recordMark: false)
+            assertColor(try render(row, appearance: appearance), palette.surface, "\(theme): rows sit on the sheet's surface")
+            row.isHighlightForced = true
+            let highlighted = try render(row, appearance: appearance)
+            assertColor(highlighted, palette.invBackground, "\(theme): a highlighted row inverts")
+
+            if let folder = self.outputFolder {
+                let rows: [DatasheetMenuRowView] = [
+                    DatasheetMenuRowView(label: "Start Dictation", detail: .keycap("Right ⌥"), recordMark: false),
+                    DatasheetMenuRowView(label: "Stop Dictation", detail: .keycap("Right ⌥"), recordMark: true),
+                    DatasheetMenuRowView(label: "Hotkeys Paused", detail: .text("Accessibility")),
+                    DatasheetMenuRowView(label: "Settings…", detail: .text("⌘,")),
+                    DatasheetMenuRowView(label: "MouthKeys on GitHub", detail: .text("↗")),
+                    DatasheetMenuRowView(label: "Quit MouthKeys", detail: .text("⌘Q")),
+                ]
+                rows[3].isHighlightForced = true
+                for (index, view) in rows.enumerated() {
+                    try DatasheetRenderStage.write(
+                        try render(view, appearance: appearance),
+                        to: folder.appendingPathComponent("\(theme)-23-menu-row-\(index).png")
+                    )
+                }
+            }
+        }
+
+        // The longest label and detail fit in the 262 pt row without truncating.
+        let label = DatasheetMenuColors.label("Hotkeys Paused", size: 11, weight: .medium, color: .black).size().width
+        let detail = DatasheetMenuColors.label("Accessibility", size: 10, weight: .regular, color: .black).size().width
+        XCTAssertLessThanOrEqual(DatasheetMenuRowView.labelX + label + 12 + detail + 14, DatasheetMenuRowView.width)
+    }
+
     /// The menu bar mark (DESIGN.md §10): 21 x 22 template images, the mouth alone, the same width
     /// in every state, the gold tooth hollow; and the menu's mono header row.
     func testMenuBarMarkStatesAndHeader() throws {
