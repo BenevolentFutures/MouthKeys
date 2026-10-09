@@ -5494,6 +5494,25 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         }
     }
 
+    func testInlineOverlayHoverResolvesEachZoneAndNothingOffThem() {
+        for size in SettingsStore.OverlaySize.allCases {
+            for width in [CGFloat(443), 493, 693, 813] {
+                let layout = DatasheetInlineOverlayLayout(geometry: .forSize(size), canvasWidth: width)
+                for battery in [nil, DatasheetMicBattery(percent: 9)] {
+                    let zones = layout.calloutZones(micText: "MacBook Pro Microphone", micBattery: battery)
+                    for zone in zones {
+                        let center = CGPoint(x: zone.frame.midX, y: zone.frame.midY)
+                        XCTAssertEqual(DatasheetCalloutZone.id(at: center, in: zones), zone.id, "\(size) \(width)")
+                    }
+                    // The card band under the pill and the canvas corner answer no zone.
+                    let band = CGPoint(x: width / 2, y: layout.overlayRowHeight * layout.scale + 20)
+                    XCTAssertNil(DatasheetCalloutZone.id(at: band, in: zones))
+                    XCTAssertNil(DatasheetCalloutZone.id(at: CGPoint(x: 1, y: 1), in: zones))
+                }
+            }
+        }
+    }
+
     func testCurrentAndCompletedRowsRenderAtProductionWidthsInBothThemes() throws {
         let states: [(String, DatasheetQuickSetupProgress)] = [
             ("current", self.progress(hotkeyPracticeCount: 0)),
