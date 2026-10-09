@@ -2696,7 +2696,13 @@ struct ContentView: View {
         }
 
         if !didTypeExternally, !shouldShowAIProcessingFailure, !didRequestOverlayHideOnStop {
-            self.hideOverlayAfterOutput()
+            if route == .onboardingSandbox, self.overlayHoldsForOutcome {
+                // Practice ends the way a real dictation does: the overlay states the outcome.
+                self.menuBarManager.releaseOverlayForOutcomeHold()
+                BottomOverlayWindowController.shared.showPracticeOutcome(words: DatasheetOverlayModel.wordCount(finalText))
+            } else {
+                self.hideOverlayAfterOutput()
+            }
         }
     }
 

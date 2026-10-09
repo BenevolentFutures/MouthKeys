@@ -3201,6 +3201,7 @@ enum DatasheetRenderStage {
             DatasheetOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.6))
             DatasheetOverlayModel.shared.freezeSendCountdown()
         }),
+        ("06b-practice", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: nil, words: 4, method: .practice, sentReturn: false)) }),
         ("15-sent", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(placard: .send); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)) }),
         ("19-asrback", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41) }),
         ("19-asrback-hover-reprocess", {
@@ -3564,6 +3565,9 @@ final class DatasheetOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(sent.headline, "Sent to c11")
         XCTAssertEqual(sent.meta, "118 words · Return")
         XCTAssertEqual(DatasheetDelivery(appName: nil, words: 1, method: .paste, sentReturn: false).headline, "Pasted")
+        let practice = DatasheetDelivery(appName: "c11", words: 4, method: .practice, sentReturn: false)
+        XCTAssertEqual(practice.headline, "Heard you", "Practice claims no app: nothing was typed")
+        XCTAssertEqual(practice.meta, "4 words · practice")
         XCTAssertEqual(TypingService.deliveryMethod(for: .clipboardToPID), .paste)
         XCTAssertEqual(TypingService.deliveryMethod(for: .characterByCharacter), .keystrokes)
         XCTAssertEqual(TypingService.deliveryMethod(for: .accessibility), .accessibility)
@@ -5190,8 +5194,8 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
                 }
             }
 
-            for (name, practice, liveWords) in Self.drillStates {
-                let keyView = self.keyScene(practice: practice, liveWords: liveWords, appearance: appearance)
+            for (name, practice, liveWords, nudge) in Self.drillStates {
+                let keyView = self.keyScene(practice: practice, liveWords: liveWords, nudge: nudge, appearance: appearance)
                 let rep = try DatasheetRenderStage.render(keyView, appearance: appearance)
                 XCTAssertGreaterThan(rep.pixelsWide, 0)
                 if let outputFolder {
@@ -5245,24 +5249,40 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
         .datasheetPalette()
     }
 
-    /// One drill per stage, driven through the same transitions the Getting Started view uses.
-    static var drillStates: [(String, DatasheetVoicePractice, String)] {
-        var listening = DatasheetVoicePractice()
+    /// One drill per stage, driven through the same transitions the Getting Started view uses,
+    /// with each hint the drill can show.
+    static var drillStates: [(String, DatasheetVoicePractice, String, DatasheetVoicePractice.Nudge)] {
+        var listening = DatasheetVoicePractice(now: 0)
         listening.practiceStarted()
-        listening.recordingChanged(isRunning: true)
-        var transcribing = listening
-        transcribing.recordingChanged(isRunning: false)
+        listening.recordingChanged(isRunning: true, at: 0)
+        var voiced = listening
+        voiced.audioLevel(0.6, at: 1)
+        var transcribing = voiced
+        transcribing.recordingChanged(isRunning: false, at: 3)
         var heard = transcribing
-        heard.dictationFinished(text: "Testing, one, two, three.")
+        heard.dictationFinished(text: "Testing, one, two, three.", at: 3.5)
         var missed = transcribing
-        missed.dictationFinished(text: "  ")
+        missed.dictationFinished(text: "  ", at: 3.5)
+        var tapped = listening
+        tapped.recordingChanged(isRunning: false, at: 0.2)
+        tapped.dictationFinished(text: "", at: 0.4)
+        var silent = listening
+        silent.recordingChanged(isRunning: false, at: 3)
+        silent.dictationFinished(text: "", at: 3.5)
         return [
-            ("waiting", DatasheetVoicePractice(), ""),
-            ("listening", listening, ""),
-            ("speaking", listening, "Testing, one, two"),
-            ("transcribing", transcribing, ""),
-            ("heard", heard, ""),
-            ("missed", missed, ""),
+            ("waiting", DatasheetVoicePractice(), "", .none),
+            ("wrong-key", DatasheetVoicePractice(), "", .wrongKey("Left ⌘")),
+            ("idle", DatasheetVoicePractice(), "", .idle),
+            ("listening", listening, "", .none),
+            ("silent-mic", listening, "", .silentMic),
+            ("no-words", voiced, "", .noWords),
+            ("speaking", voiced, "Testing, one, two", .none),
+            ("finish", voiced, "Testing, one, two, three", .finish),
+            ("transcribing", transcribing, "", .none),
+            ("heard", heard, "", .none),
+            ("missed", missed, "", .none),
+            ("missed-tap", tapped, "", .none),
+            ("missed-silent", silent, "", .none),
         ]
     }
 
@@ -5270,12 +5290,15 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
         for mode in HotkeyActivationMode.allCases {
             var heights: Set<CGFloat> = []
             for canRecord in [true, false] {
-                for (_, practice, liveWords) in Self.drillStates {
+                for (_, practice, liveWords, nudge) in Self.drillStates {
                     let host = NSHostingView(rootView: DatasheetKeyPracticeReadout(
                         shortcut: "Right ⌥",
                         mode: mode,
                         practice: practice,
                         liveWords: liveWords,
+                        nudge: nudge,
+                        overlayEdge: "bottom",
+                        microphoneName: "MacBook Pro Microphone",
                         canRecord: canRecord,
                         pressKey: {},
                         reset: {},
@@ -5290,7 +5313,12 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
         }
     }
 
-    private func keyScene(practice: DatasheetVoicePractice, liveWords: String, appearance: NSAppearance.Name) -> some View {
+    private func keyScene(
+        practice: DatasheetVoicePractice,
+        liveWords: String,
+        nudge: DatasheetVoicePractice.Nudge,
+        appearance: NSAppearance.Name
+    ) -> some View {
         let isDark = appearance == .darkAqua
         let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
         let scheme: ColorScheme = isDark ? .dark : .light
@@ -5302,6 +5330,9 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
                 mode: .toggle,
                 practice: practice,
                 liveWords: liveWords,
+                nudge: nudge,
+                overlayEdge: "bottom",
+                microphoneName: "MacBook Pro Microphone",
                 canRecord: true,
                 pressKey: {},
                 reset: {},
@@ -5451,6 +5482,71 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         idle.dictationFinished(text: "someone else’s dictation")
         idle.transcriptionTimedOut()
         XCTAssertEqual(idle.stage, .waiting, "Nothing happens before the first press")
+    }
+
+    func testVoicePracticeNamesWhyATryCameBackEmpty() {
+        func tryOnce(voiceAt: TimeInterval?, stopAt: TimeInterval) -> DatasheetVoicePractice.MissReason {
+            var drill = DatasheetVoicePractice(now: 0)
+            drill.practiceStarted()
+            drill.recordingChanged(isRunning: true, at: 0)
+            if let voiceAt { drill.audioLevel(0.6, at: voiceAt) }
+            drill.recordingChanged(isRunning: false, at: stopAt)
+            drill.dictationFinished(text: "", at: stopAt + 0.5)
+            XCTAssertEqual(drill.stage, .missed)
+            return drill.missReason
+        }
+        XCTAssertEqual(tryOnce(voiceAt: nil, stopAt: 0.2), .tooShort, "A tap, not a try")
+        XCTAssertEqual(tryOnce(voiceAt: nil, stopAt: 3), .silentMic)
+        XCTAssertEqual(tryOnce(voiceAt: 1, stopAt: 3), .noWords)
+
+        var quiet = DatasheetVoicePractice(now: 0)
+        quiet.practiceStarted()
+        quiet.recordingChanged(isRunning: true, at: 0)
+        quiet.audioLevel(DatasheetVoicePractice.voiceLevel - 0.01, at: 1)
+        quiet.recordingChanged(isRunning: false, at: 3)
+        quiet.dictationFinished(text: "", at: 3.5)
+        XCTAssertEqual(quiet.missReason, .silentMic, "Room noise below a voice is not a voice")
+    }
+
+    func testVoicePracticeNudgesWhenThePersonIsStuck() {
+        var drill = DatasheetVoicePractice(now: 0)
+        XCTAssertEqual(drill.nudge(at: 7, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 8, wordsStreamLive: true), .idle, "Nothing pressed for a while")
+
+        drill.otherKeyPressed("Left ⌘", at: 9)
+        XCTAssertEqual(drill.nudge(at: 10, wordsStreamLive: true), .wrongKey("Left ⌘"))
+        XCTAssertEqual(drill.nudge(at: 14.5, wordsStreamLive: true), .idle, "The wrong-key hint fades")
+
+        drill.practiceStarted()
+        drill.recordingChanged(isRunning: true, at: 20)
+        drill.otherKeyPressed("Space", at: 20.5)
+        XCTAssertEqual(drill.nudge(at: 21, wordsStreamLive: true), .none, "Keys while recording are not wrong keys")
+        XCTAssertEqual(drill.nudge(at: 24, wordsStreamLive: true), .silentMic, "Recording, and no voice reaches the mic")
+
+        drill.audioLevel(0.6, at: 24.5)
+        XCTAssertEqual(drill.nudge(at: 25, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 26, wordsStreamLive: true), .noWords, "A voice, but no words come through")
+        XCTAssertEqual(drill.nudge(at: 26, wordsStreamLive: false), .none, "Without live words, a voice is all there is to see")
+
+        drill.liveWordsChanged("testing one", at: 26.5)
+        drill.liveWordsChanged("testing one two", at: 27)
+        drill.liveWordsChanged("testing one two", at: 29)
+        XCTAssertEqual(drill.nudge(at: 30.5, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 31, wordsStreamLive: true), .finish, "Words stopped, and the key was not pressed again")
+
+        drill.recordingChanged(isRunning: false, at: 32)
+        XCTAssertEqual(drill.nudge(at: 60, wordsStreamLive: true), .none, "No hints while transcribing")
+        drill.dictationFinished(text: "testing one two", at: 33)
+        XCTAssertEqual(drill.nudge(at: 60, wordsStreamLive: true), .none, "Or once it is done")
+
+        var tryAgain = DatasheetVoicePractice(now: 0)
+        tryAgain.practiceStarted()
+        tryAgain.recordingChanged(isRunning: true, at: 0)
+        tryAgain.recordingChanged(isRunning: false, at: 2)
+        tryAgain.dictationFinished(text: "", at: 3)
+        XCTAssertEqual(tryAgain.nudge(at: 60, wordsStreamLive: true), .none, "A missed try already says what to do")
+        tryAgain.otherKeyPressed("Left ⌥", at: 61)
+        XCTAssertEqual(tryAgain.nudge(at: 61.5, wordsStreamLive: true), .wrongKey("Left ⌥"))
     }
 
     func testPracticeGateTracksVisibilityFocusAndIndependentViewLifetimes() {

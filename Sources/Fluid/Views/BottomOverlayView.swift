@@ -517,6 +517,23 @@ final class BottomOverlayWindowController {
         }
     }
 
+    /// A Getting Started practice dictation was heard: the outcome state, as a real dictation
+    /// shows Pasted, then dismiss. Nothing was typed, and the statement says so.
+    func showPracticeOutcome(words: Int) {
+        guard NotchContentState.shared.isBottomOverlayPresented,
+              !NotchContentState.shared.isBottomOverlayDismissing
+        else { return }
+        self.cancelDeliveryHold()
+        DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(
+            appName: nil,
+            words: words,
+            method: .practice,
+            sentReturn: false
+        ))
+        self.scheduleHoldEnd(after: Self.deliveredHold, reason: "delivered")
+        DebugLogger.shared.info("OVERLAY_OUTCOME shown=practice words=\(words)", source: "BottomOverlay")
+    }
+
     /// A delivery-failure card is about to show for the dictation traced `traceID`. If the overlay
     /// is holding that dictation (waiting for its outcome, or already showing Pasted when a late
     /// Paste Check miss arrives), it gives way at once (a cut), so the card reads as the pill
