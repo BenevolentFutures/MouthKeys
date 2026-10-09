@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Combine
+import CoreAudio
 import CryptoKit
 import Foundation
 import ServiceManagement
@@ -134,11 +135,62 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// How MouthKeys treats a microphone when choosing one on its own.
+    enum MicrophoneTier: String, Codable, CaseIterable, Identifiable {
+        /// Used in order: the first one connected wins.
+        case preferred
+        /// Only when no preferred microphone is connected.
+        case lastResort
+        /// Never chosen, and left out of the overlay's microphone card.
+        case never
+
+        var id: String { self.rawValue }
+
+        /// Selection walks the tiers in this order, and the list is kept grouped by it.
+        var order: Int {
+            switch self {
+            case .preferred: 0
+            case .lastResort: 1
+            case .never: 2
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .preferred: "Preferred"
+            case .lastResort: "Last resort"
+            case .never: "Never"
+            }
+        }
+
+        /// Until the user places a microphone: virtual devices (BlackHole, Loopback, a meeting
+        /// app's audio) are never a microphone, and an iPhone's Continuity mic only shows up
+        /// when the phone is near, so it comes last. Aggregates stay preferred: a lapel set up
+        /// as an aggregate device is a real microphone.
+        static func automatic(transportType: UInt32?) -> MicrophoneTier {
+            switch transportType {
+            case kAudioDeviceTransportTypeVirtual: .never
+            case kAudioDeviceTransportTypeContinuityCaptureWired,
+                 kAudioDeviceTransportTypeContinuityCaptureWireless: .lastResort
+            default: .preferred
+            }
+        }
+    }
+
     struct MicrophonePriorityEntry: Codable, Hashable, Identifiable {
         let uid: String
         var name: String
+        /// Where the user placed it; nil follows the automatic tier.
+        var tier: MicrophoneTier?
+        /// The device's CoreAudio transport type when it was last seen, for the automatic tier
+        /// while it is disconnected.
+        var transportType: UInt32?
 
         var id: String { self.uid }
+
+        var effectiveTier: MicrophoneTier {
+            self.tier ?? MicrophoneTier.automatic(transportType: self.transportType)
+        }
     }
 
     enum DictationPromptSelection: Equatable {
@@ -1803,7 +1855,7 @@ final class SettingsStore: ObservableObject {
             } else {
                 self.defaults.removeObject(forKey: Keys.microphonePriority)
             }
-            if let firstUID = entries.first?.uid {
+            if let firstUID = (entries.first { $0.effectiveTier == .preferred } ?? entries.first)?.uid {
                 self.preferredInputDeviceUID = firstUID
             }
         }
@@ -1857,9 +1909,14 @@ final class SettingsStore: ObservableObject {
         self.suppressedMicrophoneUIDs = suppressedUIDs
 
         var entries = self.microphonePriority.filter { $0.uid != uid }
-        let existingName = self.microphonePriority.first { $0.uid == uid }?.name
+        let existing = self.microphonePriority.first { $0.uid == uid }
         entries.insert(
-            MicrophonePriorityEntry(uid: uid, name: name ?? existingName ?? "Microphone"),
+            MicrophonePriorityEntry(
+                uid: uid,
+                name: name ?? existing?.name ?? "Microphone",
+                tier: .preferred,
+                transportType: existing?.transportType
+            ),
             at: 0
         )
         self.microphonePriority = entries
@@ -1886,21 +1943,28 @@ final class SettingsStore: ObservableObject {
             guard suppressedUIDs.contains(device.uid) == false,
                   knownUIDs.insert(device.uid).inserted
             else { return nil }
-            return MicrophonePriorityEntry(uid: device.uid, name: device.name)
+            return MicrophonePriorityEntry(uid: device.uid, name: device.name, transportType: device.transportType)
         }
-        if newEntries.isEmpty == false {
-            // Keep the user's first choice stable while making a newly connected
-            // microphone the immediate fallback. Its position remains persisted
-            // when the device later disconnects.
-            entries.insert(contentsOf: newEntries, at: min(1, entries.count))
+        // A newly connected microphone joins the end of its tier: it is used when nothing the
+        // user already ranked is connected, and never jumps ahead of their choices. Its place
+        // stays when it disconnects.
+        for entry in newEntries {
+            let tier = entry.effectiveTier
+            let lastInTierOrBefore = entries.lastIndex { $0.effectiveTier.order <= tier.order }
+            entries.insert(entry, at: lastInTierOrBefore.map { $0 + 1 } ?? 0)
         }
 
-        let namesByUID = Dictionary(
-            devices.map { ($0.uid, $0.name) },
+        let devicesByUID = Dictionary(
+            devices.map { ($0.uid, $0) },
             uniquingKeysWith: { current, _ in current }
         )
         entries = entries.map { entry in
-            MicrophonePriorityEntry(uid: entry.uid, name: namesByUID[entry.uid] ?? entry.name)
+            var entry = entry
+            if let device = devicesByUID[entry.uid] {
+                entry.name = device.name
+                entry.transportType = device.transportType
+            }
+            return entry
         }
         self.microphonePriority = entries
     }
@@ -1939,18 +2003,74 @@ final class SettingsStore: ObservableObject {
               let targetIndex = entries.firstIndex(where: { $0.uid == targetUID })
         else { return }
 
-        let entry = entries.remove(at: sourceIndex)
+        var entry = entries.remove(at: sourceIndex)
+        entry.tier = entries[sourceIndex < targetIndex ? targetIndex - 1 : targetIndex].effectiveTier
         let adjustedTargetIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
         entries.insert(entry, at: adjustedTargetIndex)
         self.microphonePriority = entries
     }
 
+    /// Puts a microphone in `tier`, at the end of that tier.
+    func setMicrophoneTier(uid: String, to tier: MicrophoneTier) {
+        var entries = self.microphonePriority
+        guard let index = entries.firstIndex(where: { $0.uid == uid }) else { return }
+        var entry = entries.remove(at: index)
+        entry.tier = tier
+        let lastInTierOrBefore = entries.lastIndex { $0.effectiveTier.order <= tier.order }
+        entries.insert(entry, at: lastInTierOrBefore.map { $0 + 1 } ?? 0)
+        self.microphonePriority = entries
+    }
+
+    /// The tier of a connected device: its entry's, or the automatic one for a device not
+    /// ranked yet.
+    func microphoneTier(for device: AudioDevice.Device) -> MicrophoneTier {
+        self.microphonePriority.first { $0.uid == device.uid }?.effectiveTier
+            ?? MicrophoneTier.automatic(transportType: device.transportType)
+    }
+
+    struct MicrophoneTierGroup: Identifiable {
+        let tier: MicrophoneTier
+        let entries: [MicrophonePriorityEntry]
+
+        var id: MicrophoneTier { self.tier }
+    }
+
+    /// The ranked list grouped by tier, every tier present, in order: what selection walks and
+    /// Settings shows.
+    var microphonePriorityByTier: [MicrophoneTierGroup] {
+        let entries = self.microphonePriority
+        return MicrophoneTier.allCases.map { tier in
+            MicrophoneTierGroup(tier: tier, entries: entries.filter { $0.effectiveTier == tier })
+        }
+    }
+
+    /// Moves a microphone one place. Past the edge of its tier it joins the neighbouring tier.
     func moveMicrophonePriority(uid: String, by offset: Int) {
         var entries = self.microphonePriority
         guard let sourceIndex = entries.firstIndex(where: { $0.uid == uid }) else { return }
         let destination = min(max(sourceIndex + offset, 0), entries.count - 1)
         guard destination != sourceIndex else { return }
-        entries.swapAt(sourceIndex, destination)
+        let neighbourTier = entries[destination].effectiveTier
+        if entries[sourceIndex].effectiveTier != neighbourTier {
+            entries[sourceIndex].tier = neighbourTier
+        } else {
+            entries.swapAt(sourceIndex, destination)
+        }
+        self.microphonePriority = entries
+    }
+
+    /// A drag of one microphone onto another: it takes the target's place (after it when moving
+    /// down, before it when moving up) and the target's tier.
+    func dragMicrophone(uid: String, onto targetUID: String) {
+        guard uid != targetUID else { return }
+        var entries = self.microphonePriority
+        guard let sourceIndex = entries.firstIndex(where: { $0.uid == uid }),
+              let targetIndex = entries.firstIndex(where: { $0.uid == targetUID })
+        else { return }
+        var entry = entries.remove(at: sourceIndex)
+        entry.tier = entries[sourceIndex < targetIndex ? targetIndex - 1 : targetIndex].effectiveTier
+        // After the removal, the target's own index is "after it" moving down, "before it" moving up.
+        entries.insert(entry, at: targetIndex)
         self.microphonePriority = entries
     }
 
@@ -1958,9 +2078,11 @@ final class SettingsStore: ObservableObject {
         _ entries: [MicrophonePriorityEntry]
     ) -> [MicrophonePriorityEntry] {
         var seen = Set<String>()
-        return entries.filter { entry in
+        let unique = entries.filter { entry in
             entry.uid.isEmpty == false && seen.insert(entry.uid).inserted
         }
+        // Grouped by tier, keeping the order within each tier.
+        return MicrophoneTier.allCases.flatMap { tier in unique.filter { $0.effectiveTier == tier } }
     }
 
     var microphoneSelectionMigrationVersion: Int {

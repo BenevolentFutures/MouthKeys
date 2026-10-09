@@ -96,8 +96,11 @@ private final class DictationAIStreamPreviewBuffer {
 
 enum SidebarItem: Hashable {
     case welcome
+    case hotkeys
+    case microphone
     case voiceEngine
     case aiEnhancements
+    /// App Settings: everything Configure has besides Hotkeys and Microphone.
     case preferences
     case meetingTools
     case customDictionary
@@ -341,7 +344,6 @@ struct ContentView: View {
     @State private var selectedProviderID: String = SettingsStore.shared.selectedProviderID
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var datasheetSidebarWidth: CGFloat = 250
-    @State private var microphoneSettingsScrollRequest = 0
 
     var body: some View {
         let layout = AnyView(
@@ -410,7 +412,10 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .settingsBackupDidRestore)) { _ in
                 self.reloadSettingsStateAfterBackupRestore()
             }
-            .onReceive(DatasheetInputReadout.selectedInputUIDChanges(settings: self.settings)) { inputUID in
+            .onReceive(DatasheetInputReadout.selectedInputUIDChanges(
+                settings: self.settings,
+                sessionPickUID: { [coordinator = self.appServices.microphonePreferenceCoordinator] in coordinator.sessionPickUID }
+            )) { inputUID in
                 self.selectedInputUID = inputUID
             }
             .overlay(alignment: .center) {}
@@ -628,7 +633,7 @@ struct ContentView: View {
             // Accessibility is missing, and on the launch that migrated FluidVoice-era data:
             // macOS has granted the new bundle identifier neither permission yet.
             let needsPermissionSetup = !self.accessibilityEnabled || AppIdentityMigration.launchReport?.copiedData == true
-            self.selectedSidebarItem = isOnboarded && !needsPermissionSetup ? .preferences : .welcome
+            self.selectedSidebarItem = isOnboarded && !needsPermissionSetup ? .hotkeys : .welcome
         }
         self.handlePendingAppNavigation()
 
@@ -1050,10 +1055,10 @@ struct ContentView: View {
         case .customDictionary:
             self.selectedSidebarItem = .customDictionary
         case .microphoneSettings:
-            self.selectedSidebarItem = .preferences
-            self.microphoneSettingsScrollRequest &+= 1
+            self.selectedSidebarItem = .microphone
         case .preferences:
-            self.selectedSidebarItem = .preferences
+            // The menu's Settings item opens the first Configure page.
+            self.selectedSidebarItem = .hotkeys
         }
     }
 
@@ -1265,23 +1270,25 @@ struct ContentView: View {
                         .padding(.bottom, 10)
 
                     self.sidebarSectionHeader("Configure")
-                    self.sidebarNavigationRow(.preferences, index: "01", title: "Settings", systemImage: "slider.horizontal.3")
-                    self.sidebarNavigationRow(.voiceEngine, index: "02", title: "Voice Engine", systemImage: "cpu")
-                    self.sidebarNavigationRow(.customDictionary, index: "03", title: "Custom Dictionary", systemImage: "text.book.closed")
+                    self.sidebarNavigationRow(.hotkeys, index: "01", title: "Hotkeys", systemImage: "command")
+                    self.sidebarNavigationRow(.microphone, index: "02", title: "Microphone", systemImage: "mic")
+                    self.sidebarNavigationRow(.voiceEngine, index: "03", title: "Voice Engine", systemImage: "cpu")
+                    self.sidebarNavigationRow(.customDictionary, index: "04", title: "Custom Dictionary", systemImage: "text.book.closed")
+                    self.sidebarNavigationRow(.preferences, index: "05", title: "App Settings", systemImage: "slider.horizontal.3")
 
                     self.sidebarSectionHeader("Use", topSpacing: 10)
-                    self.sidebarNavigationRow(.commandMode, index: "04", title: "Command Mode", systemImage: "terminal")
-                    self.sidebarNavigationRow(.meetingTools, index: "05", title: "File Transcription", systemImage: "doc.text")
+                    self.sidebarNavigationRow(.commandMode, index: "06", title: "Command Mode", systemImage: "terminal")
+                    self.sidebarNavigationRow(.meetingTools, index: "07", title: "File Transcription", systemImage: "doc.text")
 
                     self.sidebarSectionHeader("Activity", topSpacing: 10)
-                    self.sidebarNavigationRow(.history, index: "06", title: "History", systemImage: "clock.arrow.circlepath")
-                    self.sidebarNavigationRow(.stats, index: "07", title: "Stats", systemImage: "chart.bar")
+                    self.sidebarNavigationRow(.history, index: "08", title: "History", systemImage: "clock.arrow.circlepath")
+                    self.sidebarNavigationRow(.stats, index: "09", title: "Stats", systemImage: "chart.bar")
 
                     self.sidebarSectionHeader("Advanced", topSpacing: 10)
-                    self.sidebarNavigationRow(.aiEnhancements, index: "08", title: "AI Enhancement", systemImage: "sparkle")
+                    self.sidebarNavigationRow(.aiEnhancements, index: "10", title: "AI Enhancement", systemImage: "sparkle")
 
                     self.sidebarSectionHeader("Help", topSpacing: 10)
-                    self.sidebarNavigationRow(.feedback, index: "09", title: "Feedback", systemImage: "bubble.left")
+                    self.sidebarNavigationRow(.feedback, index: "11", title: "Feedback", systemImage: "bubble.left")
                 }
                 .padding(.top, 14)
                 .padding(.bottom, 10)
@@ -1344,15 +1351,17 @@ struct ContentView: View {
     private var titleStripRoute: (section: String, index: String, title: String) {
         switch self.selectedSidebarItem ?? .welcome {
         case .welcome: ("Start", "00", "Getting Started")
-        case .preferences: ("Configure", "01", "Settings")
-        case .voiceEngine: ("Configure", "02", "Voice Engine")
-        case .customDictionary: ("Configure", "03", "Custom Dictionary")
-        case .commandMode: ("Use", "04", "Command Mode")
-        case .meetingTools: ("Use", "05", "File Transcription")
-        case .history: ("Activity", "06", "History")
-        case .stats: ("Activity", "07", "Stats")
-        case .aiEnhancements: ("Advanced", "08", "AI Enhancement")
-        case .feedback: ("Help", "09", "Feedback")
+        case .hotkeys: ("Configure", "01", "Hotkeys")
+        case .microphone: ("Configure", "02", "Microphone")
+        case .voiceEngine: ("Configure", "03", "Voice Engine")
+        case .customDictionary: ("Configure", "04", "Custom Dictionary")
+        case .preferences: ("Configure", "05", "App Settings")
+        case .commandMode: ("Use", "06", "Command Mode")
+        case .meetingTools: ("Use", "07", "File Transcription")
+        case .history: ("Activity", "08", "History")
+        case .stats: ("Activity", "09", "Stats")
+        case .aiEnhancements: ("Advanced", "10", "AI Enhancement")
+        case .feedback: ("Help", "11", "Feedback")
         case .rewriteMode: ("Mode", "—", "Rewrite Mode")
         }
     }
@@ -1420,8 +1429,12 @@ struct ContentView: View {
                 activeShortcutRecordingTarget: self.$activeShortcutRecordingTarget,
                 shortcutRecordingMessage: self.$shortcutRecordingMessage
             ))
+        case .hotkeys:
+            return AnyView(self.settingsView(page: .hotkeys))
+        case .microphone:
+            return AnyView(self.settingsView(page: .microphone))
         case .preferences:
-            return AnyView(self.preferencesView)
+            return AnyView(self.settingsView(page: .app))
         case .meetingTools:
             return AnyView(self.meetingToolsView)
         case .customDictionary:
@@ -1597,7 +1610,7 @@ struct ContentView: View {
 
     // MARK: - Preferences View
 
-    private var preferencesView: some View {
+    private func settingsView(page: SettingsPage) -> some View {
         SettingsView(
             microphonePreferenceCoordinator: self.appServices.microphonePreferenceCoordinator,
             appear: self.$appear,
@@ -1631,8 +1644,10 @@ struct ContentView: View {
             restartApp: self.restartApp,
             revealAppInFinder: self.revealAppInFinder,
             openApplicationsFolder: self.openApplicationsFolder,
-            microphoneSettingsScrollRequest: self.microphoneSettingsScrollRequest
+            page: page
         )
+        // One view per page, so each keeps its own scroll position and zone.
+        .id(page)
     }
 
     private var recordingView: some View {
@@ -1646,14 +1661,14 @@ struct ContentView: View {
     private var commandModeView: some View {
         CommandModeView(service: self.commandModeService, onClose: {
             let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            self.selectedSidebarItem = isOnboarded ? .hotkeys : .welcome
         })
     }
 
     private var rewriteModeView: some View {
         RewriteModeView(service: self.rewriteModeService, onClose: {
             let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            self.selectedSidebarItem = isOnboarded ? .hotkeys : .welcome
         })
     }
 
@@ -3959,7 +3974,7 @@ struct ContentView: View {
         if self.selectedSidebarItem == .rewriteMode {
             DebugLogger.shared.debug("Cancel shortcut: closing mode view", source: "ContentView")
             let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-            self.selectedSidebarItem = isOnboarded ? .preferences : .welcome
+            self.selectedSidebarItem = isOnboarded ? .hotkeys : .welcome
             handled = true
         }
 
@@ -4274,7 +4289,7 @@ extension ContentView {
         self.settings.onboardingCompleted = true
 
         let isOnboarded = self.asr.isAsrReady || self.asr.modelsExistOnDisk
-        self.selectedSidebarItem = target ?? (isOnboarded ? .preferences : .welcome)
+        self.selectedSidebarItem = target ?? (isOnboarded ? .hotkeys : .welcome)
     }
 
     private func missingOnboardingCompletionRequirements() -> [String] {

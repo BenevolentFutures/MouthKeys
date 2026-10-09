@@ -119,7 +119,7 @@ struct WelcomeView: View {
                             canRecord: self.canPracticeRecord,
                             pressKey: self.togglePracticeRecording,
                             reset: self.resetVoicePractice,
-                            changeShortcut: { self.selectedSidebarItem = .preferences }
+                            changeShortcut: { self.selectedSidebarItem = .hotkeys }
                         )
                     }
                     .id(self.practiceSectionID)

@@ -61,13 +61,16 @@ final class MicrophonePickerModel: ObservableObject {
 
     private init() {}
 
-    /// Rows from a device list, for the card and its tests.
+    /// Rows from a device list, for the card and its tests. `hiddenUIDs`: microphones ranked
+    /// Never in Settings, which the card leaves out.
     nonisolated static func rows(
         from devices: [AudioDevice.Device],
-        clamshellClosed: Bool
+        clamshellClosed: Bool,
+        hiddenUIDs: Set<String> = []
     ) -> [Row] {
         devices
             .filter { AudioDevice.isPrivateDefaultDeviceAggregate(uid: $0.uid, name: $0.name) == false }
+            .filter { hiddenUIDs.contains($0.uid) == false }
             .map { device in
                 Row(
                     device: device,
@@ -143,7 +146,7 @@ final class MicrophonePickerModel: ObservableObject {
         guard row.isUsable else { return }
         self.observeConfirmationsIfNeeded()
         self.pendingUID = Self.pendingUID(afterPicking: row.id, activeUID: self.activeUID)
-        AppServices.shared.microphonePreferenceCoordinator.pick(row.device, source: "overlay")
+        AppServices.shared.microphonePreferenceCoordinator.pick(row.device, source: "overlay", persist: false)
     }
 
     /// Lists devices off the main thread (CoreAudio can stall while the HAL settles), then
@@ -157,7 +160,9 @@ final class MicrophonePickerModel: ObservableObject {
             let clamshellClosed = ClamshellState.isClosed
             DispatchQueue.main.async { [weak self] in
                 guard let self, generation == self.refreshGeneration else { return }
-                let rows = Self.rows(from: devices, clamshellClosed: clamshellClosed)
+                let settings = SettingsStore.shared
+                let never = Set(devices.filter { settings.microphoneTier(for: $0) == .never }.map(\.uid))
+                let rows = Self.rows(from: devices, clamshellClosed: clamshellClosed, hiddenUIDs: never)
                 if let pendingUID = self.pendingUID, rows.contains(where: { $0.id == pendingUID }) == false {
                     DebugLogger.shared.info(
                         "MIC_PICK vanished uid=\(pendingUID) before capture confirmed it",

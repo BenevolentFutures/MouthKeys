@@ -394,7 +394,7 @@ struct CustomDictionaryView: View {
 
     private var pageHeader: some View {
         DatasheetContentHeader(
-            placard: "03 / Configure",
+            placard: "04 / Configure",
             title: "Custom Dictionary",
             lede: "Correct recurring mistakes and teach the voice engine the words you use."
         ) {
@@ -3060,7 +3060,7 @@ struct EditDictionaryEntrySheet: View {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("03 / CUSTOM DICTIONARY")
+                    Text("04 / CUSTOM DICTIONARY")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .tracking(0.5)
                         .foregroundStyle(self.palette.text2)

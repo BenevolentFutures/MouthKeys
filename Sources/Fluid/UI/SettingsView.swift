@@ -10,6 +10,29 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The Configure pages Settings is split into: each shows its own zones.
+enum SettingsPage: Equatable {
+    case hotkeys
+    case microphone
+    case app
+
+    var index: String {
+        switch self {
+        case .hotkeys: "01"
+        case .microphone: "02"
+        case .app: "05"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .hotkeys: "Hotkeys"
+        case .microphone: "Microphone"
+        case .app: "App Settings"
+        }
+    }
+}
+
 struct SettingsView: View {
     private enum SettingsZone: String, CaseIterable, Identifiable {
         case microphone
@@ -26,21 +49,6 @@ struct SettingsView: View {
         var id: String { self.rawValue }
         var anchor: String { "settings-zone-\(self.rawValue)" }
         var stripAnchor: String { "settings-zone-tab-\(self.rawValue)" }
-
-        var letter: String {
-            switch self {
-            case .microphone: "A"
-            case .hotkeys: "B"
-            case .dictation: "C"
-            case .app: "D"
-            case .history: "E"
-            case .format: "F"
-            case .alerts: "G"
-            case .overlay: "H"
-            case .backup: "I"
-            case .debug: "J"
-            }
-        }
 
         var title: String {
             switch self {
@@ -128,8 +136,7 @@ struct SettingsView: View {
     @State private var draggedMicrophoneUID: String?
     @State private var hoveredMicrophoneUID: String?
     @State private var inputAudioLevel: CGFloat = 0
-    @State private var selectedSettingsZone: SettingsZone = .microphone
-    @State private var lastSettingsScrollRequest = 0
+    @State private var selectedSettingsZone: SettingsZone?
 
     let hotkeyManager: GlobalHotkeyManager?
     let menuBarManager: MenuBarManager
@@ -139,7 +146,7 @@ struct SettingsView: View {
     let restartApp: () -> Void
     let revealAppInFinder: () -> Void
     let openApplicationsFolder: () -> Void
-    let microphoneSettingsScrollRequest: Int
+    let page: SettingsPage
 
     private var isRecordingAnyShortcut: Bool {
         self.activeShortcutRecordingTarget != nil
@@ -276,7 +283,7 @@ struct SettingsView: View {
 
     private func settingsScrollContent(scrollProxy: ScrollViewProxy) -> AnyView {
         let zoneStack = VStack(alignment: .leading, spacing: 0) {
-            DatasheetSheetHeader(placard: "01 / Configure", title: "Settings", lede: "Changes apply as you make them.") {
+            DatasheetSheetHeader(placard: "\(self.page.index) / Configure", title: self.page.title, lede: "Changes apply as you make them.") {
                 HStack(spacing: 8) {
                     DatasheetStatusSquare(kind: .ink)
                     Text("SAVED")
@@ -293,7 +300,7 @@ struct SettingsView: View {
                     // Realize the ten anchors together so scrollTo uses their final
                     // extents rather than estimates for unloaded lazy sections.
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(SettingsZone.allCases) { zone in
+                        ForEach(self.pageZones) { zone in
                             self.settingsZoneContent(zone)
                                 // Section headings already have 34 pt of top spacing.
                                 // Reserve the rest of the pinned strip, including a
@@ -303,7 +310,10 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    self.settingsZoneStrip(scrollProxy: scrollProxy)
+                    // One zone needs no strip to jump between zones.
+                    if self.pageZones.count > 1 {
+                        self.settingsZoneStrip(scrollProxy: scrollProxy)
+                    }
                 }
             }
         }
@@ -316,22 +326,7 @@ struct SettingsView: View {
         let scroll = ScrollView(.vertical) { zoneStack }
             .coordinateSpace(name: "settings-scroll")
             .scrollIndicators(.visible)
-        let appeared = AnyView(scroll.onAppear {
-            self.lastSettingsScrollRequest = self.microphoneSettingsScrollRequest
-            if self.microphoneSettingsScrollRequest > 0 {
-                DispatchQueue.main.async {
-                    scrollProxy.scrollTo(SettingsZone.microphone.anchor, anchor: .top)
-                }
-            }
-        })
-        return AnyView(appeared.onChange(of: self.microphoneSettingsScrollRequest) { _, request in
-            guard request > 0, request != self.lastSettingsScrollRequest else { return }
-            self.lastSettingsScrollRequest = request
-            self.selectedSettingsZone = .microphone
-            withAnimation(self.accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                scrollProxy.scrollTo(SettingsZone.microphone.anchor, anchor: .top)
-            }
-        })
+        return AnyView(scroll)
     }
 
     private func initializeSettings() {
@@ -712,6 +707,20 @@ private extension SettingsView {
 }
 
 private extension SettingsView {
+    private var pageZones: [SettingsZone] {
+        switch self.page {
+        case .hotkeys: [.hotkeys]
+        case .microphone: [.microphone]
+        case .app: [.dictation, .app, .history, .format, .alerts, .overlay, .backup, .debug]
+        }
+    }
+
+    /// Zones are lettered within their page: A, B, C...
+    private func letter(for zone: SettingsZone) -> String {
+        let index = self.pageZones.firstIndex(of: zone) ?? 0
+        return String(UnicodeScalar(UInt8(65 + index)))
+    }
+
     private func settingsZoneContent(_ zone: SettingsZone) -> AnyView {
         switch zone {
         case .microphone: AnyView(self.microphoneSettingsZone)
@@ -730,8 +739,8 @@ private extension SettingsView {
     func settingsZoneStrip(scrollProxy: ScrollViewProxy) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
-                ForEach(SettingsZone.allCases) { zone in
-                    let isSelected = self.selectedSettingsZone == zone
+                ForEach(self.pageZones) { zone in
+                    let isSelected = (self.selectedSettingsZone ?? self.pageZones.first) == zone
                     DatasheetBracketed(rest: false) {
                         Button {
                             self.selectedSettingsZone = zone
@@ -740,7 +749,7 @@ private extension SettingsView {
                             }
                         } label: {
                             HStack(spacing: 7) {
-                                Text(zone.letter)
+                                Text(self.letter(for: zone))
                                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 Text(zone.shortLabel)
                                     .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -754,7 +763,7 @@ private extension SettingsView {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(zone.letter), \(zone.title)")
+                        .accessibilityLabel("\(self.letter(for: zone)), \(zone.title)")
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
@@ -855,7 +864,7 @@ private extension SettingsView {
 
     var microphoneSettingsZone: some View {
         DatasheetSection(
-            letter: "A",
+            letter: self.letter(for: .microphone),
             title: "Microphone",
             trailing: self.asr.isRunning ? "RECORDING" : nil,
             note: self.asr.isRunning ? "During a recording, output selection is unavailable and microphone priority is locked." : nil
@@ -1107,21 +1116,37 @@ private extension SettingsView {
                     Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
                 }
 
-                if self.settings.microphonePriority.isEmpty {
-                    HStack(spacing: 8) {
-                        DatasheetStatusSquare(kind: .outline)
-                        Text(self.inputDevices.isEmpty ? "No microphones available" : "No microphones in priority")
-                            .font(.system(size: 13))
-                            .foregroundStyle(self.datasheetPalette.text2)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 48)
-                } else {
-                    ForEach(Array(self.settings.microphonePriority.enumerated()), id: \.element.uid) { index, entry in
-                        self.settingsMicrophonePriorityRow(entry, rank: index + 1)
-                        if index < self.settings.microphonePriority.count - 1 {
-                            Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
+                // Every tier always shows, empty or not, so the table keeps its shape.
+                let groups = self.settings.microphonePriorityByTier
+                let rankedCount = groups.filter { $0.tier != .never }.map(\.entries.count).reduce(0, +)
+                ForEach(groups) { group in
+                    self.settingsMicrophoneTierHeader(group.tier)
+                    if group.entries.isEmpty {
+                        HStack(spacing: 10) {
+                            Color.clear.frame(width: 18, height: 1)
+                            Text("—")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .frame(width: 26, alignment: .trailing)
+                            Text(group.tier == .never ? "None. Microphones here are never used." : "None")
+                                .font(.system(size: 13))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(self.datasheetPalette.textDim)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 40)
+                    } else {
+                        let offset = group.tier == .lastResort
+                            ? groups.first { $0.tier == .preferred }?.entries.count ?? 0
+                            : 0
+                        ForEach(Array(group.entries.enumerated()), id: \.element.uid) { index, entry in
+                            self.settingsMicrophonePriorityRow(
+                                entry,
+                                rank: group.tier == .never ? nil : offset + index + 1,
+                                rankedCount: rankedCount
+                            )
+                            if index < group.entries.count - 1 {
+                                Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1)
+                            }
                         }
                     }
                 }
@@ -1129,7 +1154,7 @@ private extension SettingsView {
             .background(self.datasheetPalette.surface)
             .overlay { Rectangle().strokeBorder(self.datasheetPalette.edge, lineWidth: 1) }
 
-            Text("MouthKeys tries microphones from top to bottom. Drag to reorder. Unavailable devices keep their place. This order does not change the macOS input.")
+            Text("MouthKeys uses the first connected microphone under Preferred, then under Last resort. Microphones under Never are never used and stay out of the overlay's microphone card. Drag to reorder or to move one between groups. A newly connected microphone joins the end of its group: virtual devices start under Never, an iPhone under Last resort. Picking one in the overlay uses it until it disconnects. This order does not change the macOS input.")
                 .font(.system(size: 13))
                 .lineSpacing(2)
                 .foregroundStyle(self.datasheetPalette.text2)
@@ -1147,12 +1172,39 @@ private extension SettingsView {
         }
     }
 
+    func settingsMicrophoneTierHeader(_ tier: SettingsStore.MicrophoneTier) -> some View {
+        let note = switch tier {
+        case .preferred: "used in order"
+        case .lastResort: "only when nothing preferred is connected"
+        case .never: "never used"
+        }
+        return HStack(spacing: 8) {
+            Text(tier.title.uppercased())
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.6)
+                .foregroundStyle(self.datasheetPalette.text)
+            Text(note)
+                .font(.system(size: 11))
+                .foregroundStyle(self.datasheetPalette.text2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 30)
+        .background(self.datasheetPalette.sidebar)
+        .overlay(alignment: .top) { Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(self.datasheetPalette.ruleSoft).frame(height: 1) }
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// `rank`: nil under Never, which is not part of the order.
     func settingsMicrophonePriorityRow(
         _ entry: SettingsStore.MicrophonePriorityEntry,
-        rank: Int
+        rank: Int?,
+        rankedCount: Int
     ) -> some View {
         let connectedDevice = self.inputDevices.first { $0.uid == entry.uid }
         let isAvailable = connectedDevice.map { self.microphonePreferenceCoordinator.isInputDeviceAvailable($0) } ?? false
+        let tier = entry.effectiveTier
         let isActive = entry.uid == self.microphonePreferenceCoordinator.confirmedActiveInputUID && isAvailable
         let isHovered = self.hoveredMicrophoneUID == entry.uid
         let battery = isActive ? self.overlayModel.micBattery?.percent : nil
@@ -1180,7 +1232,7 @@ private extension SettingsView {
                 .allowsHitTesting(!self.isMicrophonePriorityEditingDisabled)
                 .accessibilityHidden(true)
 
-            Text(String(format: "%02d", rank))
+            Text(rank.map { String(format: "%02d", $0) } ?? "—")
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(self.datasheetPalette.text2)
                 .frame(width: 26, alignment: .trailing)
@@ -1193,9 +1245,11 @@ private extension SettingsView {
 
             Spacer(minLength: 8)
 
+            self.settingsMicrophoneTierMenu(entry, tier: tier)
+
             HStack(spacing: 6) {
-                DatasheetStatusSquare(kind: isActive ? .orange : (isAvailable ? .ink : .outline))
-                Text(isActive ? "ACTIVE" : (isAvailable ? "STANDBY" : "UNAVAILABLE"))
+                DatasheetStatusSquare(kind: isActive ? .orange : (isAvailable && tier != .never ? .ink : .outline))
+                Text(isActive ? "ACTIVE" : (!isAvailable ? "UNAVAILABLE" : (tier == .never ? "NOT USED" : "STANDBY")))
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .tracking(0.4)
                     .foregroundStyle(self.datasheetPalette.text2)
@@ -1263,21 +1317,26 @@ private extension SettingsView {
                 self.settings.moveMicrophonePriority(uid: entry.uid, by: 1)
                 self.refreshActiveInputSelection()
             }
-            .disabled(self.isMicrophonePriorityEditingDisabled || rank == self.settings.microphonePriority.count)
+            .disabled(self.isMicrophonePriorityEditingDisabled || entry.uid == self.settings.microphonePriority.last?.uid)
+            Divider()
+            ForEach(SettingsStore.MicrophoneTier.allCases) { option in
+                Button("Move to \(option.title)") { self.setMicrophoneTier(entry, option) }
+                    .disabled(self.isMicrophonePriorityEditingDisabled || option == tier)
+            }
             Divider()
             Button("Remove from Priority", role: .destructive) { self.removeMicrophonePriorityEntry(entry) }
                 .disabled(self.isMicrophonePriorityEditingDisabled)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Priority \(rank), \(entry.name)")
+        .accessibilityLabel(rank.map { "\(tier.title) \($0), \(entry.name)" } ?? "\(tier.title), \(entry.name)")
         .accessibilityValue(isActive ? "Active" : (isAvailable ? "Available" : "Unavailable"))
         .accessibilityAction(named: "Move up") {
-            guard !self.isMicrophonePriorityEditingDisabled, rank > 1 else { return }
+            guard !self.isMicrophonePriorityEditingDisabled, rank != 1 else { return }
             self.settings.moveMicrophonePriority(uid: entry.uid, by: -1)
             self.refreshActiveInputSelection()
         }
         .accessibilityAction(named: "Move down") {
-            guard !self.isMicrophonePriorityEditingDisabled, rank < self.settings.microphonePriority.count else { return }
+            guard !self.isMicrophonePriorityEditingDisabled, entry.uid != self.settings.microphonePriority.last?.uid else { return }
             self.settings.moveMicrophonePriority(uid: entry.uid, by: 1)
             self.refreshActiveInputSelection()
         }
@@ -1287,9 +1346,55 @@ private extension SettingsView {
         }
     }
 
+    func setMicrophoneTier(_ entry: SettingsStore.MicrophonePriorityEntry, _ tier: SettingsStore.MicrophoneTier) {
+        guard !self.isMicrophonePriorityEditingDisabled else { return }
+        withAnimation(self.accessibilityReduceMotion ? nil : .easeInOut(duration: 0.16)) {
+            self.settings.setMicrophoneTier(uid: entry.uid, to: tier)
+        }
+        self.refreshActiveInputSelection()
+    }
+
+    /// The row's group, as a compact menu of fixed width.
+    func settingsMicrophoneTierMenu(
+        _ entry: SettingsStore.MicrophonePriorityEntry,
+        tier: SettingsStore.MicrophoneTier
+    ) -> some View {
+        Menu {
+            ForEach(SettingsStore.MicrophoneTier.allCases) { option in
+                Button {
+                    self.setMicrophoneTier(entry, option)
+                } label: {
+                    if option == tier { Label(option.title, systemImage: "checkmark") } else { Text(option.title) }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(tier.title.uppercased())
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .tracking(0.3)
+            .foregroundStyle(self.datasheetPalette.text)
+            .padding(.horizontal, 7)
+            .frame(width: 104, height: 24)
+            .background(self.datasheetPalette.field)
+            .overlay { Rectangle().strokeBorder(self.datasheetPalette.edge, lineWidth: 1) }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(self.isMicrophonePriorityEditingDisabled)
+        .help("Where MouthKeys ranks \(entry.name)")
+        .accessibilityLabel("Group for \(entry.name): \(tier.title)")
+    }
+
     var inputDevicePicker: some View {
         let availableDevices = self.inputDevices.filter {
-            self.microphonePreferenceCoordinator.isInputDeviceAvailable($0)
+            self.microphonePreferenceCoordinator.isInputDeviceAvailable($0) &&
+                self.settings.microphoneTier(for: $0) != .never
         }
         let selectedDevice = availableDevices.first { $0.uid == self.selectedInputUID }
         return DatasheetPicker(
@@ -1303,7 +1408,7 @@ private extension SettingsView {
                 ForEach(availableDevices, id: \.uid) { device in
                     Button {
                         self.selectedInputUID = device.uid
-                        self.microphonePreferenceCoordinator.pick(device, source: "settings")
+                        self.microphonePreferenceCoordinator.pick(device, source: "settings", persist: true)
                     } label: {
                         if device.uid == self.selectedInputUID {
                             Label(device.name, systemImage: "checkmark")
@@ -1346,7 +1451,7 @@ private extension SettingsView {
     }
 
     var hotkeysSettingsZone: some View {
-        DatasheetSection(letter: "B", title: "Hotkeys", note: "Configure shortcuts and recover Accessibility access. Changes apply as you make them.") {
+        DatasheetSection(letter: self.letter(for: .hotkeys), title: "Hotkeys", note: "Configure shortcuts and recover Accessibility access. Changes apply as you make them.") {
             VStack(spacing: 0) {
                 DatasheetRow(
                     label: "Accessibility",
@@ -1603,7 +1708,7 @@ private extension SettingsView {
     }
 
     var dictationSettingsZone: some View {
-        DatasheetSection(letter: "C", title: "Dictation", note: "Controls for text delivery and spoken commands.") {
+        DatasheetSection(letter: self.letter(for: .dictation), title: "Dictation", note: "Controls for text delivery and spoken commands.") {
             VStack(spacing: 0) {
                 self.sheetToggleRow(
                     "Copy to Clipboard",
@@ -1731,7 +1836,7 @@ private extension SettingsView {
     }
 
     var appSettingsZone: some View {
-        DatasheetSection(letter: "D", title: "App", note: "Startup, window presence, and local sound cues.") {
+        DatasheetSection(letter: self.letter(for: .app), title: "App", note: "Startup, window presence, and local sound cues.") {
             VStack(spacing: 0) {
                 self.sheetToggleRow(
                     "Launch at startup",
@@ -1822,7 +1927,7 @@ private extension SettingsView {
     }
 
     var historySettingsZone: some View {
-        DatasheetSection(letter: "E", title: "History & Privacy", note: "History and saved audio stay on this Mac. MouthKeys sends no analytics or telemetry.") {
+        DatasheetSection(letter: self.letter(for: .history), title: "History & Privacy", note: "History and saved audio stay on this Mac. MouthKeys sends no analytics or telemetry.") {
             VStack(spacing: 0) {
                 self.sheetToggleRow(
                     "Save Transcription History",
@@ -1917,7 +2022,7 @@ private extension SettingsView {
     }
 
     var formatSettingsZone: some View {
-        DatasheetSection(letter: "F", title: "Text Formatting") {
+        DatasheetSection(letter: self.letter(for: .format), title: "Text Formatting") {
             VStack(spacing: 0) {
                 self.sheetToggleRow("Lowercase First Letter", help: "Start each transcription with a lowercase letter.", isOn: Binding(get: { self.settings.gaavLowercaseFirstLetterEnabled }, set: { self.settings.gaavLowercaseFirstLetterEnabled = $0 }))
                 self.sheetToggleRow("Remove Trailing Period", help: "Drop a final period from transcriptions.", isOn: Binding(get: { self.settings.gaavRemoveTrailingPeriodEnabled }, set: { self.settings.gaavRemoveTrailingPeriodEnabled = $0 }))
@@ -1929,7 +2034,7 @@ private extension SettingsView {
     }
 
     var alertSettingsZone: some View {
-        DatasheetSection(letter: "G", title: "Notifications") {
+        DatasheetSection(letter: self.letter(for: .alerts), title: "Notifications") {
             VStack(spacing: 0) {
                 self.sheetToggleRow("AI Enhancement Failures", help: "Notify when AI Enhancement fails and raw transcription is typed.", isOn: Binding(get: { self.settings.notifyAIProcessingFailures }, set: { self.settings.notifyAIProcessingFailures = $0 }))
                 self.sheetToggleRow(
@@ -1999,7 +2104,7 @@ private extension SettingsView {
     }
 
     var overlaySettingsZone: some View {
-        DatasheetSection(letter: "H", title: "Overlay", note: self.asr.isRunning ? "Only the existing output-device and microphone-priority restrictions apply during a recording." : nil) {
+        DatasheetSection(letter: self.letter(for: .overlay), title: "Overlay", note: self.asr.isRunning ? "Only the existing output-device and microphone-priority restrictions apply during a recording." : nil) {
             VStack(spacing: 0) {
                 self.sensitivitySettingsRow
                 DatasheetRow(
@@ -2085,7 +2190,7 @@ private extension SettingsView {
     }
 
     var backupSettingsZone: some View {
-        DatasheetSection(letter: "I", title: "Backup & Restore", note: "Export or import settings, prompt profiles, history, and stats. API keys are excluded.") {
+        DatasheetSection(letter: self.letter(for: .backup), title: "Backup & Restore", note: "Export or import settings, prompt profiles, history, and stats. API keys are excluded.") {
             VStack(spacing: 0) {
                 DatasheetRow(
                     label: "Settings, prompt profiles, history and stats",
@@ -2102,7 +2207,7 @@ private extension SettingsView {
     }
 
     var debugSettingsZone: some View {
-        DatasheetSection(letter: "J", title: "Debug", note: "File logs are always collected for diagnostics.") {
+        DatasheetSection(letter: self.letter(for: .debug), title: "Debug", note: "File logs are always collected for diagnostics.") {
             VStack(spacing: 0) {
                 self.sheetToggleRow(
                     "Show Debug Logs in App",
@@ -2145,16 +2250,9 @@ private struct MicrophonePriorityDropDelegate: DropDelegate {
               draggedUID != self.targetUID
         else { return }
 
-        let entries = self.settings.microphonePriority
-        guard let sourceIndex = entries.firstIndex(where: { $0.uid == draggedUID }),
-              let targetIndex = entries.firstIndex(where: { $0.uid == self.targetUID })
-        else { return }
-
         withAnimation(self.reorderAnimation) {
-            self.settings.reorderMicrophonePriority(
-                fromOffsets: IndexSet(integer: sourceIndex),
-                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-            )
+            // Takes the target's place and its group, so a drag also moves between groups.
+            self.settings.dragMicrophone(uid: draggedUID, onto: self.targetUID)
         }
     }
 

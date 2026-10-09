@@ -99,7 +99,7 @@ extension AIEnhancementSettingsView {
 
     var aiConfigurationCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DatasheetContentHeader(placard: "08 / Advanced", title: "AI Enhancement") {
+            DatasheetContentHeader(placard: "10 / Advanced", title: "AI Enhancement") {
                 DatasheetSegmented(
                     selection: self.$selectedConfigurationSection,
                     choices: [

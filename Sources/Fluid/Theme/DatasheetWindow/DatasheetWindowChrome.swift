@@ -146,12 +146,14 @@ private final class DatasheetMainWindowSplit: NSSplitView {
 }
 
 enum DatasheetInputReadout {
+    /// The microphone in use after each pick: an overlay pick held for now, else the first ranked.
     static func selectedInputUIDChanges(
         settings: SettingsStore,
+        sessionPickUID: @escaping () -> String? = { nil },
         notificationCenter: NotificationCenter = .default
     ) -> AnyPublisher<String, Never> {
         notificationCenter.publisher(for: .microphonePickDidChange)
-            .map { _ in settings.preferredInputDeviceUID ?? "" }
+            .map { _ in sessionPickUID() ?? settings.preferredInputDeviceUID ?? "" }
             .eraseToAnyPublisher()
     }
 

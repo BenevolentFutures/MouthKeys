@@ -1771,7 +1771,7 @@ final class HotkeyShortcutTests: XCTestCase {
             )
             let announced = expectation(forNotification: .microphonePickDidChange, object: nil, notificationCenter: center)
 
-            coordinator.pick(lapel, source: "test")
+            coordinator.pick(lapel, source: "test", persist: true)
 
             wait(for: [announced], timeout: 2)
             XCTAssertEqual(SettingsStore.shared.microphonePriority.map(\.uid), ["lapel", "internal"])
@@ -1812,7 +1812,7 @@ final class HotkeyShortcutTests: XCTestCase {
                 notificationCenter: center
             )
 
-            coordinator.pick(lapelMic, source: "test")
+            coordinator.pick(lapelMic, source: "test", persist: true)
 
             XCTAssertEqual(readoutUID, lapelMic.uid)
             XCTAssertEqual(
@@ -2530,7 +2530,7 @@ final class HotkeyShortcutTests: XCTestCase {
         }
     }
 
-    func testNewMicrophoneEntersSecondAndStaysAfterDisconnecting() throws {
+    func testNewMicrophoneJoinsTheEndOfItsGroupAndStaysAfterDisconnecting() throws {
         try self.withRestoredDefaults(keys: [
             self.preferredInputDeviceUIDKey,
             self.microphonePriorityKey,
@@ -2552,18 +2552,166 @@ final class HotkeyShortcutTests: XCTestCase {
                 [airPods.uid, builtIn.uid]
             )
 
+            // Never ahead of the user's choices: the end of Preferred.
             SettingsStore.shared.reconcileMicrophonePriority(with: [builtIn, usb])
             XCTAssertEqual(
                 SettingsStore.shared.microphonePriority.map(\.uid),
-                [airPods.uid, usb.uid, builtIn.uid]
+                [airPods.uid, builtIn.uid, usb.uid]
             )
 
             SettingsStore.shared.reconcileMicrophonePriority(with: [builtIn])
             XCTAssertEqual(
                 SettingsStore.shared.microphonePriority.map(\.uid),
-                [airPods.uid, usb.uid, builtIn.uid]
+                [airPods.uid, builtIn.uid, usb.uid]
             )
         }
+    }
+
+    @MainActor
+    func testMicrophoneTiersPickPreferredThenLastResortAndNeverAVirtualDevice() throws {
+        try self.withRestoredDefaults(keys: [
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let lapel = Self.device(uid: "lapel", name: "Hollyland Lapel Mic", transportType: kAudioDeviceTransportTypeAggregate)
+            let builtIn = Self.device(uid: "internal", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn)
+            let phone = Self.device(uid: "phone", name: "Hoplite17 Microphone", transportType: kAudioDeviceTransportTypeContinuityCaptureWired)
+            let blackHole = Self.device(uid: "bh", name: "BlackHole 2ch", transportType: kAudioDeviceTransportTypeVirtual)
+            let settings = SettingsStore.shared
+            settings.suppressedMicrophoneUIDs = []
+            settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            // Stored the way an older version left it: no tiers, the phone and BlackHole ranked high.
+            settings.microphonePriority = [
+                .init(uid: blackHole.uid, name: blackHole.name, transportType: blackHole.transportType),
+                .init(uid: phone.uid, name: phone.name, transportType: phone.transportType),
+                .init(uid: lapel.uid, name: lapel.name, transportType: lapel.transportType),
+                .init(uid: builtIn.uid, name: builtIn.name, transportType: builtIn.transportType),
+            ]
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "phone", "bh"], "Grouped by tier")
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+            XCTAssertEqual(settings.preferredInputDeviceUID, "lapel", "The first preferred, never a virtual device")
+
+            let devices = FakeAudioDeviceManager(inputs: [], defaultInputUID: blackHole.uid)
+            let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
+            func pick(_ connected: [AudioDevice.Device]) -> String? {
+                coordinator.inputDeviceForCapture(availableInputs: connected, defaultInputUID: blackHole.uid)?.uid
+            }
+            XCTAssertEqual(pick([blackHole, phone, builtIn, lapel]), "lapel")
+            XCTAssertEqual(pick([blackHole, phone, builtIn]), "internal")
+            XCTAssertEqual(pick([blackHole, phone]), "phone", "Last resort only when nothing preferred is connected")
+            XCTAssertNil(pick([blackHole]), "Never is never chosen, even as the macOS default")
+
+            // A device MouthKeys has not ranked yet follows its automatic tier too.
+            let loopback = Self.device(uid: "loop", name: "Loopback Audio", transportType: kAudioDeviceTransportTypeVirtual)
+            XCTAssertNil(coordinator.inputDeviceForCapture(availableInputs: [loopback], defaultInputUID: loopback.uid))
+
+            // The user's placement wins over the automatic one.
+            settings.setMicrophoneTier(uid: phone.uid, to: .preferred)
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "phone", "bh"])
+            XCTAssertEqual(pick([phone, builtIn]), "internal")
+            settings.setMicrophoneTier(uid: builtIn.uid, to: .never)
+            XCTAssertEqual(pick([phone, builtIn]), "phone")
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "phone", "bh", "internal"], "Joins the end of Never")
+        }
+    }
+
+    @MainActor
+    func testNewlyConnectedMicrophonesStartInTheirAutomaticGroup() throws {
+        try self.withRestoredDefaults(keys: [
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+        ]) {
+            let lapel = Self.device(uid: "lapel", name: "Hollyland Lapel Mic", transportType: kAudioDeviceTransportTypeAggregate)
+            let phone = Self.device(uid: "phone", name: "Hoplite17 Microphone", transportType: kAudioDeviceTransportTypeContinuityCaptureWireless)
+            let blackHole = Self.device(uid: "bh", name: "BlackHole 64ch", transportType: kAudioDeviceTransportTypeVirtual)
+            let usb = Self.device(uid: "usb", name: "USB Microphone", transportType: kAudioDeviceTransportTypeUSB)
+            let settings = SettingsStore.shared
+            settings.suppressedMicrophoneUIDs = []
+            settings.microphonePriority = [.init(uid: lapel.uid, name: lapel.name, tier: .preferred)]
+
+            settings.reconcileMicrophonePriority(with: [blackHole, phone, lapel, usb])
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "usb", "phone", "bh"])
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+            XCTAssertEqual(settings.microphonePriority.first { $0.uid == "bh" }?.transportType, kAudioDeviceTransportTypeVirtual,
+                           "The transport is kept, so the group holds while the device is away")
+            settings.reconcileMicrophonePriority(with: [lapel])
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+        }
+    }
+
+    @MainActor
+    func testOverlayPickHoldsUntilTheMicrophoneDisconnectsAndLeavesTheOrderAlone() throws {
+        try self.withRestoredDefaults(keys: [
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionModeKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let lapel = Self.device(uid: "lapel", name: "Hollyland Lapel Mic", transportType: kAudioDeviceTransportTypeAggregate)
+            let builtIn = Self.device(uid: "internal", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn)
+            let settings = SettingsStore.shared
+            settings.suppressedMicrophoneUIDs = []
+            settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            settings.microphonePriority = [
+                .init(uid: lapel.uid, name: lapel.name),
+                .init(uid: builtIn.uid, name: builtIn.name),
+            ]
+            let devices = FakeAudioDeviceManager(inputs: [lapel, builtIn], defaultInputUID: lapel.uid)
+            let center = NotificationCenter()
+            let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices, notificationCenter: center)
+
+            coordinator.pick(builtIn, source: "test", persist: false)
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel, builtIn])?.uid, "internal")
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal"], "The ranked order is untouched")
+            XCTAssertEqual(settings.preferredInputDeviceUID, "lapel")
+
+            // It disconnects: back to the order, and a reconnect does not revive the pick.
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel])?.uid, "lapel")
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel, builtIn])?.uid, "lapel")
+            XCTAssertNil(coordinator.sessionPickUID)
+
+            // From Settings, a pick ranks it first for good.
+            coordinator.pick(builtIn, source: "test", persist: true)
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["internal", "lapel"])
+        }
+    }
+
+    @MainActor
+    func testMicrophonesMoveBetweenGroupsByDragAndByOnePlace() throws {
+        try self.withRestoredDefaults(keys: [self.preferredInputDeviceUIDKey, self.microphonePriorityKey]) {
+            let settings = SettingsStore.shared
+            settings.microphonePriority = [
+                .init(uid: "a", name: "A", tier: .preferred),
+                .init(uid: "b", name: "B", tier: .preferred),
+                .init(uid: "c", name: "C", tier: .lastResort),
+                .init(uid: "d", name: "D", tier: .never),
+            ]
+            func order() -> String {
+                settings.microphonePriority.map { "\($0.uid)\($0.effectiveTier == .preferred ? "P" : $0.effectiveTier == .lastResort ? "L" : "N")" }
+                    .joined(separator: " ")
+            }
+            settings.moveMicrophonePriority(uid: "b", by: 1)
+            XCTAssertEqual(order(), "aP bL cL dN", "Down past its group's edge joins the next group, first in it")
+            settings.moveMicrophonePriority(uid: "b", by: -1)
+            XCTAssertEqual(order(), "aP bP cL dN")
+            settings.dragMicrophone(uid: "a", onto: "d")
+            XCTAssertEqual(order(), "bP cL dN aN", "Dragged down onto a row: after it, in its group")
+            settings.dragMicrophone(uid: "a", onto: "b")
+            XCTAssertEqual(order(), "aP bP cL dN", "Dragged up onto a row: before it, in its group")
+        }
+    }
+
+    func testMicrophoneCardLeavesOutNeverMicrophones() {
+        let devices = [
+            Self.device(uid: "lapel", name: "Hollyland Lapel Mic"),
+            Self.device(uid: "bh", name: "BlackHole 2ch", transportType: kAudioDeviceTransportTypeVirtual),
+        ]
+        let rows = MicrophonePickerModel.rows(from: devices, clamshellClosed: false, hiddenUIDs: ["bh"])
+        XCTAssertEqual(rows.map(\.id), ["lapel"])
     }
 
     @MainActor
