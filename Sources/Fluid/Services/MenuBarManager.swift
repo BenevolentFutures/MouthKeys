@@ -805,9 +805,12 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
         self.headerView?.stateText = state
         self.headerView?.isLive = live
-        // Start and Stop are the same length, so the row never shifts.
+        // The label is left-aligned and the keycap right-anchored, so the row never shifts.
+        // This runs every second while the menu is open: set only what changed.
         let toggleTitle = live ? "Stop Dictation" : "Start Dictation"
-        self.toggleDictationMenuItem?.title = toggleTitle
+        if self.toggleDictationMenuItem?.title != toggleTitle {
+            self.toggleDictationMenuItem?.title = toggleTitle
+        }
         self.toggleDictationRow?.label = toggleTitle
         self.toggleDictationRow?.recordMark = live
         let shortcut = SettingsStore.shared.primaryDictationShortcutDisplayString
@@ -815,7 +818,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.toggleDictationRow?.detail = shortcut.isEmpty ? .none : .keycap(shortcut)
         if let pausedItem = self.hotkeysPausedMenuItem {
             let tapState = AccessibilityTrustMonitor.shared.hotkeyTapState
-            pausedItem.isHidden = !tapState.isPausedForPermission
+            if pausedItem.isHidden == tapState.isPausedForPermission {
+                pausedItem.isHidden = !tapState.isPausedForPermission
+            }
             self.hotkeysPausedRow?.detail = .text(tapState == .failedTrusted ? "Relaunch" : "Accessibility")
         }
     }
@@ -846,6 +851,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             }
             RunLoop.main.add(timer, forMode: .common)
             self.headerRefreshTimer = timer
+        }
+    }
+
+    /// Arrow keys move the highlight without the pointer: redraw the rows so the invert follows.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard menu === self.menu else { return }
+        for row in menu.items.compactMap({ $0.view as? DatasheetMenuRowView }) {
+            row.needsDisplay = true
         }
     }
 

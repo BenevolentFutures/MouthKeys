@@ -317,11 +317,15 @@ final class DatasheetMenuRowView: NSView {
         self.needsDisplay = true
     }
 
-    /// A view-backed item does not fire on its own: close the menu, then send the item's action.
+    /// A view-backed item does not fire on its own: close the menu, then send the item's action
+    /// on the next turn, once the menu is gone (Settings… raises a window).
     override func mouseUp(with event: NSEvent) {
         guard let item = self.enclosingMenuItem, item.isEnabled, let menu = item.menu else { return }
         menu.cancelTracking()
-        menu.performActionForItem(at: menu.index(of: item))
+        DispatchQueue.main.async {
+            let index = menu.index(of: item)
+            if index >= 0 { menu.performActionForItem(at: index) }
+        }
     }
 }
 

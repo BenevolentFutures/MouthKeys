@@ -840,18 +840,6 @@ final class BottomOverlayWindowController {
         return SettingsStore.shared.microphonePriority.first?.name ?? ""
     }
 
-    /// The microphone to name in the mic row: the one capture resolved last, else the first in the
-    /// priority list, else the system default input.
-    static func currentMicrophoneName() -> String {
-        if let name = AppServices.shared.microphonePreferenceCoordinator.lastResolvedMicrophoneName, !name.isEmpty {
-            return name
-        }
-        if let name = SettingsStore.shared.microphonePriority.first?.name, !name.isEmpty {
-            return name
-        }
-        return AudioDevice.getDefaultInputDevice()?.name ?? ""
-    }
-
     func refreshSizeForContent() {
         self.scheduleSizeAndPositionUpdate()
     }
