@@ -1177,6 +1177,13 @@ private struct DatasheetCalloutCopy: Identifiable {
         .init(id: "app", title: "Target App", description: "Where the text will paste"),
         .init(id: "mic", title: "Microphone", description: "The microphone, with the lapel’s battery"),
     ]
+
+    /// Shown while nothing is hovered, so the diagram says it can be explored.
+    static let resting = DatasheetCalloutCopy(
+        id: "resting",
+        title: "Hover to explore",
+        description: "Point at any part of the overlay to see what it does."
+    )
 }
 
 struct DatasheetCalloutZone: Identifiable {
@@ -1220,7 +1227,39 @@ struct DatasheetInlineOverlayLayout {
     }
 
     func outlineStyle(for id: String, activeCallout: String?) -> StrokeStyle {
-        StrokeStyle(lineWidth: 1, dash: activeCallout == id ? [] : [3, 3])
+        StrokeStyle(lineWidth: 1, dash: activeCallout == id ? [] : [2, 3])
+    }
+
+    static let cardMaxWidth: CGFloat = 264
+    static let cardInset: CGFloat = 12
+    /// From the bottom of the overlay row to the top of the explanation card.
+    static let cardGap: CGFloat = 20
+    /// The band under the overlay row: the gap and a two-line card.
+    static let cardBand: CGFloat = 82
+
+    var rowBottom: CGFloat {
+        self.overlayRowHeight * self.scale
+    }
+
+    func cardWidth(canvasWidth: CGFloat) -> CGFloat {
+        min(Self.cardMaxWidth, max(0, canvasWidth - 2 * Self.cardInset))
+    }
+
+    /// The leader from a part straight down to the card's top edge. It is drawn behind the
+    /// overlay, so it passes under the chip or pill content below the part and shows only
+    /// between the overlay and the card; a dot on top marks the part.
+    func leader(for zone: DatasheetCalloutZone, cardTop: CGFloat) -> [CGPoint] {
+        let rect = zone.frame
+        return [CGPoint(x: rect.midX, y: rect.maxY + 3), CGPoint(x: rect.midX, y: cardTop)]
+    }
+
+    /// The card's left edge: under where the leader lands, kept inside the canvas, so the leader
+    /// meets the card's top edge. nil (no part) centres it.
+    func cardX(leaderX: CGFloat?, canvasWidth: CGFloat) -> CGFloat {
+        let width = self.cardWidth(canvasWidth: canvasWidth)
+        guard let leaderX else { return (canvasWidth - width) / 2 }
+        let maxX = canvasWidth - Self.cardInset - width
+        return min(max(leaderX - width / 2, Self.cardInset), max(Self.cardInset, maxX))
     }
 
     private var pillHeight: CGFloat { self.geometry.pillHeight }
@@ -1341,7 +1380,15 @@ struct DatasheetInlineOverlayPreview: View {
         GeometryReader { proxy in
             let layout = DatasheetInlineOverlayLayout(geometry: self.geometry, canvasWidth: proxy.size.width)
             let zones = layout.calloutZones(micText: self.micText, micBattery: self.model.micBattery)
+            let activeZone = zones.first { $0.id == self.visibleCallout }
+            let cardTop = layout.rowBottom + DatasheetInlineOverlayLayout.cardGap
+            let leader = activeZone.map { layout.leader(for: $0, cardTop: cardTop) } ?? []
             ZStack(alignment: .topLeading) {
+                // Behind the overlay: it disappears under whatever lies below the part.
+                Path { path in path.addLines(leader) }
+                    .stroke(self.palette.text2, lineWidth: 1)
+                    .allowsHitTesting(false)
+
                 self.composition
                     .frame(width: layout.compositionWidth, height: self.overlayRowHeight, alignment: .top)
                     .scaleEffect(layout.scale, anchor: .topLeading)
@@ -1352,10 +1399,13 @@ struct DatasheetInlineOverlayPreview: View {
                     )
                     .offset(x: layout.originX)
 
+                // At rest the parts are only hinted; the one under the pointer takes a quiet solid
+                // outline in ink (the accent stays the overlay's own: record square, write head).
                 ForEach(zones) { zone in
+                    let isActive = zone.id == self.visibleCallout
                     Rectangle()
                         .stroke(
-                            self.palette.accent,
+                            isActive ? self.palette.text2 : self.palette.ruleSoft,
                             style: layout.outlineStyle(for: zone.id, activeCallout: self.visibleCallout)
                         )
                         .frame(width: zone.frame.width + 6, height: zone.frame.height + 6)
@@ -1363,30 +1413,23 @@ struct DatasheetInlineOverlayPreview: View {
                         .allowsHitTesting(false)
                 }
 
-                if let id = self.visibleCallout,
-                   let zone = zones.first(where: { $0.id == id }),
-                   let copy = DatasheetCalloutCopy.all.first(where: { $0.id == id }) {
-                    let rect = zone.frame
-                    self.calloutLeader(from: rect, canvas: proxy.size)
-                        .stroke(self.palette.text2, lineWidth: 1)
-                        .allowsHitTesting(false)
+                let copy = activeZone.flatMap { zone in DatasheetCalloutCopy.all.first { $0.id == zone.id } }
+                    ?? DatasheetCalloutCopy.resting
+                let cardWidth = layout.cardWidth(canvasWidth: proxy.size.width)
+                let cardX = layout.cardX(leaderX: leader.last?.x, canvasWidth: proxy.size.width)
 
+                if let start = leader.first {
                     Rectangle()
                         .fill(self.palette.text)
                         .frame(width: 3, height: 3)
-                        .position(x: rect.midX, y: rect.maxY)
-                        .allowsHitTesting(false)
-
-                    self.calloutCard(copy)
-                        .frame(width: min(280, proxy.size.width - 24), alignment: .leading)
-                        .position(
-                            x: rect.midX < proxy.size.width / 2
-                                ? 12 + min(140, proxy.size.width / 2 - 12)
-                                : proxy.size.width - 12 - min(140, proxy.size.width / 2 - 12),
-                            y: self.overlayRowHeight + 36
-                        )
+                        .position(start)
                         .allowsHitTesting(false)
                 }
+
+                self.calloutCard(copy, isResting: activeZone == nil)
+                    .frame(width: cardWidth, alignment: .topLeading)
+                    .offset(x: cardX, y: cardTop)
+                    .allowsHitTesting(false)
 
                 // One hover surface for the canvas, resolved to the zone under the pointer. A per-zone
                 // `.onHover` placed after `.position` tracks the whole canvas, so the last zone (mic)
@@ -1404,7 +1447,7 @@ struct DatasheetInlineOverlayPreview: View {
             }
         }
         // Reserve the same teaching/card band across width and hover changes.
-        .frame(height: self.overlayRowHeight + 58)
+        .frame(height: self.overlayRowHeight + DatasheetInlineOverlayLayout.cardBand)
         .datasheetPalette()
     }
 
@@ -1530,32 +1573,23 @@ struct DatasheetInlineOverlayPreview: View {
         .allowsHitTesting(false)
     }
 
-    private func calloutCard(_ callout: DatasheetCalloutCopy) -> some View {
+    /// The card fills its fixed width, so the leader always lands on its top edge.
+    private func calloutCard(_ callout: DatasheetCalloutCopy, isResting: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(callout.title.uppercased())
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .tracking(0.6)
-                .foregroundStyle(self.palette.text)
+                .foregroundStyle(isResting ? self.palette.text2 : self.palette.text)
             Text(callout.description)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(self.palette.text2)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(self.palette.surface)
-        .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-    }
-
-    private func calloutLeader(from rect: CGRect, canvas: CGSize) -> Path {
-        var path = Path()
-        let origin = CGPoint(x: rect.midX, y: rect.maxY)
-        let elbowY = min(canvas.height - 48, self.overlayRowHeight + 8)
-        let isLeft = rect.midX < canvas.width / 2
-        let endX = isLeft ? 12 : canvas.width - 12
-        path.move(to: origin)
-        path.addLine(to: CGPoint(x: origin.x, y: elbowY))
-        path.addLine(to: CGPoint(x: endX, y: elbowY))
-        return path
+        .overlay(Rectangle().stroke(isResting ? self.palette.ruleSoft : self.palette.edge, lineWidth: 1))
     }
 }

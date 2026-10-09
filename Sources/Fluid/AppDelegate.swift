@@ -40,6 +40,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), TypingService.axMessagingTimeoutSeconds)
         // Bring up file logging + crash handlers immediately during launch.
         _ = FileLogger.shared
+        // The overlay can show before the main window does: the theme applies from launch.
+        AppAppearance.apply(SettingsStore.shared.themePreference)
         // Resolve the layout's Cmd+V key before any paste request can arrive.
         TypingService.startKeyboardLayoutTracking()
         // Load the history now (decoding thousands of entries takes a while), not inside the
