@@ -101,7 +101,7 @@ The one flourish. Four L marks sit **outside** a box's corners, a gap clear of t
 | Pill | 3 pt (bottom gap measured from the drop rule) | 10 pt | pointer over the pill itself (not the rails, their gutter or the empty chip slot), **only while SEND shows** (a click cancels the Return) |
 | Chip | 2 pt | 6 pt | pointer over that chip |
 | Card button, notice action | 2 pt | 6 pt | pointer over that button |
-| Menu bar mark | inside its 22 × 16 box | 4 pt | pointer over the item, or menu open |
+| Menu bar mark | inside its 15 × 16 box | 4 pt | pointer over the item, or menu open |
 
 Rules: stroke 1.5 pt in `bracket` over a 1 pt `halo` in the surface colour (without the halo, ink marks vanish over a dark terminal in light mode). Never drawn at rest, never orange, never animated except a 60 ms linear fade in and out. One bracket at a time: over a chip or the card, the pill's hides, because the 6 pt gutter cannot hold two. Brackets never change layout or hit-testing. The window keeps a transparent margin around the visible content so they are not clipped: 6 pt on the top and sides (gap 3 + stroke 1.5 + halo 1 = 5.5) and 8 pt at the bottom, where the bracket also clears the 2 pt drop rule (7.5). The margin paints nothing, so clicks there reach the app beneath.
 
@@ -154,7 +154,7 @@ Chip glyphs and SF Symbols: History `clock.arrow.circlepath`, Copy `doc.on.doc`,
 
 ## 10. Menu bar
 
-A 22 × 16 template mark: the grin at rest (four square-ended teeth a jaw, the bite smiling, §17); the grin plus a solid square while listening (the lower jaw opens with the level at 8 Hz) and during the Spoken Send countdown (jaw still); the grin, jaw closed, plus an outlined square while transcribing. The width never changes. The mark never changes while a dictation's stop pipeline runs (a status item image change is a WindowServer round trip on the paste's path): a slow final pass keeps the listening mark until the text is handed off, and the outlined square shows for work outside that pipeline (a reprocess, AI refinement). Hover draws the bracket inside the box. The menu is a plain `NSMenu` with a mono uppercase header: Start Dictation ⌥Space, the current microphone (submenu), History…, Settings…, Quit MouthKeys.
+A 15 × 16 template mark, the mouth alone (Atin, 2026-10-09: no status square): four square-ended teeth a jaw, the bite smiling (§17), the third lower tooth hollow. While listening the lower jaw opens with the level at 8 Hz (still during the Spoken Send countdown); otherwise it is closed. The width never changes. The mark never changes while a dictation's stop pipeline runs (a status item image change is a WindowServer round trip on the paste's path): a slow final pass keeps the listening mark until the text is handed off. Hover draws the bracket inside the box. The menu is a plain `NSMenu` with a mono uppercase header: Start Dictation ⌥Space, the current microphone (submenu), History…, Settings…, Quit MouthKeys.
 
 ## 11. Native mapping (the load-bearing parts)
 
@@ -288,4 +288,4 @@ The rename to MouthKeys gave the icon a joke to tell. The trace is already mirro
 
 `scripts/make_app_icon.swift` writes every slot of `AppIcon.appiconset` (Core Graphics, no dependencies).
 
-**Menu bar mark.** A template image cannot be orange, so the gold tooth stays on the app icon and the mark keeps the shipping state grammar with the grin in place of the bars. Four teeth a jaw, 2 pt wide on a 3 pt pitch from x 2: upper teeth hang from y 2 to the bite at 7 (the outer two to 6), lower teeth start at 8 (the outer two at 7), 4 and 3 pt tall. The status square sits at x 15, 6 × 6, exactly as before: absent at rest, solid while listening and counting down, outlined (1.5 pt) while transcribing. While listening the lower jaw drops by `DatasheetMenuBarMark.listeningJaw`: 1 pt while the voice is on, 2 pt on the louder half of the range, closed once the voice has been off past the 250 ms hangover, sampled at the existing 8 Hz. The hover bracket is unchanged.
+**Menu bar mark.** A template image cannot be orange, so the gold tooth is drawn hollow in the mark (a 0.5 pt edge inside its rect) and stays orange on the app icon. Since 2026-10-09 the mark is the mouth alone, 15 × 16, with no status square; the jaw is the only live cue. Four teeth a jaw, 2 pt wide on a 3 pt pitch from x 2: upper teeth hang from y 2 to the bite at 7 (the outer two to 6), lower teeth start at 8 (the outer two at 7), 4 and 3 pt tall. While listening the lower jaw drops by `DatasheetMenuBarMark.listeningJaw`: 1 pt while the voice is on, 2 pt on the louder half of the range, closed once the voice has been off past the 250 ms hangover, sampled at the existing 8 Hz. The hover bracket draws inside the 15 × 16 box.
