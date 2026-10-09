@@ -2595,7 +2595,7 @@ final class HotkeyShortcutTests: XCTestCase {
 
             let devices = FakeAudioDeviceManager(inputs: [], defaultInputUID: blackHole.uid)
             let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
-            func pick(_ connected: [AudioDevice.Device]) -> String? {
+            @MainActor func pick(_ connected: [AudioDevice.Device]) -> String? {
                 coordinator.inputDeviceForCapture(availableInputs: connected, defaultInputUID: blackHole.uid)?.uid
             }
             XCTAssertEqual(pick([blackHole, phone, builtIn, lapel]), "lapel")
@@ -2690,7 +2690,7 @@ final class HotkeyShortcutTests: XCTestCase {
                 .init(uid: "c", name: "C", tier: .lastResort),
                 .init(uid: "d", name: "D", tier: .never),
             ]
-            func order() -> String {
+            @MainActor func order() -> String {
                 settings.microphonePriority.map { "\($0.uid)\($0.effectiveTier == .preferred ? "P" : $0.effectiveTier == .lastResort ? "L" : "N")" }
                     .joined(separator: " ")
             }
