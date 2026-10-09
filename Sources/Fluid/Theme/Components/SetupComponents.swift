@@ -163,41 +163,22 @@ enum DatasheetSetupStepStatus: Equatable {
     case later
 }
 
-enum DatasheetQuickSetupFourthStep: Equatable {
-    case pending
-    case shortcutPracticed
-    case voiceValidated
-}
-
 struct DatasheetQuickSetupProgress: Equatable {
     let modelReady: Bool
     let microphoneAuthorized: Bool
     let accessibilityEnabled: Bool
-    let hotkeyPracticeCount: Int
-    let hotkeyPracticeIsDown: Bool
-    let fourthStep: DatasheetQuickSetupFourthStep
+    let voiceValidated: Bool
 
     init(
         modelReady: Bool,
         microphoneAuthorized: Bool,
         accessibilityEnabled: Bool,
-        hotkeyPracticeCount: Int,
-        hotkeyPracticeIsDown: Bool = false,
         playgroundValidated: Bool
     ) {
         self.modelReady = modelReady
         self.microphoneAuthorized = microphoneAuthorized
         self.accessibilityEnabled = accessibilityEnabled
-        self.hotkeyPracticeCount = hotkeyPracticeCount
-        self.hotkeyPracticeIsDown = hotkeyPracticeIsDown
-
-        if playgroundValidated {
-            self.fourthStep = .voiceValidated
-        } else if modelReady, microphoneAuthorized, accessibilityEnabled, hotkeyPracticeCount >= 3, !hotkeyPracticeIsDown {
-            self.fourthStep = .shortcutPracticed
-        } else {
-            self.fourthStep = .pending
-        }
+        self.voiceValidated = playgroundValidated
     }
 
     var completedSteps: [Bool] {
@@ -205,7 +186,7 @@ struct DatasheetQuickSetupProgress: Equatable {
             self.modelReady,
             self.microphoneAuthorized,
             self.accessibilityEnabled,
-            self.fourthStep != .pending,
+            self.voiceValidated,
         ]
     }
 
@@ -213,15 +194,24 @@ struct DatasheetQuickSetupProgress: Equatable {
         self.completedSteps.filter { $0 }.count
     }
 
-    var voiceValidated: Bool {
-        self.fourthStep == .voiceValidated
-    }
-
     var currentIndex: Int? {
         self.completedSteps.firstIndex(of: false)
     }
 }
 
+extension Notification.Name {
+    /// Posted when a dictation starts as Getting Started practice (decided at start).
+    static let datasheetPracticeDictationStarted = Notification.Name("DatasheetPracticeDictationStarted")
+    /// Posted when Esc throws a practice dictation away.
+    static let datasheetPracticeDictationCancelled = Notification.Name("DatasheetPracticeDictationCancelled")
+    /// Posted when a dictation routed into the Getting Started drill (or the onboarding
+    /// playground) finishes, whether or not it produced text. `ASRService.finalText` holds the
+    /// result.
+    static let datasheetPracticeDictationFinished = Notification.Name("DatasheetPracticeDictationFinished")
+}
+
+/// While Getting Started is open and in front, dictation runs as practice: the text lands in the
+/// drill and the Playground, never in another app, the clipboard or history.
 @MainActor
 enum DatasheetQuickSetupPracticeGate {
     private static var activeTokens = Set<UUID>()
@@ -244,8 +234,8 @@ struct DatasheetQuickSetupPracticeGateLease {
     private let token = UUID()
     private(set) var isArmed = false
 
-    mutating func update(monitorIsArmed: Bool, applicationIsActive: Bool) {
-        guard monitorIsArmed, applicationIsActive else {
+    mutating func update(isVisible: Bool, applicationIsActive: Bool) {
+        guard isVisible, applicationIsActive else {
             self.release()
             return
         }
@@ -261,55 +251,215 @@ struct DatasheetQuickSetupPracticeGateLease {
     }
 }
 
-/// Welcome's modifier drill owns the physical chord until its first configured key release.
-/// The shared decision remains pure; no global hotkey or recorder state is changed here.
-struct DatasheetPracticeModifierPress {
-    private var activeShortcut: HotkeyShortcut?
-    private var interrupted = false
-
-    mutating func interrupt() {
-        if self.activeShortcut != nil { self.interrupted = true }
+/// The Getting Started drill: press the dictation key, say something, press it again (or let go
+/// in Hold mode). It follows the real recording, so the user learns the real flow.
+struct DatasheetVoicePractice: Equatable {
+    enum Stage: Equatable {
+        case waiting
+        case listening
+        case transcribing
+        case heard(String)
+        case missed
     }
 
-    mutating func update(
-        shortcut: HotkeyShortcut,
-        keyCode: UInt16,
-        modifiers: NSEvent.ModifierFlags,
-        pressedKeys: Set<UInt16>
-    ) -> ModifierOnlyShortcutFlagsDecision.Outcome {
-        let relevantFlags = modifiers.intersection(HotkeyShortcut.relevantModifierMask)
-        let physicalFlags = pressedKeys.reduce(into: NSEvent.ModifierFlags()) { flags, code in
-            if let flag = HotkeyShortcut.modifierFlag(forKeyCode: code) { flags.insert(flag) }
+    /// Why a try came back empty, so the retry says what to change.
+    enum MissReason: Equatable {
+        /// The recording stopped almost as soon as it started (a tap in Hold mode, a double press).
+        case tooShort
+        /// The microphone never picked up a voice.
+        case silentMic
+        /// Sound came through, but no words did.
+        case noWords
+    }
+
+    /// A hint while the drill waits on the person.
+    enum Nudge: Equatable {
+        case none
+        /// Another key went down and no practice started.
+        case wrongKey(String)
+        /// Nothing has happened for a while.
+        case idle
+        /// Recording, but the microphone hears no voice.
+        case silentMic
+        /// Recording and hearing sound, but no words come through.
+        case noWords
+        /// They spoke, then went quiet without stopping.
+        case finish
+    }
+
+    private struct WrongKey: Equatable {
+        let name: String
+        let at: TimeInterval
+    }
+
+    /// An audio level (0...1, linear in dB from -55 dBFS) that counts as a voice: about -47 dBFS.
+    /// Low on purpose: a quiet lapel must never be told it is silent; a noisy room only loses
+    /// the hint.
+    static let voiceLevel: CGFloat = 0.15
+    static let idleAfter: TimeInterval = 8
+    static let silentMicAfter: TimeInterval = 4
+    static let noWordsAfter: TimeInterval = 6
+    static let finishAfter: TimeInterval = 4
+    static let wrongKeyShownFor: TimeInterval = 5
+    /// A recording shorter than this was a tap, not a try.
+    static let shortestTry: TimeInterval = 0.6
+
+    static var now: TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    private(set) var stage: Stage = .waiting
+    private(set) var missReason: MissReason = .noWords
+    /// A practice dictation was announced and its capture has not started yet.
+    private var awaitingCapture = false
+    private var stageStartedAt: TimeInterval
+    private var listenedFor: TimeInterval = 0
+    private var lastVoiceAt: TimeInterval?
+    private var lastWordsAt: TimeInterval?
+    private var lastWords = ""
+    private var wrongKey: WrongKey?
+
+    init(now: TimeInterval = DatasheetVoicePractice.now) {
+        self.stageStartedAt = now
+    }
+
+    var heardText: String? {
+        if case let .heard(text) = self.stage { return text }
+        return nil
+    }
+
+    /// Only dictations announced as practice move the drill; one into another app leaves it be.
+    mutating func practiceStarted() {
+        self.awaitingCapture = true
+    }
+
+    mutating func recordingChanged(isRunning: Bool, at now: TimeInterval = DatasheetVoicePractice.now) {
+        if isRunning {
+            guard self.awaitingCapture else { return }
+            self.awaitingCapture = false
+            self.wrongKey = nil
+            self.listenedFor = 0
+            self.lastVoiceAt = nil
+            self.lastWordsAt = nil
+            self.lastWords = ""
+            self.enter(.listening, at: now)
+        } else if self.stage == .listening {
+            self.listenedFor = now - self.stageStartedAt
+            self.enter(.transcribing, at: now)
         }
-        var ownedShortcut = self.activeShortcut ?? shortcut
-        // A flag-only chord accepts either side. Once armed, retain the actual physical owners
-        // so a sibling holding the same aggregate flag cannot hide the owning key's release.
-        if self.activeShortcut == nil, shortcut.normalizedModifierKeyCodes.isEmpty,
-           relevantFlags == shortcut.expectedModifierFlags, physicalFlags == relevantFlags {
-            ownedShortcut = HotkeyShortcut(
-                keyCode: shortcut.keyCode,
-                modifierFlags: shortcut.modifierFlags,
-                modifierKeyCodes: Array(pressedKeys)
-            )
+    }
+
+    /// The live microphone level while recording.
+    mutating func audioLevel(_ level: CGFloat, at now: TimeInterval = DatasheetVoicePractice.now) {
+        guard self.stage == .listening, level >= Self.voiceLevel else { return }
+        // Half a second is fine enough for the hints, and spares a redraw on every level.
+        if let lastVoiceAt, now - lastVoiceAt < 0.5 { return }
+        self.lastVoiceAt = now
+    }
+
+    /// The live transcript while recording.
+    mutating func liveWordsChanged(_ words: String, at now: TimeInterval = DatasheetVoicePractice.now) {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard self.stage == .listening, !trimmed.isEmpty, trimmed != self.lastWords else { return }
+        self.lastWords = trimmed
+        self.lastWordsAt = now
+    }
+
+    /// A key that is not the dictation key went down while the drill waits for it.
+    mutating func otherKeyPressed(_ name: String, at now: TimeInterval = DatasheetVoicePractice.now) {
+        switch self.stage {
+        case .waiting, .missed:
+            self.wrongKey = WrongKey(name: name, at: now)
+        case .listening, .transcribing, .heard:
+            break
         }
-        let decision = ModifierOnlyShortcutFlagsDecision.evaluate(
-            shortcut: ownedShortcut,
-            holdModeType: .transcription,
-            isEnabled: self.activeShortcut != nil
-                || (relevantFlags == ownedShortcut.expectedModifierFlags && physicalFlags == relevantFlags),
-            keyCode: keyCode,
-            modifiers: modifiers,
-            state: ModifierOnlyShortcutTrackingState(
-                pressedModifierKeyCodes: pressedKeys,
-                activeModifierOnlyType: self.activeShortcut == nil ? nil : .transcription,
-                activeModifierOnlyShortcut: self.activeShortcut,
-                otherKeyPressedDuringModifier: self.interrupted,
-                isModeKeyPressed: self.activeShortcut != nil
-            )
-        )
-        self.activeShortcut = decision.activeModifierOnlyShortcut
-        self.interrupted = decision.otherKeyPressedDuringModifier
-        return decision.outcome
+    }
+
+    mutating func practiceCancelled(at now: TimeInterval = DatasheetVoicePractice.now) {
+        self.awaitingCapture = false
+        switch self.stage {
+        case .listening, .transcribing: self.enter(.waiting, at: now)
+        case .waiting, .heard, .missed: break
+        }
+    }
+
+    /// A late result after a timeout still counts.
+    mutating func dictationFinished(text: String, at now: TimeInterval = DatasheetVoicePractice.now) {
+        // The result can arrive before the view hears that recording stopped.
+        if self.stage == .listening {
+            self.listenedFor = now - self.stageStartedAt
+        }
+        switch self.stage {
+        case .listening, .transcribing, .missed:
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                if self.listenedFor < Self.shortestTry {
+                    self.missReason = .tooShort
+                } else {
+                    self.missReason = self.lastVoiceAt == nil ? .silentMic : .noWords
+                }
+                self.enter(.missed, at: now)
+            } else {
+                self.enter(.heard(trimmed), at: now)
+            }
+        case .waiting, .heard:
+            break
+        }
+    }
+
+    /// No result came back (the dictation was cancelled): offer another try.
+    mutating func transcriptionTimedOut(at now: TimeInterval = DatasheetVoicePractice.now) {
+        guard self.stage == .transcribing else { return }
+        self.missReason = self.lastVoiceAt == nil ? .silentMic : .noWords
+        self.enter(.missed, at: now)
+    }
+
+    mutating func reset(at now: TimeInterval = DatasheetVoicePractice.now) {
+        self.awaitingCapture = false
+        self.wrongKey = nil
+        self.enter(.waiting, at: now)
+    }
+
+    /// The hint to show now. `wordsStreamLive`: the voice model shows words while recording, so
+    /// a voice without words, and a stop after the last word, can be told apart.
+    func nudge(at now: TimeInterval = DatasheetVoicePractice.now, wordsStreamLive: Bool) -> Nudge {
+        let elapsed = now - self.stageStartedAt
+        switch self.stage {
+        case .waiting, .missed:
+            if let wrongKey, now - wrongKey.at < Self.wrongKeyShownFor {
+                return .wrongKey(wrongKey.name)
+            }
+            return self.stage == .waiting && elapsed >= Self.idleAfter ? .idle : .none
+        case .listening:
+            // With live words, finishing needs words; a voice alone keeps the clock running, so a
+            // stalled preview mid-sentence never says "Done?".
+            let lastSpokeAt = wordsStreamLive
+                ? self.lastWordsAt.map { max($0, self.lastVoiceAt ?? $0) }
+                : self.lastVoiceAt
+            if let lastSpokeAt {
+                return now - lastSpokeAt >= Self.finishAfter ? .finish : .none
+            }
+            if self.lastVoiceAt == nil {
+                return elapsed >= Self.silentMicAfter ? .silentMic : .none
+            }
+            return wordsStreamLive && elapsed >= Self.noWordsAfter ? .noWords : .none
+        case .transcribing, .heard:
+            return .none
+        }
+    }
+
+    /// Steps done on the PRESS · SPEAK · STOP meter. Speaking counts once words arrive.
+    func completedMeterSteps(liveWordsHeard: Bool) -> Int {
+        switch self.stage {
+        case .waiting, .missed: 0
+        case .listening: liveWordsHeard ? 2 : 1
+        case .transcribing, .heard: 3
+        }
+    }
+
+    private mutating func enter(_ stage: Stage, at now: TimeInterval) {
+        self.stage = stage
+        self.stageStartedAt = now
     }
 }
 
@@ -331,7 +481,6 @@ struct DatasheetQuickSetupReadout: View {
     let steps: [DatasheetSetupStep]
     let completedCount: Int
     let readyShortcut: String
-    var voiceValidated = true
     var recoveryHint: AccessibilityHint = .none
     var conflictingCopies: [URL] = []
     var openAccessibilitySettings: () -> Void = {}
@@ -397,45 +546,26 @@ struct DatasheetQuickSetupReadout: View {
         .overlay(Rectangle().stroke(self.palette.rule, lineWidth: 1))
     }
 
-    @ViewBuilder
     private var completionFooter: some View {
-        if self.voiceValidated {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(self.palette.text)
-                    .frame(width: 56)
-                Text("You’re set. Press")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(self.palette.text)
-                Text(self.readyShortcut)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(self.palette.text)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(self.palette.field)
-                    .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-                Text("anywhere and start talking.")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(self.palette.text)
-                Spacer(minLength: 0)
-            }
-        } else {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(self.palette.text)
-                    .frame(width: 56)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Shortcut practiced.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(self.palette.text)
-                    Text("Test voice transcription in the Playground.")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(self.palette.text2)
-                }
-                Spacer(minLength: 0)
-            }
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(self.palette.text)
+                .frame(width: 56)
+            Text("You’re set. Press")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(self.palette.text)
+            Text(self.readyShortcut)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(self.palette.text)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(self.palette.field)
+                .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
+            Text("anywhere and start talking.")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(self.palette.text)
+            Spacer(minLength: 0)
         }
     }
 
@@ -730,52 +860,169 @@ struct DatasheetAccessibilityRecoveryRow: View {
 }
 
 struct DatasheetKeyPracticeReadout: View {
-    private static let practiceDetailVariants = [
-        "You can change this in Settings at any time.",
-        "Press Reset to practice your shortcut.",
-        "The Option key right of the space bar. Press and let go, three times.",
-        "Press and let go, three times. Use the keycap if needed.",
-    ]
-
     let shortcut: String
     let mode: HotkeyActivationMode
-    let pressCount: Int
-    let isPracticing: Bool
-    let isDown: Bool
-    let practicePress: () -> Void
+    let practice: DatasheetVoicePractice
+    /// Words streaming in while the key is live; empty for models that only transcribe at the end.
+    let liveWords: String
+    let nudge: DatasheetVoicePractice.Nudge
+    /// Where the recording overlay sits: "bottom" or "top".
+    let overlayEdge: String
+    /// The overlay shows words as they arrive (Settings: streaming preview).
+    var overlayShowsWords = true
+    let microphoneName: String
+    /// The voice model and the microphone are ready, so a press can record.
+    let canRecord: Bool
+    let pressKey: () -> Void
     let reset: () -> Void
     let changeShortcut: () -> Void
 
     @Environment(\.datasheetPalette) private var palette
 
+    private var isListening: Bool {
+        self.practice.stage == .listening
+    }
+
+    private var liveWordsHeard: Bool {
+        self.isListening && !self.liveWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var startVerb: String {
+        self.mode == .hold ? "Hold" : "Press"
+    }
+
+    private var stopStepTitle: String {
+        self.mode == .hold ? "Let go" : "Press again"
+    }
+
+    private var micLabel: String {
+        let name = self.microphoneName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "your microphone" : name
+    }
+
     private var practiceHeadline: String {
-        self.pressCount >= 3 ? "That’s your key." : "Press \(self.shortcut) now"
+        guard self.canRecord else { return "Finish the steps above first" }
+        switch self.practice.stage {
+        case .waiting:
+            return "\(self.startVerb) \(self.shortcut) to start"
+        case .listening:
+            guard self.liveWordsHeard || self.nudge == .finish else { return "Say something" }
+            return self.mode == .hold ? "Now let go" : "Now press \(self.shortcut) again"
+        case .transcribing:
+            return "Transcribing…"
+        case .heard:
+            return "That’s the flow."
+        case .missed:
+            return "Didn’t catch that."
+        }
+    }
+
+    /// A nudge replaces the step's detail and takes the accent, so it reads as a correction.
+    private var showsNudge: Bool {
+        self.canRecord && self.nudge != .none
     }
 
     private var practiceDetail: String {
-        if self.pressCount >= 3 { return "You can change this in Settings at any time." }
-        if !self.isPracticing { return "Press Reset to practice your shortcut." }
-        return self.shortcut == "Right ⌥"
-            ? "The Option key right of the space bar. Press and let go, three times."
-            : "Press and let go, three times. Use the keycap if needed."
+        if self.showsNudge { return self.nudgeText(self.nudge) }
+        return self.detail(
+            for: self.canRecord ? self.practice.stage : nil,
+            missReason: self.practice.missReason,
+            liveWordsHeard: self.liveWordsHeard
+        )
+    }
+
+    /// nil means recording is not possible yet.
+    private func detail(
+        for stage: DatasheetVoicePractice.Stage?,
+        missReason: DatasheetVoicePractice.MissReason,
+        liveWordsHeard: Bool
+    ) -> String {
+        let isHold = self.mode == .hold
+        let bar = "the bar at the \(self.overlayEdge) of your screen"
+        switch stage {
+        case nil:
+            return "Practice records for real, so it needs the voice model and microphone access."
+        case .waiting:
+            return isHold
+                ? "Hold it down, say a few words, then let go. Watch \(bar)."
+                : "Tap it once, say a few words, then tap it again. Watch \(bar)."
+        case .listening:
+            if liveWordsHeard {
+                let heard = self.overlayShowsWords ? "Your words are in \(bar)." : "MouthKeys hears you."
+                return isHold
+                    ? "\(heard) Let go when you’re done."
+                    : "\(heard) Press it again when you’re done."
+            }
+            return isHold
+                ? "Try “testing, one, two, three.” Then let go."
+                : "Try “testing, one, two, three.” Then press \(self.shortcut) again."
+        case .transcribing:
+            return "Finishing your last words."
+        case .heard:
+            return isHold
+                ? "Hold, speak, let go. The same key works in any app."
+                : "Press, speak, press again. The same key works in any app."
+        case .missed:
+            switch missReason {
+            case .tooShort:
+                return isHold
+                    ? "That was a quick tap. Keep holding \(self.shortcut) while you speak, then let go."
+                    : "That stopped right away. Press once, speak, then press again."
+            case .silentMic:
+                return "No voice reached \(self.micLabel). Check it’s the mic you’re using, then try again."
+            case .noWords:
+                return "Sound came through, but no words. \(self.startVerb) \(self.shortcut) and speak up a little."
+            }
+        }
+    }
+
+    private func nudgeText(_ nudge: DatasheetVoicePractice.Nudge) -> String {
+        switch nudge {
+        case .none:
+            return ""
+        case let .wrongKey(name):
+            return "That was \(name). Your dictation key is \(self.shortcut)."
+        case .idle:
+            return "Nothing yet. Your key is \(self.shortcut). Can’t find it? Click the keycap."
+        case .silentMic:
+            return "Not hearing you yet. Speak up, or check that \(self.micLabel) is the mic you’re using."
+        case .noWords:
+            return "Hearing sound but no words yet. Try speaking a little louder and closer."
+        case .finish:
+            return self.mode == .hold
+                ? "Done? Let go of \(self.shortcut) to finish."
+                : "Done? Press \(self.shortcut) again to finish."
+        }
+    }
+
+    /// Every detail this key and mode can show, so the block keeps one height through the drill.
+    private var practiceDetailVariants: [String] {
+        let stages: [DatasheetVoicePractice.Stage?] = [nil, .waiting, .listening, .transcribing, .heard("")]
+        let reasons: [DatasheetVoicePractice.MissReason] = [.tooShort, .silentMic, .noWords]
+        let nudges: [DatasheetVoicePractice.Nudge] = [.wrongKey("Right ⌘"), .idle, .silentMic, .noWords, .finish]
+        return stages.map { self.detail(for: $0, missReason: .noWords, liveWordsHeard: false) }
+            + [self.detail(for: .listening, missReason: .noWords, liveWordsHeard: true)]
+            + reasons.map { self.detail(for: .missed, missReason: $0, liveWordsHeard: false) }
+            + nudges.map(self.nudgeText)
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(spacing: 12) {
                 DatasheetBracketed(rest: true) {
-                    Button(action: self.practicePress) {
+                    Button(action: self.pressKey) {
                         Text(self.shortcut.uppercased())
                             .font(.system(size: 20, weight: .semibold, design: .monospaced))
                             .tracking(0.6)
-                            .foregroundStyle(self.isDown ? self.palette.invForeground : self.palette.text)
+                            .foregroundStyle(self.isListening ? self.palette.invForeground : self.palette.text)
                             .frame(width: 188, height: 88)
-                            .background(self.isDown ? self.palette.invBackground : self.palette.field)
+                            .background(self.isListening ? self.palette.invBackground : self.palette.field)
                             .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Click to practice \(self.shortcut)")
+                    .disabled(!self.canRecord)
+                    .accessibilityLabel(self.isListening ? "Click to stop practice dictation" : "Click to start practice dictation")
                 }
 
                 HStack(spacing: 8) {
@@ -818,37 +1065,18 @@ struct DatasheetKeyPracticeReadout: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 ZStack(alignment: .topLeading) {
-                    ForEach(Self.practiceDetailVariants, id: \.self) { detail in
+                    ForEach(self.practiceDetailVariants, id: \.self) { detail in
                         self.practiceDetailText(detail)
                             .hidden()
                             .accessibilityHidden(true)
                             .allowsHitTesting(false)
                     }
 
-                    self.practiceDetailText(self.practiceDetail)
+                    self.practiceDetailText(self.practiceDetail, color: self.showsNudge ? self.palette.accent : self.palette.text2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 22) {
-                        self.practiceKeyStatus
-                        self.practicePressCount
-                        self.practiceMeter
-                    }
-                    // Keep the same layout choice for KEY UP and KEY DOWN.
-                    .frame(minWidth: 240, alignment: .leading)
-                    .fixedSize(horizontal: true, vertical: false)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 22) {
-                            self.practiceKeyStatus
-                                .fixedSize(horizontal: true, vertical: false)
-                                .frame(width: 48, alignment: .leading)
-                            self.practicePressCount
-                        }
-                        self.practiceMeter
-                    }
-                }
+                self.practiceMeter
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 18) {
@@ -870,54 +1098,48 @@ struct DatasheetKeyPracticeReadout: View {
         .padding(.vertical, 18)
     }
 
-    private func practiceDetailText(_ detail: String) -> some View {
+    private func practiceDetailText(_ detail: String, color: Color? = nil) -> some View {
         Text(detail)
             .font(.system(size: 12, weight: .regular))
             .lineSpacing(2)
-            .foregroundStyle(self.palette.text2)
+            .foregroundStyle(color ?? self.palette.text2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var practiceKeyStatus: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            DatasheetMonoLabel(text: "Key", color: self.palette.text2)
-            HStack(spacing: 7) {
-                DatasheetStatusSquare(kind: self.isDown ? .orange : .outline)
-                Text(self.isDown ? "DOWN" : "UP")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(self.palette.text)
-            }
-        }
-    }
-
-    private var practicePressCount: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            DatasheetMonoLabel(text: "Presses", color: self.palette.text2)
-            Text("\(self.pressCount)/3")
-                .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                .foregroundStyle(self.palette.text)
-                .monospacedDigit()
-        }
-    }
-
     private var practiceMeter: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { index in
-                Rectangle()
-                    .fill(index < self.pressCount ? (self.pressCount >= 3 && !self.isDown ? self.palette.accent : self.palette.ink) : .clear)
-                    .overlay(Rectangle().stroke(self.palette.edge, lineWidth: 1))
-                    .frame(width: 22, height: 10)
+        let done = self.practice.completedMeterSteps(liveWordsHeard: self.liveWordsHeard)
+        let isComplete = self.practice.heardText != nil
+        let titles = [self.mode == .hold ? "Hold" : "Press", "Speak", self.stopStepTitle]
+        return HStack(spacing: 14) {
+            ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+                HStack(spacing: 7) {
+                    Rectangle()
+                        .fill(index < done ? (isComplete ? self.palette.accent : self.palette.ink) : .clear)
+                        .overlay(Rectangle().stroke(
+                            index == done && self.canRecord ? self.palette.accent : self.palette.edge,
+                            lineWidth: index == done && self.canRecord ? 1.5 : 1
+                        ))
+                        .frame(width: 22, height: 10)
+                    Text("\(String(format: "%02d", index + 1)) \(title.uppercased())")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .tracking(0.4)
+                        .foregroundStyle(index <= done ? self.palette.text : self.palette.text2)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
         }
-        .accessibilityLabel("\(self.pressCount) of 3 presses")
+        .padding(.top, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(done) of 3 practice steps done")
     }
 
     private var practiceReset: some View {
         Button(action: self.reset) {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.clockwise")
-                Text("RESET")
+                Text("START OVER")
             }
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .tracking(0.3)

@@ -7,6 +7,7 @@
 
 import AppKit
 import AVFoundation
+import Combine
 import SwiftUI
 
 struct WelcomeView: View {
@@ -27,14 +28,21 @@ struct WelcomeView: View {
     let openAccessibilitySettings: () -> Void
     let restartApp: () -> Void
 
-    @State private var isHotkeyPracticeActive = false
-    @State private var hotkeyPracticeCount = 0
-    @State private var isPracticeKeyDown = false
-    @State private var practiceEventMonitor: Any?
+    @State private var voicePractice = DatasheetVoicePractice()
+    @State private var isWelcomeVisible = false
     @State private var practiceGateLease = DatasheetQuickSetupPracticeGateLease()
-    @State private var practiceModifierPress = DatasheetPracticeModifierPress()
+    @State private var practiceTimeoutTask: Task<Void, Never>?
+    @State private var practiceKeyMonitor: Any?
+    @State private var practiceKeyCheck: Task<Void, Never>?
+    /// A modifier pressed on its own; it counts as a wrong key only if released alone.
+    @State private var practiceLoneModifier: UInt16?
 
+    private let practiceSectionID = "welcome-practice-section"
     private let playgroundSectionID = "welcome-playground-section"
+    /// How long the drill waits for a stopped dictation to report back before offering a retry.
+    private let practiceResultTimeout: Duration = .seconds(30)
+    /// How long a key press waits for the practice to start before it counts as the wrong key.
+    private let practiceWrongKeyGrace: Duration = .milliseconds(400)
 
     private var isModelReady: Bool {
         self.asr.isAsrReady || self.asr.modelsExistOnDisk
@@ -49,8 +57,6 @@ struct WelcomeView: View {
             modelReady: self.isModelReady,
             microphoneAuthorized: self.asr.micStatus == .authorized,
             accessibilityEnabled: self.accessibilityEnabled,
-            hotkeyPracticeCount: self.hotkeyPracticeCount,
-            hotkeyPracticeIsDown: self.isPracticeKeyDown,
             playgroundValidated: self.playgroundUsed
         )
     }
@@ -71,7 +77,7 @@ struct WelcomeView: View {
                         Button {
                             self.settings.resetOnboardingProgress()
                             self.playgroundUsed = false
-                            self.resetHotkeyPractice()
+                            self.resetVoicePractice()
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "arrow.counterclockwise")
@@ -85,7 +91,6 @@ struct WelcomeView: View {
                         steps: self.setupSteps(proxy: proxy),
                         completedCount: self.completedSetupCount,
                         readyShortcut: self.primaryShortcut,
-                        voiceValidated: self.quickSetupProgress.voiceValidated,
                         recoveryHint: self.permissionMonitor.hint,
                         conflictingCopies: self.permissionMonitor.conflictingCopies,
                         openAccessibilitySettings: { self.permissionMonitor.openAccessibilitySettings() },
@@ -98,16 +103,26 @@ struct WelcomeView: View {
                     )
                     .padding(.top, 34)
 
-                    DatasheetKeyPracticeReadout(
-                        shortcut: self.primaryShortcut,
-                        mode: self.settings.hotkeyMode,
-                        pressCount: self.hotkeyPracticeCount,
-                        isPracticing: self.isHotkeyPracticeActive,
-                        isDown: self.isPracticeKeyDown,
-                        practicePress: self.countManualPracticePress,
-                        reset: self.resetHotkeyPractice,
-                        changeShortcut: { self.selectedSidebarItem = .preferences }
-                    )
+                    // The clock that lets a hint appear when nothing happens.
+                    TimelineView(.periodic(from: .now, by: self.practiceNeedsClock ? 0.5 : 3600)) { _ in
+                        DatasheetKeyPracticeReadout(
+                            shortcut: self.primaryShortcut,
+                            mode: self.settings.hotkeyMode,
+                            practice: self.voicePractice,
+                            liveWords: self.asr.partialTranscription,
+                            nudge: self.voicePractice.nudge(
+                                wordsStreamLive: self.settings.selectedSpeechModel.supportsStreaming
+                            ),
+                            overlayEdge: self.settings.overlayPosition == .top ? "top" : "bottom",
+                            overlayShowsWords: self.settings.enableStreamingPreview,
+                            microphoneName: DatasheetOverlayModel.shared.microphoneName,
+                            canRecord: self.canPracticeRecord,
+                            pressKey: self.togglePracticeRecording,
+                            reset: self.resetVoicePractice,
+                            changeShortcut: { self.selectedSidebarItem = .preferences }
+                        )
+                    }
+                    .id(self.practiceSectionID)
 
                     DatasheetWelcomeSectionHeader(title: "Test Playground", trailing: "The overlay you will see")
                         .padding(.top, 34)
@@ -182,7 +197,11 @@ struct WelcomeView: View {
             }
             .scrollIndicators(.visible)
             .onAppear {
-                self.updateHotkeyPracticeAvailability()
+                self.isWelcomeVisible = true
+                self.updatePracticeGate()
+                self.installPracticeKeyMonitor()
+                // The idle hint counts from when the page opens, not from when it was built.
+                if self.voicePractice.stage == .waiting { self.voicePractice.reset() }
                 Task { @MainActor in
                     await AudioStartupGate.shared.scheduleOpenAfterInitialUISettled()
                     await AudioStartupGate.shared.waitUntilOpen()
@@ -191,19 +210,44 @@ struct WelcomeView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                self.pauseHotkeyPractice()
+                self.updatePracticeGate()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                self.updateHotkeyPracticeAvailability()
+                self.updatePracticeGate()
             }
-            .onChange(of: self.asr.isRunning) { _, _ in
-                self.updateHotkeyPracticeAvailability()
+            .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationStarted)) { _ in
+                self.voicePractice.practiceStarted()
             }
-            .onChange(of: self.asr.isStarting) { _, _ in
-                self.updateHotkeyPracticeAvailability()
+            .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationCancelled)) { _ in
+                self.practiceTimeoutTask?.cancel()
+                self.voicePractice.practiceCancelled()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationFinished)) { _ in
+                self.finishPracticeDictation()
+            }
+            // Straight from the publisher: the stop path holds back view refreshes until the text
+            // is handed off, and the drill must hear the stop before the result.
+            .onReceive(self.asr.$isRunning.removeDuplicates()) { isRunning in
+                self.practiceRecordingChanged(isRunning: isRunning)
+            }
+            .onChange(of: self.canPracticeRecord) { _, canRecord in
+                // The idle hint counts from when a press could first work.
+                if canRecord, self.voicePractice.stage == .waiting { self.voicePractice.reset() }
+            }
+            .onChange(of: self.asr.partialTranscription) { _, words in
+                self.voicePractice.liveWordsChanged(words)
+            }
+            .onReceive(self.asr.audioLevelPublisher) { level in
+                // Levels arrive many times a second: write only what changes the drill.
+                var next = self.voicePractice
+                next.audioLevel(level)
+                if next != self.voicePractice { self.voicePractice = next }
             }
             .onDisappear {
-                self.pauseHotkeyPractice()
+                self.isWelcomeVisible = false
+                self.updatePracticeGate()
+                self.practiceTimeoutTask?.cancel()
+                self.removePracticeKeyMonitor()
             }
         }
     }
@@ -242,9 +286,7 @@ struct WelcomeView: View {
             if self.asr.isRunning {
                 Task { await self.stopAndProcessTranscription() }
             } else {
-                self.pauseHotkeyPractice()
                 self.startRecording()
-                self.markSetupTested()
             }
         } label: {
             HStack(spacing: 8) {
@@ -321,27 +363,7 @@ struct WelcomeView: View {
             : "Grant Microphone Permission"
         let microphoneActionTitle = self.asr.micStatus == .notDetermined ? "Grant Access" : "Open Settings"
 
-        let testTitle: String
-        let testDetail: String
-        let testCompletedTitle: String
-        let testCompletedDetail: String
-        switch progress.fourthStep {
-        case .pending:
-            testTitle = "Test Your Setup"
-            testDetail = "Try the playground below to test your complete setup"
-            testCompletedTitle = "Setup Tested Successfully"
-            testCompletedDetail = "Voice transcription"
-        case .shortcutPracticed:
-            testTitle = "Shortcut Practice Complete"
-            testDetail = "Your shortcut responded. Test voice transcription in the Playground."
-            testCompletedTitle = "Shortcut Practice Complete"
-            testCompletedDetail = "3 key presses"
-        case .voiceValidated:
-            testTitle = "Setup Tested Successfully"
-            testDetail = "You’ve successfully tested voice transcription"
-            testCompletedTitle = "Setup Tested Successfully"
-            testCompletedDetail = "Voice transcription"
-        }
+        let testStopInstruction = self.settings.hotkeyMode == .hold ? "let go" : "press it again"
 
         return [
             DatasheetSetupStep(
@@ -389,18 +411,19 @@ struct WelcomeView: View {
             ),
             DatasheetSetupStep(
                 number: 4,
-                title: testTitle,
-                detail: testDetail,
-                completedTitle: testCompletedTitle,
-                completedDetail: testCompletedDetail,
-                actionTitle: "Go to Playground",
-                actionSymbol: "arrow.right",
+                title: progress.voiceValidated ? "Setup Tested Successfully" : "Try Your Dictation Key",
+                detail: progress.voiceValidated
+                    ? "You’ve successfully tested voice transcription"
+                    : "Press \(self.primaryShortcut), say something, then \(testStopInstruction)",
+                completedTitle: "Setup Tested Successfully",
+                completedDetail: "Voice transcription",
+                actionTitle: "Go to Practice",
+                actionSymbol: "arrow.down",
                 status: status(3),
                 action: {
                     withAnimation(.easeInOut(duration: 0.25)) {
-                        proxy.scrollTo(self.playgroundSectionID, anchor: .top)
+                        proxy.scrollTo(self.practiceSectionID, anchor: .top)
                     }
-                    self.isTranscriptionFocused.wrappedValue = true
                 }
             ),
         ]
@@ -411,157 +434,138 @@ struct WelcomeView: View {
         self.settings.playgroundUsed = true
     }
 
-    private func beginHotkeyPractice() {
-        guard self.isHotkeyPracticeEligible, NSApp.isActive else {
-            self.pauseHotkeyPractice()
-            return
-        }
-        self.isHotkeyPracticeActive = true
-        self.installPracticeEventMonitor()
+    private var canPracticeRecord: Bool {
+        self.isModelReady && self.asr.micStatus == .authorized
     }
 
-    private var isHotkeyPracticeEligible: Bool {
-        self.hotkeyPracticeCount < 3 && !self.asr.isRunning && !self.asr.isStarting
-    }
-
-    private func updateHotkeyPracticeAvailability() {
-        if self.isHotkeyPracticeEligible {
-            self.beginHotkeyPractice()
-        } else {
-            self.pauseHotkeyPractice()
+    /// Hints change with time only while the drill waits on the person.
+    private var practiceNeedsClock: Bool {
+        guard self.canPracticeRecord else { return false }
+        switch self.voicePractice.stage {
+        case .waiting, .listening, .missed: return true
+        case .transcribing, .heard: return false
         }
     }
 
-    private func countManualPracticePress() {
-        guard self.isHotkeyPracticeEligible, NSApp.isActive else { return }
-        self.pauseHotkeyPractice()
-        self.isHotkeyPracticeActive = true
-        self.isPracticeKeyDown = false
-        self.installPracticeEventMonitor()
-        self.hotkeyPracticeCount += 1
-        self.finishHotkeyPracticeIfNeeded()
-    }
-
-    private func installPracticeEventMonitor() {
-        guard self.isHotkeyPracticeEligible else {
-            self.pauseHotkeyPractice()
-            return
-        }
-        guard !TestHostQuietMode.isActive else {
-            self.practiceGateLease.update(monitorIsArmed: false, applicationIsActive: false)
-            return
-        }
-        guard self.settings.primaryDictationShortcuts.first?.isMouseShortcut == false else {
-            self.practiceGateLease.update(monitorIsArmed: false, applicationIsActive: NSApp.isActive)
-            return
-        }
-        guard NSApp.isActive else {
-            self.practiceGateLease.update(monitorIsArmed: self.practiceEventMonitor != nil, applicationIsActive: false)
-            return
-        }
-        if self.practiceEventMonitor == nil {
-            self.practiceEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
-                self.observePracticeShortcutEvent(event)
-                return event
-            }
-        }
+    /// Practice routes dictation into the drill only while Getting Started is open and in front.
+    private func updatePracticeGate() {
         self.practiceGateLease.update(
-            monitorIsArmed: self.practiceEventMonitor != nil,
+            isVisible: self.isWelcomeVisible && !TestHostQuietMode.isActive,
             applicationIsActive: NSApp.isActive
         )
     }
 
-    private func observePracticeShortcutEvent(_ event: NSEvent) {
-        guard !self.asr.isRunning, !self.asr.isStarting, NSApp.isActive else {
-            self.pauseHotkeyPractice()
-            return
-        }
-        guard self.isHotkeyPracticeActive,
-              let shortcut = self.settings.primaryDictationShortcuts.first,
-              !shortcut.isMouseShortcut
-        else { return }
-
-        if shortcut.isModifierOnlyShortcut {
-            guard event.type == .flagsChanged else {
-                if event.type == .keyDown { self.practiceModifierPress.interrupt() }
-                return
-            }
-            let pressedKeys = Set([UInt16(63), 55, 54, 58, 61, 59, 62, 56, 60].filter {
-                CGEventSource.keyState(.combinedSessionState, key: CGKeyCode($0))
-            })
-            switch self.practiceModifierPress.update(
-                shortcut: shortcut,
-                keyCode: event.keyCode,
-                modifiers: event.modifierFlags,
-                pressedKeys: pressedKeys
-            ) {
-            case .start:
-                self.isPracticeKeyDown = true
-                self.recordObservedPracticePress()
-            case let .finish(wasCleanPress):
-                if !wasCleanPress, self.isPracticeKeyDown, self.hotkeyPracticeCount > 0 {
-                    self.hotkeyPracticeCount -= 1
-                }
-                self.isPracticeKeyDown = false
-                self.finishHotkeyPracticeIfNeeded()
-            case .ignore:
-                break
-            }
-            return
-        }
-
-        switch event.type {
-        case .keyDown:
-            guard self.hotkeyPracticeCount < 3,
-                  !event.isARepeat,
-                  shortcut.matches(keyCode: event.keyCode, modifiers: event.modifierFlags)
-            else { return }
-            self.isPracticeKeyDown = true
-            self.recordObservedPracticePress()
-        case .keyUp:
-            if event.keyCode == shortcut.keyCode {
-                self.isPracticeKeyDown = false
-                self.finishHotkeyPracticeIfNeeded()
-            }
-        default:
-            break
+    /// The keycap stands in for the key: one click starts, the next stops.
+    private func togglePracticeRecording() {
+        if self.asr.isRunning {
+            Task { await self.stopAndProcessTranscription() }
+        } else if !self.asr.isStarting, self.canPracticeRecord {
+            self.startRecording()
         }
     }
 
-    private func recordObservedPracticePress() {
-        guard self.hotkeyPracticeCount < 3 else { return }
-        self.hotkeyPracticeCount += 1
-        self.finishHotkeyPracticeIfNeeded()
+    private func practiceRecordingChanged(isRunning: Bool) {
+        self.voicePractice.recordingChanged(isRunning: isRunning)
+        self.practiceTimeoutTask?.cancel()
+        guard self.voicePractice.stage == .transcribing else { return }
+        let timeout = self.practiceResultTimeout
+        self.practiceTimeoutTask = Task { @MainActor in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self.voicePractice.transcriptionTimedOut()
+        }
     }
 
-    private func finishHotkeyPracticeIfNeeded() {
-        guard self.hotkeyPracticeCount >= 3, !self.isPracticeKeyDown else { return }
-        self.isHotkeyPracticeActive = false
-        self.removePracticeEventMonitor()
+    private func finishPracticeDictation() {
+        self.practiceTimeoutTask?.cancel()
+        self.voicePractice.dictationFinished(text: self.asr.finalText)
+        if self.voicePractice.heardText != nil {
+            self.markSetupTested()
+        }
     }
 
-    private func resetHotkeyPractice() {
-        self.hotkeyPracticeCount = 0
-        self.isPracticeKeyDown = false
-        self.beginHotkeyPractice()
+    private func resetVoicePractice() {
+        self.practiceTimeoutTask?.cancel()
+        self.voicePractice.reset()
     }
 
-    private func removePracticeEventMonitor() {
-        if let monitor = self.practiceEventMonitor {
+    /// Watches for a different key pressed while the drill waits for the dictation key. It only
+    /// observes: every event passes through untouched.
+    private func installPracticeKeyMonitor() {
+        guard self.practiceKeyMonitor == nil, !TestHostQuietMode.isActive else { return }
+        self.practiceKeyMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { event in
+            self.practiceEvent(event)
+            return event
+        }
+    }
+
+    private func removePracticeKeyMonitor() {
+        self.practiceKeyCheck?.cancel()
+        self.practiceLoneModifier = nil
+        if let monitor = self.practiceKeyMonitor {
             NSEvent.removeMonitor(monitor)
-            self.practiceEventMonitor = nil
+            self.practiceKeyMonitor = nil
         }
-        self.practiceGateLease.release()
-        self.practiceModifierPress = DatasheetPracticeModifierPress()
     }
 
-    private func pauseHotkeyPractice() {
-        if self.isPracticeKeyDown, self.hotkeyPracticeCount > 0 {
-            self.hotkeyPracticeCount -= 1
+    /// Keys that move around the window (focus, scrolling, buttons, Esc), never a try at the key.
+    private static let practiceNavigationKeys: Set<UInt16> = [36, 48, 49, 53, 76, 115, 116, 119, 121, 123, 124, 125, 126]
+
+    private func practiceEvent(_ event: NSEvent) {
+        switch event.type {
+        case .flagsChanged:
+            guard let flag = HotkeyShortcut.modifierFlag(forKeyCode: event.keyCode) else { return }
+            if event.modifierFlags.contains(flag) {
+                // Down: a wrong key only if it comes back up without a key or click in between,
+                // so ⌘W, ⇧ for a capital and ⌃-click never count.
+                self.practiceLoneModifier = event.keyCode
+            } else if self.practiceLoneModifier == event.keyCode {
+                self.practiceLoneModifier = nil
+                self.practiceKeyWentDown(event.keyCode)
+            }
+        case .keyDown:
+            self.practiceLoneModifier = nil
+            guard !event.isARepeat,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  !Self.practiceNavigationKeys.contains(event.keyCode)
+            else { return }
+            self.practiceKeyWentDown(event.keyCode)
+        default:
+            self.practiceLoneModifier = nil
         }
-        self.isPracticeKeyDown = false
-        self.isHotkeyPracticeActive = false
-        self.removePracticeEventMonitor()
+    }
+
+    private func practiceKeyWentDown(_ keyCode: UInt16) {
+        guard self.isWelcomeVisible, self.canPracticeRecord else { return }
+        switch self.voicePractice.stage {
+        case .waiting, .missed: break
+        case .listening, .transcribing, .heard: return
+        }
+        // Typing in a field is not a try at the dictation key.
+        if NSApp.keyWindow?.firstResponder is NSText { return }
+        guard let name = HotkeyShortcut.keyCodeToString(keyCode),
+              !self.isPartOfDictationShortcut(keyCode)
+        else { return }
+        // The dictation key itself starts a practice within the grace; anything else does not.
+        self.practiceKeyCheck?.cancel()
+        let grace = self.practiceWrongKeyGrace
+        self.practiceKeyCheck = Task { @MainActor in
+            try? await Task.sleep(for: grace)
+            guard !Task.isCancelled, !self.asr.isRunning, !self.asr.isStarting else { return }
+            self.voicePractice.otherKeyPressed(name)
+        }
+    }
+
+    private func isPartOfDictationShortcut(_ keyCode: UInt16) -> Bool {
+        let modifier = HotkeyShortcut.modifierFlag(forKeyCode: keyCode)
+        return self.settings.primaryDictationShortcuts.contains { shortcut in
+            if !shortcut.isMouseShortcut, shortcut.keyCode == keyCode { return true }
+            // Modifier-only shortcuts name their physical keys, so Left ⌥ is not Right ⌥.
+            if !shortcut.modifierKeyCodes.isEmpty { return shortcut.modifierKeyCodes.contains(keyCode) }
+            return modifier.map { shortcut.modifierFlags.contains($0) } == true
+        }
     }
 }
 

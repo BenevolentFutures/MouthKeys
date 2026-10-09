@@ -244,6 +244,8 @@ struct DatasheetDelivery: Equatable {
         case keystrokes
         /// The Accessibility API accepted the text as the field's value.
         case accessibility
+        /// A Getting Started practice dictation: heard, and kept in MouthKeys on purpose.
+        case practice
     }
 
     let appName: String?
@@ -260,11 +262,13 @@ struct DatasheetDelivery: Equatable {
         case .paste: return target.map { "Pasted into \($0)" } ?? "Pasted"
         case .keystrokes: return target.map { "Typed into \($0)" } ?? "Typed"
         case .accessibility: return target.map { "Inserted into \($0)" } ?? "Inserted"
+        case .practice: return "Heard you"
         }
     }
 
     var meta: String {
         let words = "\(self.words) \(self.words == 1 ? "word" : "words")"
+        if self.method == .practice { return words + " · practice" }
         return self.sentReturn ? words + " · Return" : words
     }
 }

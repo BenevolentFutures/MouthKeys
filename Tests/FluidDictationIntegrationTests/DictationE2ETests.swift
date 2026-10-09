@@ -3258,6 +3258,7 @@ enum DatasheetRenderStage {
             DatasheetOverlayModel.shared.startSendCountdown(duration: 1.5, at: Date().addingTimeInterval(-0.6))
             DatasheetOverlayModel.shared.freezeSendCountdown()
         }),
+        ("06b-practice", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: nil, words: 4, method: .practice, sentReturn: false)) }),
         ("15-sent", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(placard: .send); DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(appName: "c11", words: 118, method: .paste, sentReturn: true)) }),
         ("19-asrback", { DatasheetRenderStage.listening(); DatasheetRenderStage.stop(); DatasheetOverlayModel.shared.showNotice(.recognitionBack, frozenDuration: 41) }),
         ("19-asrback-hover-reprocess", {
@@ -3621,6 +3622,9 @@ final class DatasheetOverlayBehaviorTests: XCTestCase {
         XCTAssertEqual(sent.headline, "Sent to c11")
         XCTAssertEqual(sent.meta, "118 words · Return")
         XCTAssertEqual(DatasheetDelivery(appName: nil, words: 1, method: .paste, sentReturn: false).headline, "Pasted")
+        let practice = DatasheetDelivery(appName: "c11", words: 4, method: .practice, sentReturn: false)
+        XCTAssertEqual(practice.headline, "Heard you", "Practice claims no app: nothing was typed")
+        XCTAssertEqual(practice.meta, "4 words · practice")
         XCTAssertEqual(TypingService.deliveryMethod(for: .clipboardToPID), .paste)
         XCTAssertEqual(TypingService.deliveryMethod(for: .characterByCharacter), .keystrokes)
         XCTAssertEqual(TypingService.deliveryMethod(for: .accessibility), .accessibility)
@@ -5247,8 +5251,8 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
                 }
             }
 
-            for (name, pressCount, practicing, isDown) in [("mid", 1, true, true), ("done", 3, false, false)] {
-                let keyView = self.keyScene(pressCount: pressCount, isPracticing: practicing, isDown: isDown, appearance: appearance)
+            for (name, practice, liveWords, nudge) in Self.drillStates {
+                let keyView = self.keyScene(practice: practice, liveWords: liveWords, nudge: nudge, appearance: appearance)
                 let rep = try DatasheetRenderStage.render(keyView, appearance: appearance)
                 XCTAssertGreaterThan(rep.pixelsWide, 0)
                 if let outputFolder {
@@ -5302,7 +5306,76 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
         .datasheetPalette()
     }
 
-    private func keyScene(pressCount: Int, isPracticing: Bool, isDown: Bool, appearance: NSAppearance.Name) -> some View {
+    /// One drill per stage, driven through the same transitions the Getting Started view uses,
+    /// with each hint the drill can show.
+    static var drillStates: [(String, DatasheetVoicePractice, String, DatasheetVoicePractice.Nudge)] {
+        var listening = DatasheetVoicePractice(now: 0)
+        listening.practiceStarted()
+        listening.recordingChanged(isRunning: true, at: 0)
+        var voiced = listening
+        voiced.audioLevel(0.6, at: 1)
+        var transcribing = voiced
+        transcribing.recordingChanged(isRunning: false, at: 3)
+        var heard = transcribing
+        heard.dictationFinished(text: "Testing, one, two, three.", at: 3.5)
+        var missed = transcribing
+        missed.dictationFinished(text: "  ", at: 3.5)
+        var tapped = listening
+        tapped.recordingChanged(isRunning: false, at: 0.2)
+        tapped.dictationFinished(text: "", at: 0.4)
+        var silent = listening
+        silent.recordingChanged(isRunning: false, at: 3)
+        silent.dictationFinished(text: "", at: 3.5)
+        return [
+            ("waiting", DatasheetVoicePractice(), "", .none),
+            ("wrong-key", DatasheetVoicePractice(), "", .wrongKey("Left ⌘")),
+            ("idle", DatasheetVoicePractice(), "", .idle),
+            ("listening", listening, "", .none),
+            ("silent-mic", listening, "", .silentMic),
+            ("no-words", voiced, "", .noWords),
+            ("speaking", voiced, "Testing, one, two", .none),
+            ("finish", voiced, "Testing, one, two, three", .finish),
+            ("transcribing", transcribing, "", .none),
+            ("heard", heard, "", .none),
+            ("missed", missed, "", .none),
+            ("missed-tap", tapped, "", .none),
+            ("missed-silent", silent, "", .none),
+        ]
+    }
+
+    func testPracticeReadoutKeepsOneHeightThroughEveryDrillStage() {
+        for mode in HotkeyActivationMode.allCases {
+            var heights: Set<CGFloat> = []
+            for canRecord in [true, false] {
+                for (_, practice, liveWords, nudge) in Self.drillStates {
+                    let host = NSHostingView(rootView: DatasheetKeyPracticeReadout(
+                        shortcut: "Right ⌥",
+                        mode: mode,
+                        practice: practice,
+                        liveWords: liveWords,
+                        nudge: nudge,
+                        overlayEdge: "bottom",
+                        microphoneName: "MacBook Pro Microphone",
+                        canRecord: canRecord,
+                        pressKey: {},
+                        reset: {},
+                        changeShortcut: {}
+                    )
+                    .frame(width: 764)
+                    .datasheetPalette())
+                    heights.insert(host.fittingSize.height.rounded())
+                }
+            }
+            XCTAssertEqual(heights.count, 1, "\(mode): the drill jumped between heights \(heights.sorted())")
+        }
+    }
+
+    private func keyScene(
+        practice: DatasheetVoicePractice,
+        liveWords: String,
+        nudge: DatasheetVoicePractice.Nudge,
+        appearance: NSAppearance.Name
+    ) -> some View {
         let isDark = appearance == .darkAqua
         let palette = isDark ? DatasheetTheme.Palette.dark : DatasheetTheme.Palette.light
         let scheme: ColorScheme = isDark ? .dark : .light
@@ -5312,10 +5385,13 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
             DatasheetKeyPracticeReadout(
                 shortcut: "Right ⌥",
                 mode: .toggle,
-                pressCount: pressCount,
-                isPracticing: isPracticing,
-                isDown: isDown,
-                practicePress: {},
+                practice: practice,
+                liveWords: liveWords,
+                nudge: nudge,
+                overlayEdge: "bottom",
+                microphoneName: "MacBook Pro Microphone",
+                canRecord: true,
+                pressKey: {},
                 reset: {},
                 changeShortcut: {}
             )
@@ -5333,7 +5409,7 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
             ("Download Voice Model", "Download the AI model for offline voice transcription (~500MB)", "Go to Voice Engine"),
             ("Grant Microphone Permission", "Allow MouthKeys to access your microphone for voice input", "Grant Access"),
             ("Enable Accessibility Access", "Drag MouthKeys into the Accessibility apps list as shown", "Open Settings"),
-            ("Test Your Setup", "Try the playground below to test your complete setup", "Go to Playground"),
+            ("Try Your Dictation Key", "Press Right ⌥, say something, then press it again", "Go to Practice"),
         ]
         return details.enumerated().map { index, item in
             let status: DatasheetSetupStepStatus
@@ -5359,7 +5435,7 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
     }
 }
 
-/// State transitions for the lane B shortcut drill and production-width setup rows.
+/// State transitions for the lane B voice drill and production-width setup rows.
 @MainActor
 final class BQuickSetupProgressTransitionTests: XCTestCase {
     private var outputFolder: URL? {
@@ -5368,34 +5444,22 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    func testShortcutPracticeCompletesOnlyAfterThreeReleasedPressesAndAllPrerequisites() {
-        for pressCount in 0 ... 2 {
-            let progress = self.progress(hotkeyPracticeCount: pressCount)
-            XCTAssertEqual(progress.fourthStep, .pending)
-            XCTAssertEqual(progress.completedCount, 3)
-            XCTAssertEqual(progress.currentIndex, 3)
-            XCTAssertFalse(progress.voiceValidated)
-        }
+    func testVoicePracticeCompletesSetupOnlyWithPrerequisitesAndHeardWords() {
+        let pending = self.progress(voiceValidated: false)
+        XCTAssertEqual(pending.completedCount, 3)
+        XCTAssertEqual(pending.currentIndex, 3)
+        XCTAssertFalse(pending.voiceValidated)
 
-        let thirdPressHeld = self.progress(hotkeyPracticeCount: 3, isPracticeKeyDown: true)
-        XCTAssertEqual(thirdPressHeld.fourthStep, .pending)
-        XCTAssertEqual(thirdPressHeld.completedCount, 3)
-        XCTAssertEqual(thirdPressHeld.currentIndex, 3)
-
-        let afterThirdRelease = self.progress(hotkeyPracticeCount: 3)
-        XCTAssertEqual(afterThirdRelease.fourthStep, .shortcutPracticed)
-        XCTAssertEqual(afterThirdRelease.completedCount, 4)
-        XCTAssertNil(afterThirdRelease.currentIndex)
-        XCTAssertFalse(afterThirdRelease.voiceValidated, "Key practice does not record Playground voice validation")
+        let validated = self.progress(voiceValidated: true)
+        XCTAssertEqual(validated.completedSteps, [true, true, true, true])
+        XCTAssertNil(validated.currentIndex)
 
         let missingAccessibility = DatasheetQuickSetupProgress(
             modelReady: true,
             microphoneAuthorized: true,
             accessibilityEnabled: false,
-            hotkeyPracticeCount: 3,
             playgroundValidated: false
         )
-        XCTAssertEqual(missingAccessibility.fourthStep, .pending)
         XCTAssertEqual(missingAccessibility.completedCount, 2)
         XCTAssertEqual(missingAccessibility.currentIndex, 2)
 
@@ -5403,42 +5467,157 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
             modelReady: true,
             microphoneAuthorized: false,
             accessibilityEnabled: true,
-            hotkeyPracticeCount: 3,
             playgroundValidated: false
         )
-        XCTAssertEqual(missingMicrophone.fourthStep, .pending)
-        XCTAssertEqual(missingMicrophone.completedCount, 2)
         XCTAssertEqual(missingMicrophone.currentIndex, 1)
 
         let missingModel = DatasheetQuickSetupProgress(
             modelReady: false,
             microphoneAuthorized: true,
             accessibilityEnabled: true,
-            hotkeyPracticeCount: 3,
             playgroundValidated: false
         )
-        XCTAssertEqual(missingModel.fourthStep, .pending)
-        XCTAssertEqual(missingModel.completedCount, 2)
         XCTAssertEqual(missingModel.currentIndex, 0)
     }
 
-    func testPlaygroundVoiceValidationKeepsItsOwnCompletionState() {
-        let shortcutOnly = self.progress(hotkeyPracticeCount: 3)
-        let voiceValidated = DatasheetQuickSetupProgress(
-            modelReady: true,
-            microphoneAuthorized: true,
-            accessibilityEnabled: true,
-            hotkeyPracticeCount: 0,
-            playgroundValidated: true
-        )
+    func testVoicePracticeFollowsPressSpeakAndStop() {
+        var drill = DatasheetVoicePractice()
+        XCTAssertEqual(drill.stage, .waiting)
+        XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: false), 0)
 
-        XCTAssertEqual(shortcutOnly.fourthStep, .shortcutPracticed)
-        XCTAssertEqual(voiceValidated.fourthStep, .voiceValidated)
-        XCTAssertEqual(voiceValidated.completedSteps, [true, true, true, true])
-        XCTAssertTrue(voiceValidated.voiceValidated)
+        drill.recordingChanged(isRunning: true)
+        XCTAssertEqual(drill.stage, .waiting, "A dictation not announced as practice leaves the drill be")
+        drill.recordingChanged(isRunning: false)
+
+        drill.practiceStarted()
+        drill.recordingChanged(isRunning: true)
+        XCTAssertEqual(drill.stage, .listening)
+        XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: false), 1, "Pressed, nothing said yet")
+        XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: true), 2, "Words arriving complete the speak step")
+
+        drill.recordingChanged(isRunning: false)
+        XCTAssertEqual(drill.stage, .transcribing)
+        XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: false), 3)
+
+        drill.dictationFinished(text: "  hello there \n")
+        XCTAssertEqual(drill.stage, .heard("hello there"))
+        XCTAssertEqual(drill.heardText, "hello there")
+
+        drill.dictationFinished(text: "a stray second result")
+        XCTAssertEqual(drill.heardText, "hello there", "A finished drill ignores results it did not start")
+
+        drill.practiceStarted()
+        drill.recordingChanged(isRunning: true)
+        XCTAssertEqual(drill.stage, .listening, "Pressing again practices again")
+        drill.practiceCancelled()
+        XCTAssertEqual(drill.stage, .waiting, "Esc puts the drill back to the first press")
+
+        drill.reset()
+        XCTAssertEqual(drill.stage, .waiting)
     }
 
-    func testPracticeGateTracksMonitorFocusAndIndependentViewLifetimes() {
+    func testVoicePracticeOffersARetryWhenNothingIsHeard() {
+        var empty = DatasheetVoicePractice()
+        empty.practiceStarted()
+        empty.recordingChanged(isRunning: true)
+        empty.recordingChanged(isRunning: false)
+        empty.dictationFinished(text: " ")
+        XCTAssertEqual(empty.stage, .missed)
+        XCTAssertEqual(empty.completedMeterSteps(liveWordsHeard: false), 0)
+
+        var cancelled = DatasheetVoicePractice()
+        cancelled.practiceStarted()
+        cancelled.recordingChanged(isRunning: true)
+        cancelled.recordingChanged(isRunning: false)
+        cancelled.transcriptionTimedOut()
+        XCTAssertEqual(cancelled.stage, .missed)
+        cancelled.dictationFinished(text: "late words")
+        XCTAssertEqual(cancelled.stage, .heard("late words"), "A slow result after the timeout still counts")
+
+        var idle = DatasheetVoicePractice()
+        idle.recordingChanged(isRunning: false)
+        idle.dictationFinished(text: "someone else’s dictation")
+        idle.transcriptionTimedOut()
+        XCTAssertEqual(idle.stage, .waiting, "Nothing happens before the first press")
+    }
+
+    func testVoicePracticeNamesWhyATryCameBackEmpty() {
+        func tryOnce(voiceAt: TimeInterval?, stopAt: TimeInterval) -> DatasheetVoicePractice.MissReason {
+            var drill = DatasheetVoicePractice(now: 0)
+            drill.practiceStarted()
+            drill.recordingChanged(isRunning: true, at: 0)
+            if let voiceAt { drill.audioLevel(0.6, at: voiceAt) }
+            drill.recordingChanged(isRunning: false, at: stopAt)
+            drill.dictationFinished(text: "", at: stopAt + 0.5)
+            XCTAssertEqual(drill.stage, .missed)
+            return drill.missReason
+        }
+        XCTAssertEqual(tryOnce(voiceAt: nil, stopAt: 0.2), .tooShort, "A tap, not a try")
+        XCTAssertEqual(tryOnce(voiceAt: nil, stopAt: 3), .silentMic)
+        XCTAssertEqual(tryOnce(voiceAt: 1, stopAt: 3), .noWords)
+
+        var quiet = DatasheetVoicePractice(now: 0)
+        quiet.practiceStarted()
+        quiet.recordingChanged(isRunning: true, at: 0)
+        quiet.audioLevel(DatasheetVoicePractice.voiceLevel - 0.01, at: 1)
+        quiet.recordingChanged(isRunning: false, at: 3)
+        quiet.dictationFinished(text: "", at: 3.5)
+        XCTAssertEqual(quiet.missReason, .silentMic, "Room noise below a voice is not a voice")
+
+        // The stop path can deliver the result before the view hears that recording stopped.
+        var direct = DatasheetVoicePractice(now: 0)
+        direct.practiceStarted()
+        direct.recordingChanged(isRunning: true, at: 0)
+        direct.dictationFinished(text: "", at: 5)
+        XCTAssertEqual(direct.missReason, .silentMic, "A five-second try is not a tap")
+        direct.practiceStarted()
+        direct.recordingChanged(isRunning: true, at: 10)
+        direct.dictationFinished(text: "", at: 10.3)
+        XCTAssertEqual(direct.missReason, .tooShort, "Each try is timed on its own")
+    }
+
+    func testVoicePracticeNudgesWhenThePersonIsStuck() {
+        var drill = DatasheetVoicePractice(now: 0)
+        XCTAssertEqual(drill.nudge(at: 7, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 8, wordsStreamLive: true), .idle, "Nothing pressed for a while")
+
+        drill.otherKeyPressed("Left ⌘", at: 9)
+        XCTAssertEqual(drill.nudge(at: 10, wordsStreamLive: true), .wrongKey("Left ⌘"))
+        XCTAssertEqual(drill.nudge(at: 14.5, wordsStreamLive: true), .idle, "The wrong-key hint fades")
+
+        drill.practiceStarted()
+        drill.recordingChanged(isRunning: true, at: 20)
+        drill.otherKeyPressed("Space", at: 20.5)
+        XCTAssertEqual(drill.nudge(at: 21, wordsStreamLive: true), .none, "Keys while recording are not wrong keys")
+        XCTAssertEqual(drill.nudge(at: 24, wordsStreamLive: true), .silentMic, "Recording, and no voice reaches the mic")
+
+        drill.audioLevel(0.6, at: 24.5)
+        XCTAssertEqual(drill.nudge(at: 25, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 26, wordsStreamLive: true), .noWords, "A voice, but no words come through")
+        XCTAssertEqual(drill.nudge(at: 26, wordsStreamLive: false), .none, "Without live words, a voice is all there is to see")
+
+        drill.liveWordsChanged("testing one", at: 26.5)
+        drill.liveWordsChanged("testing one two", at: 27)
+        drill.liveWordsChanged("testing one two", at: 29)
+        XCTAssertEqual(drill.nudge(at: 30.5, wordsStreamLive: true), .none)
+        XCTAssertEqual(drill.nudge(at: 31, wordsStreamLive: true), .finish, "Words stopped, and the key was not pressed again")
+
+        drill.recordingChanged(isRunning: false, at: 32)
+        XCTAssertEqual(drill.nudge(at: 60, wordsStreamLive: true), .none, "No hints while transcribing")
+        drill.dictationFinished(text: "testing one two", at: 33)
+        XCTAssertEqual(drill.nudge(at: 60, wordsStreamLive: true), .none, "Or once it is done")
+
+        var tryAgain = DatasheetVoicePractice(now: 0)
+        tryAgain.practiceStarted()
+        tryAgain.recordingChanged(isRunning: true, at: 0)
+        tryAgain.recordingChanged(isRunning: false, at: 2)
+        tryAgain.dictationFinished(text: "", at: 3)
+        XCTAssertEqual(tryAgain.nudge(at: 60, wordsStreamLive: true), .none, "A missed try already says what to do")
+        tryAgain.otherKeyPressed("Left ⌥", at: 61)
+        XCTAssertEqual(tryAgain.nudge(at: 61.5, wordsStreamLive: true), .wrongKey("Left ⌥"))
+    }
+
+    func testPracticeGateTracksVisibilityFocusAndIndependentViewLifetimes() {
         var firstView = DatasheetQuickSetupPracticeGateLease()
         var secondView = DatasheetQuickSetupPracticeGateLease()
         defer {
@@ -5446,16 +5625,16 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
             secondView.release()
         }
 
-        var unarmedView = DatasheetQuickSetupPracticeGateLease()
-        unarmedView.update(monitorIsArmed: false, applicationIsActive: true)
-        XCTAssertFalse(unarmedView.isArmed)
+        var hiddenView = DatasheetQuickSetupPracticeGateLease()
+        hiddenView.update(isVisible: false, applicationIsActive: true)
+        XCTAssertFalse(hiddenView.isArmed)
 
-        firstView.update(monitorIsArmed: true, applicationIsActive: false)
+        firstView.update(isVisible: true, applicationIsActive: false)
         XCTAssertFalse(firstView.isArmed)
         XCTAssertFalse(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
 
-        firstView.update(monitorIsArmed: true, applicationIsActive: true)
-        secondView.update(monitorIsArmed: true, applicationIsActive: true)
+        firstView.update(isVisible: true, applicationIsActive: true)
+        secondView.update(isVisible: true, applicationIsActive: true)
         XCTAssertTrue(firstView.isArmed)
         XCTAssertTrue(secondView.isArmed)
         XCTAssertTrue(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
@@ -5464,72 +5643,9 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         firstView.release()
         XCTAssertTrue(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true), "One view cannot release another view’s gate")
 
-        secondView.update(monitorIsArmed: true, applicationIsActive: false)
+        secondView.update(isVisible: true, applicationIsActive: false)
         XCTAssertFalse(secondView.isArmed)
         XCTAssertFalse(DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true))
-    }
-
-    func testPracticeGatePassesConfiguredPrimaryKeyToTheLocalEventPath() throws {
-        var practiceLease = DatasheetQuickSetupPracticeGateLease()
-        practiceLease.update(monitorIsArmed: true, applicationIsActive: true)
-        defer { practiceLease.release() }
-
-        let manager = GlobalHotkeyManager(
-            asrService: ASRService(),
-            primaryShortcuts: [HotkeyShortcut(keyCode: 80, modifierFlags: [])],
-            promptModeShortcut: HotkeyShortcut(keyCode: 81, modifierFlags: []),
-            commandModeShortcut: nil,
-            rewriteModeShortcut: HotkeyShortcut(keyCode: 82, modifierFlags: []),
-            promptModeShortcutEnabled: false,
-            commandModeShortcutEnabled: false,
-            rewriteModeShortcutEnabled: false,
-            isShortcutCaptureActiveProvider: {
-                DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: true)
-            }
-        )
-        let down = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 80, keyDown: true))
-        down.flags = []
-        XCTAssertFalse(manager.handleKeyEventForTests(down, type: .keyDown), "The active drill lets the primary key reach the local monitor")
-
-        let up = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 80, keyDown: false))
-        up.flags = []
-        XCTAssertFalse(manager.handleKeyEventForTests(up, type: .keyUp), "The active drill lets the matching key-up reach the local monitor")
-    }
-
-    func testModifierPracticeRequiresTheCompletePhysicalChordAndMatchingFlags() {
-        let chord = HotkeyShortcut(keyCode: 58, modifierFlags: .shift, modifierKeyCodes: [58, 56])
-        var press = DatasheetPracticeModifierPress()
-        XCTAssertEqual(press.update(shortcut: chord, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
-        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: .option, pressedKeys: [58, 56]), .ignore)
-        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: [.option, .shift], pressedKeys: [58, 56]), .start)
-        XCTAssertEqual(press.update(shortcut: chord, keyCode: 58, modifiers: .shift, pressedKeys: [56]), .finish(wasCleanPress: true))
-        XCTAssertEqual(press.update(shortcut: chord, keyCode: 56, modifiers: [], pressedKeys: []), .ignore)
-    }
-
-    func testModifierPracticeRetainsItsPhysicalReleaseOwnerAcrossSiblingModifiers() {
-        let rightOption = HotkeyShortcut(keyCode: 61, modifierFlags: [], modifierKeyCodes: [61])
-        var press = DatasheetPracticeModifierPress()
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: .option, pressedKeys: [61, 58]), .ignore)
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [58]), .finish(wasCleanPress: false))
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: [], pressedKeys: []), .ignore)
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: .option, pressedKeys: [61]), .start)
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 61, modifiers: [], pressedKeys: []), .finish(wasCleanPress: true))
-
-        // The single-modifier legacy form is normalized to its specific physical key.
-        XCTAssertEqual(press.update(shortcut: rightOption, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
-        // A legacy chord with aggregate flags and no explicit keycodes accepts either side.
-        let eitherOptionShift = HotkeyShortcut(keyCode: 58, modifierFlags: .shift)
-        var eitherPress = DatasheetPracticeModifierPress()
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 61, modifiers: .option, pressedKeys: [61]), .ignore)
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 60, modifiers: [.option, .shift], pressedKeys: [61, 60]), .start)
-        eitherPress.interrupt()
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 61, modifiers: .shift, pressedKeys: [60]), .finish(wasCleanPress: false))
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 60, modifiers: [], pressedKeys: []), .ignore)
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 58, modifiers: .option, pressedKeys: [58]), .ignore)
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 56, modifiers: [.option, .shift], pressedKeys: [58, 56]), .start)
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 56, modifiers: .option, pressedKeys: [58]), .finish(wasCleanPress: true))
-        XCTAssertEqual(eitherPress.update(shortcut: eitherOptionShift, keyCode: 58, modifiers: [], pressedKeys: []), .ignore)
     }
 
     func testInlineOverlayFitsAllTwelveZonesAndUsesTheProductionBatteryReservation() throws {
@@ -5590,8 +5706,8 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
 
     func testCurrentAndCompletedRowsRenderAtProductionWidthsInBothThemes() throws {
         let states: [(String, DatasheetQuickSetupProgress)] = [
-            ("current", self.progress(hotkeyPracticeCount: 0)),
-            ("shortcut-complete", self.progress(hotkeyPracticeCount: 3)),
+            ("current", self.progress(voiceValidated: false)),
+            ("voice-complete", self.progress(voiceValidated: true)),
         ]
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"
@@ -5614,14 +5730,12 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         }
     }
 
-    private func progress(hotkeyPracticeCount: Int, isPracticeKeyDown: Bool = false) -> DatasheetQuickSetupProgress {
+    private func progress(voiceValidated: Bool) -> DatasheetQuickSetupProgress {
         DatasheetQuickSetupProgress(
             modelReady: true,
             microphoneAuthorized: true,
             accessibilityEnabled: true,
-            hotkeyPracticeCount: hotkeyPracticeCount,
-            hotkeyPracticeIsDown: isPracticeKeyDown,
-            playgroundValidated: false
+            playgroundValidated: voiceValidated
         )
     }
 
@@ -5636,8 +5750,7 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         return DatasheetQuickSetupReadout(
             steps: self.steps(progress: progress),
             completedCount: progress.completedCount,
-            readyShortcut: "Right ⌥",
-            voiceValidated: progress.voiceValidated
+            readyShortcut: "Right ⌥"
         )
         .padding(.horizontal, 28)
         .frame(width: detailWidth, height: 620, alignment: .topLeading)
@@ -5651,7 +5764,7 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
             ("Voice Model Ready", "Speech recognition model is loaded and ready", "Voice Model Ready", "Parakeet TDT v2 · loaded", "Go to Voice Engine", "arrow.down"),
             ("Microphone Permission Granted", "MouthKeys has access to your microphone", "Microphone Permission Granted", "Access granted", "Open Settings", "mic"),
             ("Accessibility Access Enabled", "Accessibility permission granted for typing into apps", "Accessibility Access Enabled", "Typing into apps", "Open Settings", "hand.raised"),
-            ("Test Your Setup", "Try the playground below to test your complete setup", "Setup Tested Successfully", "Voice transcription", "Go to Playground", "arrow.right"),
+            ("Try Your Dictation Key", "Press Right ⌥, say something, then press it again", "Setup Tested Successfully", "Voice transcription", "Go to Practice", "arrow.down"),
         ]
         return labels.enumerated().map { index, item in
             let status: DatasheetSetupStepStatus
@@ -5662,18 +5775,12 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
             } else {
                 status = .later
             }
-            let fourthTitle = progress.fourthStep == .shortcutPracticed ? "Shortcut Practice Complete" : item.0
-            let fourthDetail = progress.fourthStep == .shortcutPracticed
-                ? "Your shortcut responded. Test voice transcription in the Playground."
-                : item.1
-            let fourthCompletedTitle = progress.fourthStep == .shortcutPracticed ? "Shortcut Practice Complete" : item.2
-            let fourthCompletedDetail = progress.fourthStep == .shortcutPracticed ? "3 key presses" : item.3
             return DatasheetSetupStep(
                 number: index + 1,
-                title: index == 3 ? fourthTitle : item.0,
-                detail: index == 3 ? fourthDetail : item.1,
-                completedTitle: index == 3 ? fourthCompletedTitle : item.2,
-                completedDetail: index == 3 ? fourthCompletedDetail : item.3,
+                title: item.0,
+                detail: item.1,
+                completedTitle: item.2,
+                completedDetail: item.3,
                 actionTitle: item.4,
                 actionSymbol: item.5,
                 status: status,

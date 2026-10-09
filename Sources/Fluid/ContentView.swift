@@ -255,6 +255,9 @@ struct ContentView: View {
     @State private var promptModeOverrideText: String? // System prompt text to use when in prompt mode
     @State private var activeDictationShortcutSlot: SettingsStore.DictationShortcutSlot? = nil
     @State private var activeRecordingMode: ActiveRecordingMode = .none
+    /// The current dictation began on Getting Started, in front, so it is practice. Decided at
+    /// start: a dictation begun in another app keeps its destination if MouthKeys comes forward.
+    @State private var isPracticeDictation = false
     @State private var pendingAIReprocessText: String? = nil
     @State private var activeShortcutRecordingTarget: ShortcutRecordingTarget? = nil
     @State private var currentRecordingModifierKeyCodes: Set<UInt16> = []
@@ -1470,7 +1473,9 @@ struct ContentView: View {
             playgroundUsed: self.$playgroundUsed,
             isTranscriptionFocused: self.$isTranscriptionFocused,
             accessibilityEnabled: self.accessibilityEnabled,
-            stopAndProcessTranscription: { await self.stopAndProcessTranscription() },
+            stopAndProcessTranscription: {
+                await self.stopAndProcessTranscription(route: self.currentDictationOutputRouteForHotkeyStop())
+            },
             startRecording: { self.startRecording() },
             openAccessibilitySettings: self.openAccessibilitySettings,
             restartApp: self.restartApp
@@ -2191,6 +2196,20 @@ struct ContentView: View {
         #endif
         var traceOutcome = "stopped"
         defer { trace.finishUnlessDelivering(outcome: traceOutcome) }
+        // A new recording can start while this one finishes (the keycap and Playground button
+        // skip the hotkey's stop guard); what this stop does afterwards must not touch that one.
+        let overlayLifecycleAtStop = self.overlayLifecycleID
+        let isPracticeStop = self.isPracticeDictation
+        defer {
+            // Only this practice's own result reaches the drill: not the onboarding playground's,
+            // and not one overtaken by a newer recording.
+            if self.overlayLifecycleID == overlayLifecycleAtStop {
+                self.isPracticeDictation = false
+                if isPracticeStop, route == .onboardingSandbox {
+                    NotificationCenter.default.post(name: .datasheetPracticeDictationFinished, object: nil)
+                }
+            }
+        }
         // No whole-app UI rebuild until the text is handed off (see ASRService.holdsStopUIRefresh).
         let uiRefreshHold = self.asr.holdStopUIRefresh()
         defer { self.asr.releaseStopUIRefresh(uiRefreshHold) }
@@ -2685,7 +2704,15 @@ struct ContentView: View {
         }
 
         if !didTypeExternally, !shouldShowAIProcessingFailure, !didRequestOverlayHideOnStop {
-            self.hideOverlayAfterOutput()
+            if route == .onboardingSandbox, isPracticeStop, self.overlayHoldsForOutcome,
+               self.overlayLifecycleID == overlayLifecycleAtStop
+            {
+                // Practice ends the way a real dictation does: the overlay states the outcome.
+                self.menuBarManager.releaseOverlayForOutcomeHold()
+                BottomOverlayWindowController.shared.showPracticeOutcome(words: DatasheetOverlayModel.wordCount(finalText))
+            } else {
+                self.hideOverlayAfterOutput()
+            }
         }
     }
 
@@ -2868,7 +2895,14 @@ struct ContentView: View {
     }
 
     private var isOnboardingSandboxRouteActive: Bool {
-        self.isOnboardingVoicePlaygroundStepActive
+        self.isOnboardingVoicePlaygroundStepActive || self.isPracticeDictation
+    }
+
+    private func notePracticeDictationStart() {
+        self.isPracticeDictation = DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive)
+        if self.isPracticeDictation {
+            NotificationCenter.default.post(name: .datasheetPracticeDictationStarted, object: nil)
+        }
     }
 
     private func currentDictationOutputRouteForHotkeyStop() -> DictationOutputRoute {
@@ -3439,6 +3473,7 @@ struct ContentView: View {
 
         self.advanceOverlayLifecycle()
         self.setActiveRecordingMode(.dictate)
+        self.notePracticeDictationStart()
         let shouldShowDictationOverlay = !self.isRecordingForCommand
             && !self.isRecordingForRewrite
             && self.asr.micStatus == .authorized
@@ -3764,8 +3799,6 @@ struct ContentView: View {
             },
             isShortcutCaptureActiveProvider: {
                 self.isRecordingAnyShortcutCapture
-                    || (!self.asr.isRunningOrStarting
-                        && DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive))
             }
         )
 
@@ -3878,6 +3911,10 @@ struct ContentView: View {
         if self.asr.isRunningOrStarting {
             DebugLogger.shared.debug("Cancel shortcut: cancelling ASR recording", source: "ContentView")
             Task { await self.asr.stopWithoutTranscription() }
+            if self.isPracticeDictation {
+                self.isPracticeDictation = false
+                NotificationCenter.default.post(name: .datasheetPracticeDictationCancelled, object: nil)
+            }
             handled = true
         }
 
@@ -4092,6 +4129,7 @@ extension ContentView {
             self.appBench("asr_start_skipped reason=already_running_or_starting")
             return nil
         }
+        self.notePracticeDictationStart()
         self.advanceOverlayLifecycle()
         if self.asr.micStatus == .authorized {
             self.appBench("overlay_mode_request mode=Dictation")
