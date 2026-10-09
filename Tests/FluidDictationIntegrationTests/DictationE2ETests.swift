@@ -5260,17 +5260,19 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
                 }
             }
 
-            let overlay = DatasheetInlineOverlayPreview(
-                fallbackText: "Press record to watch the pill and playground fill together.",
-                inspectionHover: "wc"
-            )
-            .frame(width: 680, height: 230, alignment: .top)
-            .background((appearance == .darkAqua ? DatasheetTheme.Palette.dark : .light).surface)
-            .datasheetPalette()
-            let overlayRep = try DatasheetRenderStage.render(overlay, appearance: appearance)
-            XCTAssertGreaterThan(overlayRep.pixelsWide, 0)
-            if let outputFolder {
-                try DatasheetRenderStage.write(overlayRep, to: outputFolder.appendingPathComponent("B-playground-wc-\(theme).png"))
+            for hover in ["wc", "cancel", "reprocess", "history", "rest"] {
+                let overlay = DatasheetInlineOverlayPreview(
+                    fallbackText: "Press record to watch the pill and playground fill together.",
+                    inspectionHover: hover == "rest" ? nil : hover
+                )
+                .frame(width: 680, height: 270, alignment: .top)
+                .background((appearance == .darkAqua ? DatasheetTheme.Palette.dark : .light).surface)
+                .datasheetPalette()
+                let overlayRep = try DatasheetRenderStage.render(overlay, appearance: appearance)
+                XCTAssertGreaterThan(overlayRep.pixelsWide, 0)
+                if let outputFolder {
+                    try DatasheetRenderStage.write(overlayRep, to: outputFolder.appendingPathComponent("B-playground-\(hover)-\(theme).png"))
+                }
             }
         }
     }
@@ -5677,7 +5679,7 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
                     XCTAssertEqual((app.minX + mic.maxX) / 2, width / 2, accuracy: 0.01)
                     for active in [nil] + expectedIDs.sorted().map(Optional.some) {
                         for zone in zones {
-                            XCTAssertEqual(layout.outlineStyle(for: zone.id, activeCallout: active).dash, active == zone.id ? [] : [3, 3])
+                            XCTAssertEqual(layout.outlineStyle(for: zone.id, activeCallout: active).dash, active == zone.id ? [] : [2, 3])
                         }
                     }
                 }
@@ -5700,6 +5702,25 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
                     XCTAssertNil(DatasheetCalloutZone.id(at: band, in: zones))
                     XCTAssertNil(DatasheetCalloutZone.id(at: CGPoint(x: 1, y: 1), in: zones))
                 }
+            }
+        }
+    }
+
+    func testInlineOverlayCardSitsUnderEachPartSoTheLeaderLandsOnIt() {
+        for size in SettingsStore.OverlaySize.allCases {
+            for width in [CGFloat(443), 493, 693, 813] {
+                let layout = DatasheetInlineOverlayLayout(geometry: .forSize(size), canvasWidth: width)
+                let cardWidth = layout.cardWidth(canvasWidth: width)
+                for zone in layout.calloutZones(micText: "MacBook Pro Microphone", micBattery: nil) {
+                    let x = layout.cardX(under: zone.frame, canvasWidth: width)
+                    // The leader drops straight down from the part's centre: it must meet the card.
+                    XCTAssertGreaterThanOrEqual(zone.frame.midX, x, "\(zone.id) \(size) \(width)")
+                    XCTAssertLessThanOrEqual(zone.frame.midX, x + cardWidth, "\(zone.id) \(size) \(width)")
+                    XCTAssertGreaterThanOrEqual(x, DatasheetInlineOverlayLayout.cardInset - 0.01)
+                    XCTAssertLessThanOrEqual(x + cardWidth, width - DatasheetInlineOverlayLayout.cardInset + 0.01)
+                }
+                let resting = layout.cardX(under: nil, canvasWidth: width)
+                XCTAssertEqual(resting + cardWidth / 2, width / 2, accuracy: 0.01, "The resting card is centred")
             }
         }
     }

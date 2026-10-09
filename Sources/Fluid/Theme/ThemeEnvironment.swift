@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct ThemeKey: EnvironmentKey {
@@ -37,6 +38,28 @@ struct AdaptiveAppTheme<Content: View>: View {
         self.content
             .appTheme(AppTheme.adaptive(accent: self.accent, colorScheme: activeScheme))
             .preferredColorScheme(preferredScheme)
+            .onAppear { AppAppearance.apply(self.settings.themePreference) }
+            .onChange(of: self.settings.themePreference) { _, preference in
+                AppAppearance.apply(preference)
+            }
+    }
+}
+
+/// The theme setting governs every MouthKeys surface, not only the main window: the overlay,
+/// its cards and the menu follow it too, so Getting Started and the overlay it teaches match.
+/// "System" leaves macOS in charge. The menu bar mark is a template image, drawn by macOS to
+/// suit the menu bar either way.
+enum AppAppearance {
+    @MainActor
+    static func apply(_ preference: SettingsStore.ThemePreference) {
+        guard !TestHostQuietMode.isActive else { return }
+        let appearance: NSAppearance? = switch preference {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+        guard NSApp.appearance?.name != appearance?.name else { return }
+        NSApp.appearance = appearance
     }
 }
 
