@@ -5706,20 +5706,40 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         }
     }
 
-    func testInlineOverlayCardSitsUnderEachPartSoTheLeaderLandsOnIt() {
+    func testInlineOverlayCardSitsUnderEachPartSoTheLeaderLandsOnIt() throws {
         for size in SettingsStore.OverlaySize.allCases {
             for width in [CGFloat(443), 493, 693, 813] {
                 let layout = DatasheetInlineOverlayLayout(geometry: .forSize(size), canvasWidth: width)
                 let cardWidth = layout.cardWidth(canvasWidth: width)
-                for zone in layout.calloutZones(micText: "MacBook Pro Microphone", micBattery: nil) {
-                    let x = layout.cardX(under: zone.frame, canvasWidth: width)
-                    // The leader drops straight down from the part's centre: it must meet the card.
-                    XCTAssertGreaterThanOrEqual(zone.frame.midX, x, "\(zone.id) \(size) \(width)")
-                    XCTAssertLessThanOrEqual(zone.frame.midX, x + cardWidth, "\(zone.id) \(size) \(width)")
+                let zones = layout.calloutZones(micText: "MacBook Pro Microphone", micBattery: nil)
+                let cardTop = layout.rowBottom + DatasheetInlineOverlayLayout.cardGap
+                for zone in zones {
+                    let leader = layout.leader(for: zone, cardTop: cardTop)
+                    let end = try XCTUnwrap(leader.last)
+                    let x = layout.cardX(leaderX: end.x, canvasWidth: width)
+                    // The leader ends on the card's top edge.
+                    XCTAssertEqual(end.y, cardTop)
+                    XCTAssertGreaterThanOrEqual(end.x, x, "\(zone.id) \(size) \(width)")
+                    XCTAssertLessThanOrEqual(end.x, x + cardWidth, "\(zone.id) \(size) \(width)")
                     XCTAssertGreaterThanOrEqual(x, DatasheetInlineOverlayLayout.cardInset - 0.01)
                     XCTAssertLessThanOrEqual(x + cardWidth, width - DatasheetInlineOverlayLayout.cardInset + 0.01)
+                    // A rail chip's leader crosses no other part (Cancel's used to cut through
+                    // Reprocess). Parts inside the pill drop across the pill by design.
+                    let railChips: Set<String> = ["history", "copy", "cancel", "reprocess"]
+                    for (a, b) in zip(leader, leader.dropFirst()) where railChips.contains(zone.id) {
+                        let segment = CGRect(
+                            x: min(a.x, b.x), y: min(a.y, b.y),
+                            width: max(abs(a.x - b.x), 0.5), height: max(abs(a.y - b.y), 0.5)
+                        )
+                        for other in zones where other.id != zone.id {
+                            XCTAssertFalse(
+                                segment.intersects(other.frame.insetBy(dx: -3, dy: -3)),
+                                "\(zone.id)'s leader crosses \(other.id) at \(size) \(width)"
+                            )
+                        }
+                    }
                 }
-                let resting = layout.cardX(under: nil, canvasWidth: width)
+                let resting = layout.cardX(leaderX: nil, canvasWidth: width)
                 XCTAssertEqual(resting + cardWidth / 2, width / 2, accuracy: 0.01, "The resting card is centred")
             }
         }
