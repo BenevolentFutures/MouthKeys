@@ -344,6 +344,7 @@ final class ASRService: ObservableObject {
     private var modelDownloadOperationID: UUID?
     private var modelDownloadAnalyticsStates: [UUID: ModelDownloadAnalyticsState] = [:]
     private var modelExistenceCheckID: UUID?
+    private var speechModelCardDownloadTask: Task<Void, Never>?
 
     var hasActiveModelPreparation: Bool {
         self.ensureReadyTask != nil
@@ -1391,6 +1392,72 @@ final class ASRService: ObservableObject {
         DeliveryFailureOverlayController.shared.showTranscriptionTimeout(notice)
     }
 
+    /// Where the voice-model card is announced. The app shows the overlay card (with Download);
+    /// tests replace it.
+    static var speechModelNoticeHandler: @MainActor (SpeechModelNotice) -> Void = { notice in
+        DeliveryFailureOverlayController.shared.showSpeechModelNotice(notice)
+    }
+
+    /// Whether dictation has a model to transcribe with: loaded, or on disk to load. Loaded is
+    /// the usual case and costs nothing; otherwise the files are checked.
+    var hasSpeechModelForDictation: Bool {
+        (self.isAsrReady && self.transcriptionProvider.isReady) || SettingsStore.shared.selectedSpeechModel.isInstalled
+    }
+
+    /// Says the selected model is missing (or still downloading) on the voice-model card.
+    func announceMissingSpeechModel(hasKeptAudio: Bool) {
+        let model = SettingsStore.shared.selectedSpeechModel
+        let isDownloading = self.isDownloadingModel || self.hasActiveModelPreparation || self.hasActiveModelDownload
+        let notice: SpeechModelNotice = isDownloading
+            ? .downloading(modelName: model.displayName, hasKeptAudio: hasKeptAudio)
+            : .missing(modelName: model.displayName, hasKeptAudio: hasKeptAudio)
+        DebugLogger.shared.warning(
+            "SPEECH_MODEL_MISSING model=\(model.id) downloading=\(isDownloading) keptAudio=\(hasKeptAudio)",
+            source: "ASRService"
+        )
+        Self.speechModelNoticeHandler(notice)
+    }
+
+    /// The voice-model card's Download: fetches the selected model in the background, then says
+    /// how it went. A recording kept while the model was missing is offered for Reprocess.
+    func downloadSelectedModelFromCard() {
+        let model = SettingsStore.shared.selectedSpeechModel
+        guard self.speechModelCardDownloadTask == nil, !self.hasActiveModelPreparation, !self.hasActiveModelDownload else {
+            Self.speechModelNoticeHandler(
+                .downloading(modelName: model.displayName, hasKeptAudio: self.keptUntranscribedDictation != nil)
+            )
+            return
+        }
+        DebugLogger.shared.info("MODEL_DOWNLOAD source=card state=started model=\(model.id)", source: "ASRService")
+        Self.speechModelNoticeHandler(
+            .downloading(modelName: model.displayName, hasKeptAudio: self.keptUntranscribedDictation != nil)
+        )
+        self.speechModelCardDownloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.speechModelCardDownloadTask = nil }
+            do {
+                try await self.ensureAsrReady(source: .automatic)
+                await self.checkIfModelsExistAsync()
+                DebugLogger.shared.info("MODEL_DOWNLOAD source=card state=ready model=\(model.id)", source: "ASRService")
+                if self.keptUntranscribedDictation != nil {
+                    Self.transcriptionTimeoutHandler(.recovered)
+                } else {
+                    Self.speechModelNoticeHandler(.ready(modelName: model.displayName))
+                }
+            } catch {
+                if Task.isCancelled || Self.isModelPreparationCancellation(error) {
+                    DebugLogger.shared.info("MODEL_DOWNLOAD source=card state=cancelled model=\(model.id)", source: "ASRService")
+                    return
+                }
+                DebugLogger.shared.error(
+                    "MODEL_DOWNLOAD source=card state=failed model=\(model.id) error=\(error.localizedDescription)",
+                    source: "ASRService"
+                )
+                Self.speechModelNoticeHandler(.downloadFailed(modelName: model.displayName))
+            }
+        }
+    }
+
     /// Whether a timed-out dictation's audio is waiting to be transcribed, and when it stopped.
     var keptUntranscribedDictationStoppedAt: Date? {
         self.keptUntranscribedDictation?.stoppedAt
@@ -1412,6 +1479,10 @@ final class ASRService: ObservableObject {
         guard let kept = self.keptUntranscribedDictation else { return .unavailable }
         guard !self.isRecoveringStalledStreamingChunk else {
             throw NSError(domain: "ASRService", code: -7, userInfo: [NSLocalizedDescriptionKey: "Speech recognition is still recovering."])
+        }
+        guard self.hasSpeechModelForDictation else {
+            self.announceMissingSpeechModel(hasKeptAudio: true)
+            throw SpeechModelMissingError()
         }
         var audio = kept.audio
         if audio == nil {
@@ -2218,6 +2289,13 @@ final class ASRService: ObservableObject {
             // main-window alert nobody sees.
             DebugLogger.shared.warning("START() blocked - the speech model has not returned a stalled preview yet", source: "ASRService")
             Self.transcriptionTimeoutHandler(.recordingRefused(hasKeptAudio: self.keptUntranscribedDictation != nil))
+            return .failed
+        }
+        guard self.hasSpeechModelForDictation else {
+            // Nothing could transcribe this recording, and downloading a model inside the stop
+            // would only spin. Say so before recording, with Download on the card.
+            DebugLogger.shared.warning("START() blocked - the selected speech model is not installed", source: "ASRService")
+            self.announceMissingSpeechModel(hasKeptAudio: false)
             return .failed
         }
         self.audioCaptureStartGeneration &+= 1
@@ -3089,6 +3167,21 @@ final class ASRService: ObservableObject {
                 "stop(): padded short audio with silence (\(originalCount) → \(pcm.count) samples)",
                 source: "ASRService"
             )
+        }
+
+        // The model went missing while recording (deleted, or switched to one not downloaded).
+        // Downloading it here would hold the stop for minutes behind a spinner, so the audio is
+        // kept for Reprocess and the card offers Download instead.
+        guard self.hasSpeechModelForDictation else {
+            if !useDictionaryTrainingPath {
+                let kept = DictationAudioSnapshot(samples: capturedPCM, sampleRate: 16_000, channels: 1)
+                let stoppedAt = Date()
+                self.keptUntranscribedDictation = KeptDictation(stoppedAt: stoppedAt, audio: kept)
+                DictationAudioHistoryStore.shared.saveKeptDictation(kept, stoppedAt: stoppedAt)
+            }
+            self.announceMissingSpeechModel(hasKeptAudio: !useDictionaryTrainingPath)
+            self.timingLog("stop_end result=error totalMs=\(self.elapsedMilliseconds(since: stopStartedAt)) reason=speech_model_missing")
+            return ""
         }
 
         do {
@@ -5745,6 +5838,23 @@ private extension ASRService {
         )
         Self.transcriptionTimeoutHandler(.timedOut)
     }
+}
+
+/// Reprocess found no model to transcribe the kept audio with; the voice-model card already said so.
+nonisolated struct SpeechModelMissingError: Error {}
+
+/// What the voice-model card says. Dictation never downloads a model on its own: a missing one
+/// is a card with Download, not a spinner.
+nonisolated enum SpeechModelNotice: Equatable, Sendable {
+    /// The selected model is not on disk. `hasKeptAudio`: a recording stopped without one and
+    /// its audio waits for Reprocess.
+    case missing(modelName: String, hasKeptAudio: Bool)
+    /// The selected model is downloading; dictation works once it is done.
+    case downloading(modelName: String, hasKeptAudio: Bool)
+    /// The download started from the card finished (with no kept audio to offer).
+    case ready(modelName: String)
+    /// The download started from the card failed.
+    case downloadFailed(modelName: String)
 }
 
 /// What the transcription-timeout card says.

@@ -2876,6 +2876,50 @@ final class TranscriptionTimeoutTests: XCTestCase {
         XCTAssertEqual(ASRService.streamingChunkDrainTimeoutNanoseconds(forSampleCount: 16_000 * 600), 300_000_000_000)
     }
 
+    func testCancelAfterStopDropsOnlyThePasteOfTheStopInFlight() {
+        // Nothing in flight: Cancel only dismisses.
+        XCTAssertFalse(DictationStopDismissal.dismissActiveStop())
+        DictationStopDismissal.begin(41)
+        XCTAssertTrue(DictationStopDismissal.dismissActiveStop())
+        XCTAssertTrue(DictationStopDismissal.end(41), "the dismissed stop is not typed")
+        XCTAssertFalse(DictationStopDismissal.end(41), "ending twice reports nothing")
+        // A dismissal never carries over to the next stop.
+        DictationStopDismissal.begin(42)
+        XCTAssertFalse(DictationStopDismissal.end(42))
+        // Once the paste is handed off, a late Cancel cannot claim it.
+        XCTAssertFalse(DictationStopDismissal.dismissActiveStop())
+        // Overlapping stops: Cancel means the newest, and a new stop never clears an older
+        // stop's dismissal.
+        DictationStopDismissal.begin(43)
+        XCTAssertTrue(DictationStopDismissal.dismissActiveStop())
+        DictationStopDismissal.begin(44)
+        XCTAssertTrue(DictationStopDismissal.isDismissed(43))
+        XCTAssertFalse(DictationStopDismissal.isDismissed(44))
+        XCTAssertFalse(DictationStopDismissal.end(44))
+        XCTAssertTrue(DictationStopDismissal.end(43))
+    }
+
+    func testTheVoiceModelCardOffersDownloadWhenTheModelIsMissing() {
+        let missing = DeliveryFailureOverlayController.speechModelCardContent(.missing(modelName: "Parakeet v2", hasKeptAudio: false))
+        XCTAssertEqual(missing.headline, "No voice model")
+        XCTAssertEqual(missing.primary, .download)
+        XCTAssertEqual(
+            DeliveryFailureOverlayController.speechModelCardContent(.missing(modelName: "Parakeet v2", hasKeptAudio: true)).reason,
+            "Download Parakeet v2. Your audio is kept"
+        )
+        XCTAssertEqual(DeliveryFailureOverlayController.speechModelCardContent(.downloading(modelName: "Parakeet v2", hasKeptAudio: false)).primary, .none)
+        XCTAssertEqual(DeliveryFailureOverlayController.speechModelCardContent(.downloadFailed(modelName: "Parakeet v2")).primary, .download)
+        XCTAssertEqual(DeliveryFailureOverlayController.speechModelCardContent(.ready(modelName: "Parakeet v2")).primary, .none)
+
+        let controller = DeliveryFailureOverlayController.shared
+        controller.showSpeechModelNotice(.missing(modelName: "Parakeet v2", hasKeptAudio: false))
+        XCTAssertEqual(controller.presentedSpeechModelNotice, .missing(modelName: "Parakeet v2", hasKeptAudio: false))
+        XCTAssertNil(controller.presentedTimeout)
+        controller.hide()
+        XCTAssertNil(controller.presentedSpeechModelNotice)
+        XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0)
+    }
+
     func testTheTimeoutCardOffersReprocessOnlyWhenAudioIsKept() {
         let controller = DeliveryFailureOverlayController.shared
         controller.showTranscriptionTimeout(.timedOut)
@@ -3636,16 +3680,14 @@ final class DatasheetOverlayBehaviorTests: XCTestCase {
             XCTAssertTrue(BottomOverlayView.isChipInert(role, display: delivered))
             XCTAssertFalse(BottomOverlayView.isChipInert(role, display: .listening))
         }
-        // After the stop only History acts: Copy and Reprocess wait for the final pass, and Cancel
-        // could no longer stop the paste.
+        // After the stop Copy and Reprocess wait for the final pass. Cancel always acts: it drops a
+        // pending Return, or cancels the paste and dismisses the pill, so a stuck transcription can
+        // always be closed.
         XCTAssertTrue(BottomOverlayView.isChipInert(.historyAction, display: .stopped))
-        XCTAssertTrue(BottomOverlayView.isChipInert(.cancel, display: .stopped))
-        XCTAssertTrue(BottomOverlayView.isChipInert(.cancel, display: .transcribing))
+        XCTAssertFalse(BottomOverlayView.isChipInert(.cancel, display: .stopped))
+        XCTAssertFalse(BottomOverlayView.isChipInert(.cancel, display: .transcribing))
         XCTAssertFalse(BottomOverlayView.isChipInert(.history, display: .stopped))
-        // While SEND shows, Cancel still has a Return to drop after the stop.
-        XCTAssertFalse(BottomOverlayView.isChipInert(.cancel, display: .stopped, cancelHasWork: true))
-        XCTAssertFalse(BottomOverlayView.isChipInert(.cancel, display: .transcribing, cancelHasWork: true))
-        XCTAssertTrue(BottomOverlayView.isChipInert(.cancel, display: delivered, cancelHasWork: true))
+        XCTAssertTrue(BottomOverlayView.isChipInert(.cancel, display: delivered))
         // Transcribing: they dim instead.
         XCTAssertFalse(BottomOverlayView.isChipEnabled(.historyAction, display: .transcribing, hasHistory: true))
         XCTAssertTrue(BottomOverlayView.isChipEnabled(.historyAction, display: .listening, hasHistory: true))

@@ -1626,6 +1626,7 @@ struct OnboardingFlowView: View {
                             title: self.onboardingModelActionButtonTitle(isPreparing: false, isDownloaded: true, isReady: isReady),
                             systemImage: isReady ? "checkmark" : "bolt.fill",
                             width: nil,
+                            isStatus: isReady,
                             isDisabled: actionsBlocked || isReady
                         ) {
                             self.prepareOnboardingRoute(route)
@@ -1636,6 +1637,7 @@ struct OnboardingFlowView: View {
                             title: self.onboardingModelActionButtonTitle(isPreparing: false, isDownloaded: true, isReady: isReady),
                             systemImage: isReady ? "checkmark" : "bolt.fill",
                             width: 116,
+                            isStatus: isReady,
                             isDisabled: actionsBlocked || isReady
                         ) {
                             self.prepareOnboardingRoute(route)
@@ -1712,12 +1714,16 @@ struct OnboardingFlowView: View {
         systemImage: String,
         width: CGFloat?,
         isSecondary: Bool = false,
+        isStatus: Bool = false,
         isDisabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
         let isHovered = self.hoveredModelActionButtonID == id && !isDisabled
-        let foreground = isSecondary ? self.palette.text : self.palette.invForeground
-        let background = isSecondary ? self.palette.surface : self.palette.invBackground
+        // A status ("Active now") reads as a state, not a dimmed action: full-strength ink on the
+        // surface, never the inverted fill at 45%, which left grey on grey.
+        let isPlain = isSecondary || isStatus
+        let foreground = isPlain ? self.palette.text : self.palette.invForeground
+        let background = isPlain ? self.palette.surface : self.palette.invBackground
 
         return Button {
             action()
@@ -1731,11 +1737,11 @@ struct OnboardingFlowView: View {
                 .frame(width: width, height: 30)
                 .frame(maxWidth: width == nil ? .infinity : nil)
                 .background(background)
-                .overlay(Rectangle().stroke(isSecondary ? self.palette.ruleSoft : background, lineWidth: 1))
+                .overlay(Rectangle().stroke(isStatus ? self.palette.rule : (isSecondary ? self.palette.ruleSoft : background), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.45 : 1)
+        .opacity(isDisabled && !isStatus ? 0.45 : 1)
         .datasheetBracket(.chip, visible: isHovered)
         .onHover { hovering in
             self.setHoveredModelActionButton(hovering && !isDisabled ? id : nil)
@@ -2818,6 +2824,7 @@ struct OnboardingFlowView: View {
 
         self.modelPreparationTask?.cancel()
         self.preparingModelRouteID = route.id
+        let previousSelection = OnboardingModelSelection(settings: self.settings)
         self.selectOnboardingRoute(route)
 
         self.modelPreparationTask = Task { @MainActor in
@@ -2830,6 +2837,7 @@ struct OnboardingFlowView: View {
                 try await self.asr.ensureAsrReady(source: .onboarding)
             } catch is CancellationError {
                 DebugLogger.shared.info("Cancelled onboarding voice model setup for \(route.model.displayName)", source: "OnboardingFlowView")
+                self.restoreModelAfterCancelledSetup(previousSelection, cancelled: route.model)
             } catch {
                 DebugLogger.shared.error("Failed to prepare onboarding voice model \(route.model.displayName): \(error)", source: "OnboardingFlowView")
                 // Surface the failure in the UI instead of only logging it, so the user
@@ -2841,6 +2849,31 @@ struct OnboardingFlowView: View {
             }
             guard !Task.isCancelled else { return }
             await self.asr.checkIfModelsExistAsync()
+        }
+    }
+
+    /// A cancelled download deletes its partial model, so the selection would point at a model
+    /// that is not on disk and every dictation after it would have nothing to transcribe with.
+    /// When the model selected before is still installed, it comes back.
+    private func restoreModelAfterCancelledSetup(
+        _ previous: OnboardingModelSelection,
+        cancelled model: SettingsStore.SpeechModel
+    ) {
+        guard self.settings.selectedSpeechModel == model,
+              previous.model != model,
+              !model.isInstalled,
+              previous.model.isInstalled
+        else { return }
+        previous.apply(to: self.settings)
+        self.asr.resetTranscriptionProvider()
+        self.syncOnboardingSelectionFromSettings()
+        DebugLogger.shared.info(
+            "MODEL_RESTORE cancelled=\(model.id) restored=\(previous.model.id)",
+            source: "OnboardingFlowView"
+        )
+        Task { @MainActor in
+            await self.asr.checkIfModelsExistAsync()
+            try? await self.asr.ensureAsrReady(source: .onboarding)
         }
     }
 
@@ -3856,5 +3889,33 @@ private struct OnboardingMicrophoneSetupPanel: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(self.palette.rule).frame(height: 1)
         }
+    }
+}
+
+/// The voice model settings onboarding changes when a model route is picked, so a cancelled
+/// download can put the earlier, installed model back.
+struct OnboardingModelSelection: Equatable {
+    let model: SettingsStore.SpeechModel
+    let languageID: String
+    let appleSpeechLocaleIdentifier: String
+    let cohereLanguage: SettingsStore.CohereLanguage
+    let nemotronLanguage: SettingsStore.NemotronLanguage
+
+    @MainActor
+    init(settings: SettingsStore) {
+        self.model = settings.selectedSpeechModel
+        self.languageID = settings.onboardingSelectedLanguageID
+        self.appleSpeechLocaleIdentifier = settings.selectedAppleSpeechLocaleIdentifier
+        self.cohereLanguage = settings.selectedCohereLanguage
+        self.nemotronLanguage = settings.selectedNemotronLanguage
+    }
+
+    @MainActor
+    func apply(to settings: SettingsStore) {
+        settings.onboardingSelectedLanguageID = self.languageID
+        settings.selectedAppleSpeechLocaleIdentifier = self.appleSpeechLocaleIdentifier
+        settings.selectedCohereLanguage = self.cohereLanguage
+        settings.selectedNemotronLanguage = self.nemotronLanguage
+        settings.selectedSpeechModel = self.model
     }
 }

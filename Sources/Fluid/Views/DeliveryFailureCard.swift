@@ -33,6 +33,7 @@ final class DeliveryFailureOverlayController {
     private(set) var presentedTranscript: String?
     private(set) var presentedTimeout: TranscriptionTimeoutNotice?
     private(set) var presentedMicrophoneAccessNeeded = false
+    private(set) var presentedSpeechModelNotice: SpeechModelNotice?
     /// Transcripts whose paste failed this session, for the history card's NOT PASTED marker.
     private(set) var notPastedTranscripts: Set<String> = []
 
@@ -126,6 +127,49 @@ final class DeliveryFailureOverlayController {
         DebugLogger.shared.info("Transcription timeout card shown notice=\(notice)", source: "DeliveryFailureCard")
     }
 
+    /// The selected voice model is not on disk (or still downloading): dictation was refused, or a
+    /// recording's audio was kept, and Download fetches the model in the background. Its progress
+    /// and outcome come back on this card.
+    func showSpeechModelNotice(_ notice: SpeechModelNotice) {
+        let content = Self.speechModelCardContent(notice)
+        let tiedToDictation: Bool = switch notice {
+        case .missing, .downloading: true
+        case .ready, .downloadFailed: false
+        }
+        self.present(content, yieldOverlay: {
+            // The refused start's pill (or the stopped one whose audio was kept) becomes the card;
+            // news that arrives later never takes a pill's place.
+            tiedToDictation ? BottomOverlayWindowController.shared.yieldToNoticeCard(refusedStart: true) : false
+        }) { [weak self] in
+            AppServices.shared.asr.downloadSelectedModelFromCard()
+            // The card then says "Downloading" itself (a new card replaces this one).
+            _ = self
+        }
+        self.presentedSpeechModelNotice = notice
+        DebugLogger.shared.info("Speech model card shown notice=\(notice)", source: "DeliveryFailureCard")
+    }
+
+    static func speechModelCardContent(_ notice: SpeechModelNotice) -> DatasheetCardContent {
+        switch notice {
+        case let .missing(name, hasKeptAudio):
+            DatasheetCardContent(
+                headline: "No voice model",
+                reason: hasKeptAudio ? "Download \(name). Your audio is kept" : "Download \(name) to dictate",
+                primary: .download
+            )
+        case let .downloading(name, hasKeptAudio):
+            DatasheetCardContent(
+                headline: "Downloading the voice model",
+                reason: hasKeptAudio ? "\(name). Your audio is kept for Reprocess" : "\(name). Dictate once it is done",
+                primary: .none
+            )
+        case let .ready(name):
+            DatasheetCardContent(headline: "Voice model ready", reason: "\(name) is ready. Dictate again", primary: .none)
+        case let .downloadFailed(name):
+            DatasheetCardContent(headline: "Download failed", reason: "\(name) did not download. Check the connection", primary: .download)
+        }
+    }
+
     /// A dictation hotkey pressed while macOS denies the microphone: recording cannot start, so
     /// say so where the overlay would have appeared, with a way to the Microphone settings.
     func showMicrophoneAccessNeeded() {
@@ -170,6 +214,7 @@ final class DeliveryFailureOverlayController {
         self.presentedTranscript = nil
         self.presentedTimeout = nil
         self.presentedMicrophoneAccessNeeded = false
+        self.presentedSpeechModelNotice = nil
         // A fresh hosting view per card: the view's own state (Copied, hover) must never carry
         // over from the previous card.
         if self.panel == nil {
@@ -218,6 +263,7 @@ final class DeliveryFailureOverlayController {
         self.presentedTranscript = nil
         self.presentedTimeout = nil
         self.presentedMicrophoneAccessNeeded = false
+        self.presentedSpeechModelNotice = nil
         guard let panel = self.panel, panel.isVisible, !DatasheetTheme.Motion.isReduced else {
             self.panel?.orderOut(nil)
             return
