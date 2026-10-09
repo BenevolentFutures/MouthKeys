@@ -5248,6 +5248,7 @@ final class GettingStartedDatasheetRenderTests: XCTestCase {
     /// One drill per stage, driven through the same transitions the Getting Started view uses.
     static var drillStates: [(String, DatasheetVoicePractice, String)] {
         var listening = DatasheetVoicePractice()
+        listening.practiceStarted()
         listening.recordingChanged(isRunning: true)
         var transcribing = listening
         transcribing.recordingChanged(isRunning: false)
@@ -5397,6 +5398,11 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: false), 0)
 
         drill.recordingChanged(isRunning: true)
+        XCTAssertEqual(drill.stage, .waiting, "A dictation not announced as practice leaves the drill be")
+        drill.recordingChanged(isRunning: false)
+
+        drill.practiceStarted()
+        drill.recordingChanged(isRunning: true)
         XCTAssertEqual(drill.stage, .listening)
         XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: false), 1, "Pressed, nothing said yet")
         XCTAssertEqual(drill.completedMeterSteps(liveWordsHeard: true), 2, "Words arriving complete the speak step")
@@ -5412,8 +5418,11 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         drill.dictationFinished(text: "a stray second result")
         XCTAssertEqual(drill.heardText, "hello there", "A finished drill ignores results it did not start")
 
+        drill.practiceStarted()
         drill.recordingChanged(isRunning: true)
         XCTAssertEqual(drill.stage, .listening, "Pressing again practices again")
+        drill.practiceCancelled()
+        XCTAssertEqual(drill.stage, .waiting, "Esc puts the drill back to the first press")
 
         drill.reset()
         XCTAssertEqual(drill.stage, .waiting)
@@ -5421,6 +5430,7 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
 
     func testVoicePracticeOffersARetryWhenNothingIsHeard() {
         var empty = DatasheetVoicePractice()
+        empty.practiceStarted()
         empty.recordingChanged(isRunning: true)
         empty.recordingChanged(isRunning: false)
         empty.dictationFinished(text: " ")
@@ -5428,6 +5438,7 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         XCTAssertEqual(empty.completedMeterSteps(liveWordsHeard: false), 0)
 
         var cancelled = DatasheetVoicePractice()
+        cancelled.practiceStarted()
         cancelled.recordingChanged(isRunning: true)
         cancelled.recordingChanged(isRunning: false)
         cancelled.transcriptionTimedOut()

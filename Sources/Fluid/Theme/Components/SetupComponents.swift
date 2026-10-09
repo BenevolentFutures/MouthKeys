@@ -200,6 +200,10 @@ struct DatasheetQuickSetupProgress: Equatable {
 }
 
 extension Notification.Name {
+    /// Posted when a dictation starts as Getting Started practice (decided at start).
+    static let datasheetPracticeDictationStarted = Notification.Name("DatasheetPracticeDictationStarted")
+    /// Posted when Esc throws a practice dictation away.
+    static let datasheetPracticeDictationCancelled = Notification.Name("DatasheetPracticeDictationCancelled")
     /// Posted when a dictation routed into the Getting Started drill (or the onboarding
     /// playground) finishes, whether or not it produced text. `ASRService.finalText` holds the
     /// result.
@@ -259,17 +263,34 @@ struct DatasheetVoicePractice: Equatable {
     }
 
     private(set) var stage: Stage = .waiting
+    /// A practice dictation was announced and its capture has not started yet.
+    private var awaitingCapture = false
 
     var heardText: String? {
         if case let .heard(text) = self.stage { return text }
         return nil
     }
 
+    /// Only dictations announced as practice move the drill; one into another app leaves it be.
+    mutating func practiceStarted() {
+        self.awaitingCapture = true
+    }
+
     mutating func recordingChanged(isRunning: Bool) {
         if isRunning {
+            guard self.awaitingCapture else { return }
+            self.awaitingCapture = false
             self.stage = .listening
         } else if self.stage == .listening {
             self.stage = .transcribing
+        }
+    }
+
+    mutating func practiceCancelled() {
+        self.awaitingCapture = false
+        switch self.stage {
+        case .listening, .transcribing: self.stage = .waiting
+        case .waiting, .heard, .missed: break
         }
     }
 
@@ -290,6 +311,7 @@ struct DatasheetVoicePractice: Equatable {
     }
 
     mutating func reset() {
+        self.awaitingCapture = false
         self.stage = .waiting
     }
 
@@ -917,7 +939,10 @@ struct DatasheetKeyPracticeReadout: View {
     private var practiceTranscript: some View {
         let text: String = {
             if let heard = self.practice.heardText { return "“\(heard)”" }
-            if self.isListening, self.liveWordsHeard { return self.liveWords }
+            if self.isListening, self.liveWordsHeard {
+                let words = self.liveWords.trimmingCharacters(in: .whitespacesAndNewlines)
+                return words.count > 120 ? "…" + words.suffix(119) : words
+            }
             return "—"
         }()
         return HStack(alignment: .top, spacing: 12) {
@@ -928,7 +953,6 @@ struct DatasheetKeyPracticeReadout: View {
                 .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(text == "—" ? self.palette.textDim : self.palette.text)
                 .lineLimit(2)
-                .truncationMode(.head)
                 .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .topLeading)
         }
         .padding(.horizontal, 10)

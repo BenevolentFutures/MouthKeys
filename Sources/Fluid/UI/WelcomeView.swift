@@ -196,6 +196,13 @@ struct WelcomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 self.updatePracticeGate()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationStarted)) { _ in
+                self.voicePractice.practiceStarted()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationCancelled)) { _ in
+                self.practiceTimeoutTask?.cancel()
+                self.voicePractice.practiceCancelled()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationFinished)) { _ in
                 self.finishPracticeDictation()
             }
@@ -245,7 +252,6 @@ struct WelcomeView: View {
                 Task { await self.stopAndProcessTranscription() }
             } else {
                 self.startRecording()
-                self.markSetupTested()
             }
         } label: {
             HStack(spacing: 8) {
@@ -415,10 +421,6 @@ struct WelcomeView: View {
     }
 
     private func practiceRecordingChanged(isRunning: Bool) {
-        if isRunning, self.practiceGateLease.isArmed {
-            // Each try starts clean, so the drill and the Playground show only this dictation.
-            self.asr.finalText = ""
-        }
         self.voicePractice.recordingChanged(isRunning: isRunning)
         self.practiceTimeoutTask?.cancel()
         guard self.voicePractice.stage == .transcribing else { return }

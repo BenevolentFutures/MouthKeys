@@ -255,6 +255,9 @@ struct ContentView: View {
     @State private var promptModeOverrideText: String? // System prompt text to use when in prompt mode
     @State private var activeDictationShortcutSlot: SettingsStore.DictationShortcutSlot? = nil
     @State private var activeRecordingMode: ActiveRecordingMode = .none
+    /// The current dictation began on Getting Started, in front, so it is practice. Decided at
+    /// start: a dictation begun in another app keeps its destination if MouthKeys comes forward.
+    @State private var isPracticeDictation = false
     @State private var pendingAIReprocessText: String? = nil
     @State private var activeShortcutRecordingTarget: ShortcutRecordingTarget? = nil
     @State private var currentRecordingModifierKeyCodes: Set<UInt16> = []
@@ -2194,6 +2197,7 @@ struct ContentView: View {
         var traceOutcome = "stopped"
         defer { trace.finishUnlessDelivering(outcome: traceOutcome) }
         defer {
+            self.isPracticeDictation = false
             if route == .onboardingSandbox {
                 NotificationCenter.default.post(name: .datasheetPracticeDictationFinished, object: nil)
             }
@@ -2875,8 +2879,14 @@ struct ContentView: View {
     }
 
     private var isOnboardingSandboxRouteActive: Bool {
-        self.isOnboardingVoicePlaygroundStepActive
-            || DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive)
+        self.isOnboardingVoicePlaygroundStepActive || self.isPracticeDictation
+    }
+
+    private func notePracticeDictationStart() {
+        self.isPracticeDictation = DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive)
+        if self.isPracticeDictation {
+            NotificationCenter.default.post(name: .datasheetPracticeDictationStarted, object: nil)
+        }
     }
 
     private func currentDictationOutputRouteForHotkeyStop() -> DictationOutputRoute {
@@ -3447,6 +3457,7 @@ struct ContentView: View {
 
         self.advanceOverlayLifecycle()
         self.setActiveRecordingMode(.dictate)
+        self.notePracticeDictationStart()
         let shouldShowDictationOverlay = !self.isRecordingForCommand
             && !self.isRecordingForRewrite
             && self.asr.micStatus == .authorized
@@ -3884,6 +3895,10 @@ struct ContentView: View {
         if self.asr.isRunningOrStarting {
             DebugLogger.shared.debug("Cancel shortcut: cancelling ASR recording", source: "ContentView")
             Task { await self.asr.stopWithoutTranscription() }
+            if self.isPracticeDictation {
+                self.isPracticeDictation = false
+                NotificationCenter.default.post(name: .datasheetPracticeDictationCancelled, object: nil)
+            }
             handled = true
         }
 
@@ -4098,6 +4113,7 @@ extension ContentView {
             self.appBench("asr_start_skipped reason=already_running_or_starting")
             return nil
         }
+        self.notePracticeDictationStart()
         self.advanceOverlayLifecycle()
         if self.asr.micStatus == .authorized {
             self.appBench("overlay_mode_request mode=Dictation")
