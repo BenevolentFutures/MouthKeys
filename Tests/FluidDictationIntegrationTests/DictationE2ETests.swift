@@ -2888,6 +2888,15 @@ final class TranscriptionTimeoutTests: XCTestCase {
         XCTAssertFalse(DictationStopDismissal.end(42))
         // Once the paste is handed off, a late Cancel cannot claim it.
         XCTAssertFalse(DictationStopDismissal.dismissActiveStop())
+        // Overlapping stops: Cancel means the newest, and a new stop never clears an older
+        // stop's dismissal.
+        DictationStopDismissal.begin(43)
+        XCTAssertTrue(DictationStopDismissal.dismissActiveStop())
+        DictationStopDismissal.begin(44)
+        XCTAssertTrue(DictationStopDismissal.isDismissed(43))
+        XCTAssertFalse(DictationStopDismissal.isDismissed(44))
+        XCTAssertFalse(DictationStopDismissal.end(44))
+        XCTAssertTrue(DictationStopDismissal.end(43))
     }
 
     func testTheVoiceModelCardOffersDownloadWhenTheModelIsMissing() {

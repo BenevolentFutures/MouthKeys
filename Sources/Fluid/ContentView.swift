@@ -2268,7 +2268,7 @@ struct ContentView: View {
             // "Transcribing" render could queue ahead of its result, so that status waits.
             let defersStatus = route == .normal && !wasRewriteMode && !wasCommandMode &&
                 !promptTest.isActive && self.asr.isFinalTranscriptionReady
-            deferredTranscribingStatus = await self.prepareOverlayForKeptStop(defersStatus: defersStatus)
+            deferredTranscribingStatus = await self.prepareOverlayForKeptStop(defersStatus: defersStatus, stopID: trace.id)
         }
 
         // Stop the ASR service and wait for transcription to complete
@@ -2448,8 +2448,10 @@ struct ContentView: View {
             // Update overlay text to show we're now refining. Processing may only have been
             // reserved (a fast final pass never showed "Transcribing"), so make it visible.
             self.appBench("processing_ui_request status=Refining")
-            self.menuBarManager.setProcessing(true)
-            NotchOverlayManager.shared.updateTranscriptionText("Refining")
+            if !DictationStopDismissal.isDismissed(trace.id) {
+                self.menuBarManager.setProcessing(true)
+                NotchOverlayManager.shared.updateTranscriptionText("Refining")
+            }
             self.appBench("processing_ui_requested status=Refining")
 
             // Ensure the status label becomes visible immediately.
@@ -2566,7 +2568,18 @@ struct ContentView: View {
             )
         }
 
-        let shouldShowAIProcessingFailure = shouldPersistOutputs && aiFallbackReason != nil
+        // Cancel was clicked on the stopped pill: the text stays in History, and nothing is typed,
+        // copied or shown. From here on the paste is committed and a later Cancel only dismisses.
+        let wasDismissedAfterStop = DictationStopDismissal.end(trace.id)
+        if wasDismissedAfterStop {
+            traceOutcome = "dismissed_after_stop"
+            DebugLogger.shared.info("Dictation dismissed after stop: not typed, kept in History", source: "ContentView")
+            if spokenSend.shouldSend {
+                BottomOverlayWindowController.shared.spokenSendDecided(.noReturn)
+            }
+        }
+
+        let shouldShowAIProcessingFailure = shouldPersistOutputs && aiFallbackReason != nil && !wasDismissedAfterStop
         if shouldShowAIProcessingFailure {
             self.pendingAIReprocessText = spokenSend.phraseDetected ? spokenSend.text : transcribedText
             NotchContentState.shared.showAIProcessingFailure()
@@ -2609,7 +2622,7 @@ struct ContentView: View {
         // "Copy to Clipboard" is a backup the user asked for, so it applies even when MouthKeys
         // itself is frontmost and nothing is typed externally (ported from
         // altic-dev/FluidVoice@7d6d0e7c).
-        let shouldCopyToClipboard = shouldPersistOutputs &&
+        let shouldCopyToClipboard = shouldPersistOutputs && !wasDismissedAfterStop &&
             SettingsStore.shared.copyTranscriptionToClipboard &&
             trace.trigger != .benchmark // never touch the clipboard from the benchmark
 
@@ -2622,16 +2635,6 @@ struct ContentView: View {
         // The fixture benchmark stops at the handoff: it must never restore focus to, or type
         // into, whatever app has focus on this Mac.
         let isBenchmark = trace.trigger == .benchmark
-        // Cancel was clicked on the stopped pill: the text stays in History, nothing is typed.
-        // From here on the paste is committed and a later Cancel only dismisses the pill.
-        let wasDismissedAfterStop = DictationStopDismissal.end(trace.id)
-        if wasDismissedAfterStop {
-            traceOutcome = "dismissed_after_stop"
-            DebugLogger.shared.info("Dictation dismissed after stop: not typed, kept in History", source: "ContentView")
-            if spokenSend.shouldSend {
-                BottomOverlayWindowController.shared.spokenSendDecided(.noReturn)
-            }
-        }
         let shouldTypeExternally = shouldPersistOutputs && !isFluidFrontmost && !isBenchmark && !wasDismissedAfterStop
         if isBenchmark {
             trace.mark(.handoff)
@@ -2731,8 +2734,10 @@ struct ContentView: View {
     /// For a stop that keeps the overlay on screen (AI, prompt test, command, rewrite): owns the
     /// overlay now. Returns the "Transcribing" status to show if the final pass turns out slow,
     /// or nil when the status was shown right away (`defersStatus` false).
-    private func prepareOverlayForKeptStop(defersStatus: Bool) async -> (@MainActor () -> Void)? {
+    private func prepareOverlayForKeptStop(defersStatus: Bool, stopID: Int) async -> (@MainActor () -> Void)? {
         let showTranscribingStatus: @MainActor () -> Void = {
+            // A pill dismissed with Cancel stays gone.
+            guard !DictationStopDismissal.isDismissed(stopID) else { return }
             DebugLogger.shared.debug("Showing transcription processing state", source: "ContentView")
             self.appBench("processing_ui_request status=Transcribing")
             self.menuBarManager.setProcessing(true)
@@ -3673,9 +3678,15 @@ struct ContentView: View {
             _ = self.handleCancelShortcut()
         }
         NotchContentState.shared.onDismissStoppedDictationRequested = {
-            let droppedPaste = DictationStopDismissal.dismissActiveStop()
-            DebugLogger.shared.info("OVERLAY_CANCEL after_stop droppedPaste=\(droppedPaste)", source: "ContentView")
-            NotchOverlayManager.shared.hide()
+            // No dictation stop in flight (a Reprocess or command pill): the usual cancel.
+            guard DictationStopDismissal.dismissActiveStop() else {
+                _ = self.handleCancelShortcut()
+                return
+            }
+            DebugLogger.shared.info("OVERLAY_CANCEL after_stop droppedPaste=true", source: "ContentView")
+            // Through the menu bar manager, so its processing state is cleared with the pill and
+            // the next recording's overlay shows.
+            Task { await self.menuBarManager.finishProcessingAndHideOverlay() }
         }
         self.attachSpokenSend()
         NotchContentState.shared.onDictationPromptSelectionRequested = { selection in
@@ -4785,32 +4796,38 @@ struct CardAppearAnimation: ViewModifier {
     }
 }
 
-/// The Cancel chip on a stopped or transcribing pill. One stop runs at a time; until it hands the
-/// text off, a dismissal drops its paste (the text still goes to History).
+/// The Cancel chip on a stopped or transcribing pill. Until a stop hands its text off, a
+/// dismissal drops its paste (the text still goes to History). Stops can overlap (a new
+/// recording may start while the last one transcribes); Cancel means the newest, the one the
+/// pill shows, and one stop never clears another's dismissal.
 @MainActor
 enum DictationStopDismissal {
-    private static var activeStopID: Int?
-    private static var dismissedStopID: Int?
+    private static var activeStopIDs: [Int] = []
+    private static var dismissedStopIDs: Set<Int> = []
 
     static func begin(_ stopID: Int) {
-        self.activeStopID = stopID
-        self.dismissedStopID = nil
+        self.activeStopIDs.removeAll { $0 == stopID }
+        self.activeStopIDs.append(stopID)
+        self.dismissedStopIDs.remove(stopID)
     }
 
-    /// Marks the stop in flight as dismissed. False when no stop is waiting for its handoff.
+    /// Marks the newest stop in flight as dismissed. False when no stop is waiting for its handoff.
     @discardableResult
     static func dismissActiveStop() -> Bool {
-        guard let stopID = self.activeStopID else { return false }
-        self.dismissedStopID = stopID
+        guard let stopID = self.activeStopIDs.last else { return false }
+        self.dismissedStopIDs.insert(stopID)
         return true
+    }
+
+    static func isDismissed(_ stopID: Int) -> Bool {
+        self.dismissedStopIDs.contains(stopID)
     }
 
     /// Ends the stop's dismissable window; returns whether it was dismissed.
     @discardableResult
     static func end(_ stopID: Int) -> Bool {
-        guard self.activeStopID == stopID else { return false }
-        self.activeStopID = nil
-        defer { self.dismissedStopID = nil }
-        return self.dismissedStopID == stopID
+        guard self.activeStopIDs.contains(stopID) else { return false }
+        self.activeStopIDs.removeAll { $0 == stopID }
+        return self.dismissedStopIDs.remove(stopID) != nil
     }
 }
