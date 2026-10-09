@@ -3621,7 +3621,8 @@ private extension OnboardingFlowView {
         var ordered = self.settings.microphonePriority.compactMap { devicesByUID[$0.uid] }
         let knownUIDs = Set(ordered.map(\.uid))
         ordered.append(contentsOf: self.onboardingInputDevices.filter { !knownUIDs.contains($0.uid) })
-        return ordered
+        // Microphones ranked Never (BlackHole and the like) are not offered.
+        return ordered.filter { self.settings.microphoneTier(for: $0) != .never }
     }
 
     func isOnboardingRouteSelected(_ route: VoiceEngineLanguageRoute) -> Bool {

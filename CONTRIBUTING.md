@@ -4,7 +4,7 @@ thanks for helping. MouthKeys is for straight voice to text on macOS. the most w
 
 ## issues.
 
-- **bugs:** say what you did, what you expected, and what happened. include your macOS version, your Mac, the speech model, and the app you were dictating into. the app log helps: Settings › Debug Settings › Reveal Log File. the app's Feedback page drafts an issue for you.
+- **bugs:** say what you did, what you expected, and what happened. include your macOS version, your Mac, the speech model, and the app you were dictating into. the app log helps: App Settings › Debug › Reveal Log File. the app's Feedback page drafts an issue for you.
 - **ideas:** say what problem it solves before how.
 
 ## build and test.

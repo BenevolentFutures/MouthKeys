@@ -692,10 +692,17 @@ private extension SettingsView {
         self.refreshDevices()
     }
 
+    /// After any change to the order or the groups: an overlay pick gives way to what the user
+    /// just set, and capture follows the new order.
+    func microphoneOrderEdited() {
+        self.microphonePreferenceCoordinator.clearSessionPick(reason: "order_edited")
+        self.refreshActiveInputSelection()
+    }
+
     func removeMicrophonePriorityEntry(_ entry: SettingsStore.MicrophonePriorityEntry) {
         self.hoveredMicrophoneUID = nil
         self.settings.removeMicrophoneFromPriority(uid: entry.uid)
-        self.refreshActiveInputSelection()
+        self.microphoneOrderEdited()
     }
 
     var selectedInputDevice: AudioDevice.Device? {
@@ -1086,7 +1093,7 @@ private extension SettingsView {
                 if !self.settings.suppressedMicrophoneUIDs.isEmpty {
                     self.sheetAction("Restore Removed", icon: "arrow.uturn.backward") {
                         self.settings.restoreRemovedMicrophones(with: self.inputDevices)
-                        self.refreshActiveInputSelection()
+                        self.microphoneOrderEdited()
                     }
                     .disabled(self.isMicrophonePriorityEditingDisabled)
                 }
@@ -1138,6 +1145,17 @@ private extension SettingsView {
                         .foregroundStyle(self.datasheetPalette.textDim)
                         .padding(.horizontal, 12)
                         .frame(minHeight: 40)
+                        .contentShape(Rectangle())
+                        // An empty group still takes a dragged microphone.
+                        .onDrop(
+                            of: [UTType.plainText.identifier],
+                            delegate: MicrophoneEmptyTierDropDelegate(
+                                tier: group.tier,
+                                settings: self.settings,
+                                draggedUID: self.$draggedMicrophoneUID,
+                                onDropCompleted: self.microphoneOrderEdited
+                            )
+                        )
                     } else {
                         let offset = group.tier == .lastResort
                             ? groups.first { $0.tier == .preferred }?.entries.count ?? 0
@@ -1306,20 +1324,20 @@ private extension SettingsView {
                 settings: self.settings,
                 draggedUID: self.$draggedMicrophoneUID,
                 reorderAnimation: self.accessibilityReduceMotion ? nil : .easeInOut(duration: 0.16),
-                onDropCompleted: self.refreshActiveInputSelection
+                onDropCompleted: self.microphoneOrderEdited
             )
         )
         .contextMenu {
             Button("Move Up") {
                 self.settings.moveMicrophonePriority(uid: entry.uid, by: -1)
-                self.refreshActiveInputSelection()
+                self.microphoneOrderEdited()
             }
-            .disabled(self.isMicrophonePriorityEditingDisabled || rank == 1)
+            .disabled(self.isMicrophonePriorityEditingDisabled || (tier == .preferred && entry.uid == self.settings.microphonePriority.first?.uid))
             Button("Move Down") {
                 self.settings.moveMicrophonePriority(uid: entry.uid, by: 1)
-                self.refreshActiveInputSelection()
+                self.microphoneOrderEdited()
             }
-            .disabled(self.isMicrophonePriorityEditingDisabled || entry.uid == self.settings.microphonePriority.last?.uid)
+            .disabled(self.isMicrophonePriorityEditingDisabled || (tier == .never && entry.uid == self.settings.microphonePriority.last?.uid))
             Divider()
             ForEach(SettingsStore.MicrophoneTier.allCases) { option in
                 Button("Move to \(option.title)") { self.setMicrophoneTier(entry, option) }
@@ -1333,14 +1351,18 @@ private extension SettingsView {
         .accessibilityLabel(rank.map { "\(tier.title) \($0), \(entry.name)" } ?? "\(tier.title), \(entry.name)")
         .accessibilityValue(isActive ? "Active" : (isAvailable ? "Available" : "Unavailable"))
         .accessibilityAction(named: "Move up") {
-            guard !self.isMicrophonePriorityEditingDisabled, rank != 1 else { return }
+            guard !self.isMicrophonePriorityEditingDisabled,
+                  !(tier == .preferred && entry.uid == self.settings.microphonePriority.first?.uid)
+            else { return }
             self.settings.moveMicrophonePriority(uid: entry.uid, by: -1)
-            self.refreshActiveInputSelection()
+            self.microphoneOrderEdited()
         }
         .accessibilityAction(named: "Move down") {
-            guard !self.isMicrophonePriorityEditingDisabled, entry.uid != self.settings.microphonePriority.last?.uid else { return }
+            guard !self.isMicrophonePriorityEditingDisabled,
+                  !(tier == .never && entry.uid == self.settings.microphonePriority.last?.uid)
+            else { return }
             self.settings.moveMicrophonePriority(uid: entry.uid, by: 1)
-            self.refreshActiveInputSelection()
+            self.microphoneOrderEdited()
         }
         .accessibilityAction(named: "Remove from priority") {
             guard !self.isMicrophonePriorityEditingDisabled else { return }
@@ -1353,7 +1375,7 @@ private extension SettingsView {
         withAnimation(self.accessibilityReduceMotion ? nil : .easeInOut(duration: 0.16)) {
             self.settings.setMicrophoneTier(uid: entry.uid, to: tier)
         }
-        self.refreshActiveInputSelection()
+        self.microphoneOrderEdited()
     }
 
     /// The row's group, in the window's own picker at a fixed width, so rows line up.
@@ -2214,6 +2236,28 @@ private extension SettingsView {
                 )
             }
         }
+    }
+}
+
+private struct MicrophoneEmptyTierDropDelegate: DropDelegate {
+    let tier: SettingsStore.MicrophoneTier
+    let settings: SettingsStore
+    @Binding var draggedUID: String?
+    let onDropCompleted: () -> Void
+
+    func validateDrop(info _: DropInfo) -> Bool {
+        self.draggedUID != nil
+    }
+
+    func dropUpdated(info _: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info _: DropInfo) -> Bool {
+        if let draggedUID { self.settings.setMicrophoneTier(uid: draggedUID, to: self.tier) }
+        self.draggedUID = nil
+        self.onDropCompleted()
+        return true
     }
 }
 

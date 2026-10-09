@@ -2618,6 +2618,41 @@ final class HotkeyShortcutTests: XCTestCase {
     }
 
     @MainActor
+    func testOlderSavedOrderUsesEachDevicesLiveGroupBeforeItIsReconciled() throws {
+        try self.withRestoredDefaults(keys: [
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let phone = Self.device(uid: "phone", name: "Hoplite17 Microphone", transportType: kAudioDeviceTransportTypeContinuityCaptureWired)
+            let builtIn = Self.device(uid: "internal", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn)
+            let blackHole = Self.device(uid: "bh", name: "BlackHole 2ch", transportType: kAudioDeviceTransportTypeVirtual)
+            let settings = SettingsStore.shared
+            settings.suppressedMicrophoneUIDs = []
+            settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            // Exactly what an older version saved: order and names, nothing else.
+            settings.microphonePriority = [
+                .init(uid: blackHole.uid, name: blackHole.name),
+                .init(uid: phone.uid, name: phone.name),
+                .init(uid: builtIn.uid, name: builtIn.name),
+            ]
+            let coordinator = MicrophonePreferenceCoordinator(
+                settings: .shared,
+                devices: FakeAudioDeviceManager(inputs: [], defaultInputUID: nil)
+            )
+            XCTAssertEqual(
+                coordinator.inputDeviceForCapture(availableInputs: [blackHole, phone, builtIn])?.uid, "internal",
+                "Before any reconcile, BlackHole is Never and the phone Last resort by what they are"
+            )
+            XCTAssertEqual(coordinator.rankedUsableInputUIDs(allDevices: [blackHole, phone, builtIn]), ["internal", "phone"])
+
+            settings.microphonePriority = [.init(uid: blackHole.uid, name: blackHole.name, tier: .never)]
+            XCTAssertNil(settings.preferredInputDeviceUID, "The first-choice readout never names a Never microphone")
+        }
+    }
+
+    @MainActor
     func testNewlyConnectedMicrophonesStartInTheirAutomaticGroup() throws {
         try self.withRestoredDefaults(keys: [
             self.preferredInputDeviceUIDKey,
@@ -2669,10 +2704,22 @@ final class HotkeyShortcutTests: XCTestCase {
             XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal"], "The ranked order is untouched")
             XCTAssertEqual(settings.preferredInputDeviceUID, "lapel")
 
-            // It disconnects: back to the order, and a reconnect does not revive the pick.
+            // Its input pauses but macOS still lists it (a Bluetooth mic settling): the pick holds.
             XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel])?.uid, "lapel")
+            XCTAssertEqual(coordinator.sessionPickUID, "internal")
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel, builtIn])?.uid, "internal")
+
+            // It disconnects: back to the order, and a reconnect does not revive the pick.
+            devices.inputs = [lapel]
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel])?.uid, "lapel")
+            devices.inputs = [lapel, builtIn]
             XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel, builtIn])?.uid, "lapel")
             XCTAssertNil(coordinator.sessionPickUID)
+
+            // Changing the order in Settings ends a pick too.
+            coordinator.pick(builtIn, source: "test", persist: false)
+            coordinator.clearSessionPick(reason: "order_edited")
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [lapel, builtIn])?.uid, "lapel")
 
             // From Settings, a pick ranks it first for good.
             coordinator.pick(builtIn, source: "test", persist: true)
@@ -2702,6 +2749,16 @@ final class HotkeyShortcutTests: XCTestCase {
             XCTAssertEqual(order(), "bP cL dN aN", "Dragged down onto a row: after it, in its group")
             settings.dragMicrophone(uid: "a", onto: "b")
             XCTAssertEqual(order(), "aP bP cL dN", "Dragged up onto a row: before it, in its group")
+
+            // An empty group is a step, not skipped: one click never jumps to Never.
+            settings.setMicrophoneTier(uid: "c", to: .preferred)
+            XCTAssertEqual(order(), "aP bP cP dN")
+            settings.moveMicrophonePriority(uid: "c", by: 1)
+            XCTAssertEqual(order(), "aP bP cL dN")
+            settings.setMicrophoneTier(uid: "c", to: .never)
+            XCTAssertEqual(order(), "aP bP dN cN")
+            settings.moveMicrophonePriority(uid: "d", by: -1)
+            XCTAssertEqual(order(), "aP bP dL cN", "Up from Never into the empty Last resort")
         }
     }
 
@@ -2863,7 +2920,7 @@ final class HotkeyShortcutTests: XCTestCase {
 
 @MainActor
 private final class FakeAudioDeviceManager: AudioDeviceManaging {
-    let inputs: [AudioDevice.Device]
+    var inputs: [AudioDevice.Device]
     var defaultInputUID: String?
     var unusableInputUIDs: Set<String>
     var isClamshellClosed: Bool

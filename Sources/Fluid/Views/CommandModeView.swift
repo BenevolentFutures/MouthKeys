@@ -73,7 +73,7 @@ struct CommandModeView: View {
     private var pageHeader: some View {
         ViewThatFits(in: .horizontal) {
             DatasheetSheetHeader(
-                placard: "EXEC / 04",
+                placard: "EXEC / 06",
                 title: "Command Mode",
                 lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
             ) {
@@ -84,7 +84,7 @@ struct CommandModeView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 DatasheetSheetHeader(
-                    placard: "EXEC / 04",
+                    placard: "EXEC / 06",
                     title: "Command Mode",
                     lede: "Control your Mac with voice commands. Execute terminal commands, open apps, and more."
                 )

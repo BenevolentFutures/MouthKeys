@@ -1855,8 +1855,10 @@ final class SettingsStore: ObservableObject {
             } else {
                 self.defaults.removeObject(forKey: Keys.microphonePriority)
             }
-            if let firstUID = (entries.first { $0.effectiveTier == .preferred } ?? entries.first)?.uid {
-                self.preferredInputDeviceUID = firstUID
+            // The first microphone MouthKeys would use: never one ranked Never.
+            if entries.isEmpty == false {
+                self.preferredInputDeviceUID = (entries.first { $0.effectiveTier == .preferred }
+                    ?? entries.first { $0.effectiveTier == .lastResort })?.uid
             }
         }
     }
@@ -1961,8 +1963,17 @@ final class SettingsStore: ObservableObject {
         entries = entries.map { entry in
             var entry = entry
             if let device = devicesByUID[entry.uid] {
+                let before = entry.effectiveTier
                 entry.name = device.name
                 entry.transportType = device.transportType
+                if entry.tier == nil, entry.effectiveTier != before {
+                    // A microphone ranked before groups existed, now seen: logged, so a device
+                    // that moved (a virtual mic to Never) can be traced.
+                    DebugLogger.shared.info(
+                        "MIC_TIER automatic name='\(device.name)' from=\(before.rawValue) to=\(entry.effectiveTier.rawValue)",
+                        source: "SettingsStore"
+                    )
+                }
             }
             return entry
         }
@@ -2024,7 +2035,9 @@ final class SettingsStore: ObservableObject {
     /// The tier of a connected device: its entry's, or the automatic one for a device not
     /// ranked yet.
     func microphoneTier(for device: AudioDevice.Device) -> MicrophoneTier {
-        self.microphonePriority.first { $0.uid == device.uid }?.effectiveTier
+        // The live device's transport, not only the one saved: an entry ranked before groups
+        // existed has none until a reconcile records it.
+        self.microphonePriority.first { $0.uid == device.uid }?.tier
             ?? MicrophoneTier.automatic(transportType: device.transportType)
     }
 
@@ -2044,17 +2057,20 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Moves a microphone one place. Past the edge of its tier it joins the neighbouring tier.
+    /// Moves a microphone one place. At the edge of its group it steps into the next group in
+    /// order (empty or not), landing at that group's near end.
     func moveMicrophonePriority(uid: String, by offset: Int) {
         var entries = self.microphonePriority
-        guard let sourceIndex = entries.firstIndex(where: { $0.uid == uid }) else { return }
-        let destination = min(max(sourceIndex + offset, 0), entries.count - 1)
-        guard destination != sourceIndex else { return }
-        let neighbourTier = entries[destination].effectiveTier
-        if entries[sourceIndex].effectiveTier != neighbourTier {
-            entries[sourceIndex].tier = neighbourTier
-        } else {
+        guard offset != 0, let sourceIndex = entries.firstIndex(where: { $0.uid == uid }) else { return }
+        let tier = entries[sourceIndex].effectiveTier
+        let destination = sourceIndex + (offset > 0 ? 1 : -1)
+        if entries.indices.contains(destination), entries[destination].effectiveTier == tier {
             entries.swapAt(sourceIndex, destination)
+        } else {
+            let tiers = MicrophoneTier.allCases
+            guard let next = tiers.first(where: { $0.order == tier.order + (offset > 0 ? 1 : -1) }) else { return }
+            // Grouping keeps its place: the end of the group above, or the start of the one below.
+            entries[sourceIndex].tier = next
         }
         self.microphonePriority = entries
     }
