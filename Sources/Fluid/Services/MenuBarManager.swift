@@ -530,7 +530,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         // Ensure we're not already set up
         guard !self.isSetup else { return }
 
-        // Create status item with error handling. Every mark is 22 x 16, so the width never changes.
+        // Create status item with error handling. Every mark is 15 x 16, so the width never changes.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         guard let statusItem = statusItem else {
