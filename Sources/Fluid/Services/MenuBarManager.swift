@@ -530,7 +530,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         // Ensure we're not already set up
         guard !self.isSetup else { return }
 
-        // Create status item with error handling. Every mark is 15 x 16, so the width never changes.
+        // Create status item with error handling. Every mark is 21 x 22, so the width never changes.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         guard let statusItem = statusItem else {
@@ -651,7 +651,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.markTimer = nil
     }
 
-    /// 8 Hz while listening: the bars follow the trace in 2 pt steps, and hold still during Spoken
+    /// 8 Hz while listening: the jaw follows the trace in 1.5 pt steps, and holds still during Spoken
     /// Send's countdown (the dictation is not finished until the send resolves).
     private func markTick() {
         // The recording flag reaches this manager one main-queue hop after the stop begins: read

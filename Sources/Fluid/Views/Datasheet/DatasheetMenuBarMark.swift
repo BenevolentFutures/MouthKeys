@@ -1,6 +1,7 @@
 import AppKit
 
-/// The menu bar mark (DESIGN.md §10): a 15 x 16 square-cornered template image, the mouth alone.
+/// The menu bar mark (DESIGN.md §10): a 21 x 22 square-cornered template image, the mouth alone,
+/// as tall as the status bar (22 pt) allows with the jaw wide open.
 /// Four square-ended teeth a jaw, the bite smiling, the app icon's gold tooth (third lower) drawn
 /// hollow, since a template image cannot be orange. While listening the lower jaw opens with the
 /// level at 8 Hz (still during Spoken Send's countdown); otherwise it is closed. The width never
@@ -13,11 +14,13 @@ enum DatasheetMenuBarMark {
         case transcribing
     }
 
-    static let size = NSSize(width: 15, height: 16)
-    /// The furthest the lower jaw opens, in points.
+    static let size = NSSize(width: 21, height: 22)
+    /// The furthest the lower jaw opens, in steps of `unit`.
     static let maxJaw: CGFloat = 2
     /// The lower tooth drawn hollow: the app icon's gold tooth at 16 px.
     static let goldTooth = 2
+    /// The 16 px icon's grid, scaled to fill the status bar: every edge on a 2x device pixel.
+    private static let unit: CGFloat = 1.5
 
     private static var cache: [String: NSImage] = [:]
 
@@ -27,13 +30,16 @@ enum DatasheetMenuBarMark {
         if let cached = self.cache[key] { return cached }
         let image = NSImage(size: self.size, flipped: true) { _ in
             NSColor.black.set()
-            // Teeth: 2 pt wide on a 3 pt pitch from x 2. Upper teeth hang from y 2 to the bite at 7
-            // (the outer two to 6); the lower teeth start a point below the bite (the outer two a
-            // point higher), dropped by the jaw.
-            for (index, x) in [2, 5, 8, 11].map({ CGFloat($0) }).enumerated() {
+            // On the 16 px grid (times `unit`, from a 2 pt margin): teeth 2 wide on a 3 pitch. Upper
+            // teeth hang from 0 to the bite at 5 (the outer two to 4); the lower teeth start one
+            // below the bite (the outer two one higher), dropped by the jaw. Closed, the mouth is
+            // 16.5 x 15 pt; wide open, 18 pt tall.
+            let u = self.unit
+            for index in 0..<4 {
                 let outer = index == 0 || index == 3
-                NSBezierPath(rect: NSRect(x: x, y: 2, width: 2, height: outer ? 4 : 5)).fill()
-                let lower = NSRect(x: x, y: (outer ? 7 : 8) + jaw, width: 2, height: outer ? 3 : 4)
+                let x = 2 + CGFloat(index * 3) * u
+                NSBezierPath(rect: NSRect(x: x, y: 2, width: 2 * u, height: (outer ? 4 : 5) * u)).fill()
+                let lower = NSRect(x: x, y: 2 + ((outer ? 5 : 6) + jaw) * u, width: 2 * u, height: (outer ? 3 : 4) * u)
                 if index == self.goldTooth {
                     // A half-point edge inside the tooth's own rect: one device pixel at 2x.
                     let outline = NSBezierPath(rect: lower.insetBy(dx: 0.25, dy: 0.25))
@@ -48,11 +54,14 @@ enum DatasheetMenuBarMark {
                 path.lineWidth = 1.5
                 path.lineCapStyle = .butt
                 path.lineJoinStyle = .miter
+                // Centred on the box's edge pixels; arms end on whole points.
+                let (left, top, right, bottom, arm): (CGFloat, CGFloat, CGFloat, CGFloat, CGFloat) =
+                    (0.75, 0.75, self.size.width - 0.75, self.size.height - 0.75, 5.25)
                 let corners: [[NSPoint]] = [
-                    [NSPoint(x: 0.75, y: 4.75), NSPoint(x: 0.75, y: 0.75), NSPoint(x: 4.75, y: 0.75)],
-                    [NSPoint(x: 10.25, y: 0.75), NSPoint(x: 14.25, y: 0.75), NSPoint(x: 14.25, y: 4.75)],
-                    [NSPoint(x: 14.25, y: 11.25), NSPoint(x: 14.25, y: 15.25), NSPoint(x: 10.25, y: 15.25)],
-                    [NSPoint(x: 4.75, y: 15.25), NSPoint(x: 0.75, y: 15.25), NSPoint(x: 0.75, y: 11.25)],
+                    [NSPoint(x: left, y: top + arm), NSPoint(x: left, y: top), NSPoint(x: left + arm, y: top)],
+                    [NSPoint(x: right - arm, y: top), NSPoint(x: right, y: top), NSPoint(x: right, y: top + arm)],
+                    [NSPoint(x: right, y: bottom - arm), NSPoint(x: right, y: bottom), NSPoint(x: right - arm, y: bottom)],
+                    [NSPoint(x: left + arm, y: bottom), NSPoint(x: left, y: bottom), NSPoint(x: left, y: bottom - arm)],
                 ]
                 for corner in corners {
                     path.move(to: corner[0])
@@ -70,8 +79,8 @@ enum DatasheetMenuBarMark {
         return image
     }
 
-    /// How far the lower jaw opens while listening, from the newest trace sample: ajar (1 pt)
-    /// while the voice is on, wide (2 pt) on the louder half of the range, closed once the voice
+    /// How far the lower jaw opens while listening, from the newest trace sample: ajar (1 step)
+    /// while the voice is on, wide (2 steps) on the louder half of the range, closed once the voice
     /// has been off past the 250 ms hangover, so the mark never talks while Atin is quiet.
     static func listeningJaw(
         from trace: DatasheetTraceModel,

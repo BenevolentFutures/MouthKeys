@@ -3007,7 +3007,7 @@ final class DatasheetOverlayRenderTests: XCTestCase {
         }
     }
 
-    /// The menu bar mark (DESIGN.md §10): 15 x 16 template images, the mouth alone, the same width
+    /// The menu bar mark (DESIGN.md §10): 21 x 22 template images, the mouth alone, the same width
     /// in every state, the gold tooth hollow; and the menu's mono header row.
     func testMenuBarMarkStatesAndHeader() throws {
         let trace = DatasheetTraceModel(barCount: 39)
@@ -3026,30 +3026,34 @@ final class DatasheetOverlayRenderTests: XCTestCase {
             ("listening-open", DatasheetMenuBarMark.image(jaw: listeningJaw, bracket: true)),
         ]
         for (_, image) in marks {
-            XCTAssertEqual(image.size, NSSize(width: 15, height: 16))
+            XCTAssertEqual(image.size, NSSize(width: 21, height: 22))
             XCTAssertTrue(image.isTemplate)
         }
 
         // At 2x: the mouth fills its box with no square beside it, and the gold tooth is an edge
         // around a clear middle while its neighbours are solid.
-        let markRep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 32, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let markRep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 42, pixelsHigh: 44, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         markRep.size = DatasheetMenuBarMark.size
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: markRep)
         DatasheetMenuBarMark.image(bracket: false).draw(in: NSRect(origin: .zero, size: DatasheetMenuBarMark.size))
         NSGraphicsContext.restoreGraphicsState()
         func alpha(_ x: Int, _ y: Int) -> CGFloat { markRep.colorAt(x: x, y: y)?.alphaComponent ?? 0 }
-        // Lower inner teeth span y 8 to 12 pt (16 to 24 px); the gold one is x 8 to 10 pt.
-        XCTAssertLessThan(alpha(17, 20), 0.1, "the gold tooth is hollow")
-        XCTAssertGreaterThan(alpha(16, 20), 0.9, "the gold tooth keeps its edge")
-        XCTAssertGreaterThan(alpha(11, 20), 0.9, "the tooth beside it is solid")
-        XCTAssertTrue((26..<30).allSatisfy { x in (0..<32).allSatisfy { alpha(x, $0) < 0.1 } }, "nothing right of the mouth")
+        // Lower inner teeth span y 11 to 17 pt (22 to 34 px); the gold one is x 11 to 14 pt.
+        XCTAssertLessThan(alpha(24, 28), 0.1, "the gold tooth is hollow")
+        XCTAssertGreaterThan(alpha(22, 28), 0.9, "the gold tooth keeps its edge")
+        XCTAssertGreaterThan(alpha(16, 28), 0.9, "the tooth beside it is solid")
+        XCTAssertTrue((37..<42).allSatisfy { x in (0..<44).allSatisfy { alpha(x, $0) < 0.1 } }, "nothing right of the mouth")
+        // The mouth fills the status bar's height: upper teeth from y 2 pt, the lower inner teeth
+        // to 17 pt closed.
+        XCTAssertGreaterThan(alpha(5, 4), 0.9)
+        XCTAssertGreaterThan(alpha(16, 33), 0.9)
 
         guard let folder = self.outputFolder else { return }
         for (theme, background, ink) in [("dark", NSColor(white: 0.16, alpha: 1), NSColor.white), ("light", NSColor(white: 0.93, alpha: 1), NSColor.black)] {
             // The marks side by side at 4x, tinted as the menu bar tints a template image.
             let scale: CGFloat = 4
-            let size = NSSize(width: CGFloat(marks.count) * 34 + 6, height: 28)
+            let size = NSSize(width: CGFloat(marks.count) * 34 + 6, height: 34)
             let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
             rep.size = size
             NSGraphicsContext.saveGraphicsState()
@@ -3063,7 +3067,7 @@ final class DatasheetOverlayRenderTests: XCTestCase {
                     rect.fill(using: .sourceAtop)
                     return true
                 }
-                tinted.draw(in: NSRect(x: 6 + CGFloat(index) * 34, y: 6, width: 15, height: 16))
+                tinted.draw(in: NSRect(x: 6 + CGFloat(index) * 34, y: 6, width: 21, height: 22))
             }
             NSGraphicsContext.restoreGraphicsState()
             try DatasheetRenderStage.write(rep, to: folder.appendingPathComponent("\(theme)-21-menubar-marks.png"))
