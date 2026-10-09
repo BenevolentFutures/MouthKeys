@@ -5506,6 +5506,17 @@ final class BQuickSetupProgressTransitionTests: XCTestCase {
         quiet.recordingChanged(isRunning: false, at: 3)
         quiet.dictationFinished(text: "", at: 3.5)
         XCTAssertEqual(quiet.missReason, .silentMic, "Room noise below a voice is not a voice")
+
+        // The stop path can deliver the result before the view hears that recording stopped.
+        var direct = DatasheetVoicePractice(now: 0)
+        direct.practiceStarted()
+        direct.recordingChanged(isRunning: true, at: 0)
+        direct.dictationFinished(text: "", at: 5)
+        XCTAssertEqual(direct.missReason, .silentMic, "A five-second try is not a tap")
+        direct.practiceStarted()
+        direct.recordingChanged(isRunning: true, at: 10)
+        direct.dictationFinished(text: "", at: 10.3)
+        XCTAssertEqual(direct.missReason, .tooShort, "Each try is timed on its own")
     }
 
     func testVoicePracticeNudgesWhenThePersonIsStuck() {

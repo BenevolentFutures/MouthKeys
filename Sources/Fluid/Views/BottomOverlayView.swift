@@ -521,7 +521,8 @@ final class BottomOverlayWindowController {
     /// shows Pasted, then dismiss. Nothing was typed, and the statement says so.
     func showPracticeOutcome(words: Int) {
         guard NotchContentState.shared.isBottomOverlayPresented,
-              !NotchContentState.shared.isBottomOverlayDismissing
+              !NotchContentState.shared.isBottomOverlayDismissing,
+              DatasheetOverlayModel.shared.isPostStop
         else { return }
         self.cancelDeliveryHold()
         DatasheetOverlayModel.shared.showDelivered(DatasheetDelivery(

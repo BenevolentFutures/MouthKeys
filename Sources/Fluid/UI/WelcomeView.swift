@@ -33,6 +33,8 @@ struct WelcomeView: View {
     @State private var practiceTimeoutTask: Task<Void, Never>?
     @State private var practiceKeyMonitor: Any?
     @State private var practiceKeyCheck: Task<Void, Never>?
+    /// A modifier pressed on its own; it counts as a wrong key only if released alone.
+    @State private var practiceLoneModifier: UInt16?
 
     private let practiceSectionID = "welcome-practice-section"
     private let playgroundSectionID = "welcome-playground-section"
@@ -101,7 +103,7 @@ struct WelcomeView: View {
                     .padding(.top, 34)
 
                     // The clock that lets a hint appear when nothing happens.
-                    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    TimelineView(.periodic(from: .now, by: self.practiceNeedsClock ? 0.5 : 3600)) { _ in
                         DatasheetKeyPracticeReadout(
                             shortcut: self.primaryShortcut,
                             mode: self.settings.hotkeyMode,
@@ -111,6 +113,7 @@ struct WelcomeView: View {
                                 wordsStreamLive: self.settings.selectedSpeechModel.supportsStreaming
                             ),
                             overlayEdge: self.settings.overlayPosition == .top ? "top" : "bottom",
+                            overlayShowsWords: self.settings.enableStreamingPreview,
                             microphoneName: DatasheetOverlayModel.shared.microphoneName,
                             canRecord: self.canPracticeRecord,
                             pressKey: self.togglePracticeRecording,
@@ -221,8 +224,14 @@ struct WelcomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: .datasheetPracticeDictationFinished)) { _ in
                 self.finishPracticeDictation()
             }
-            .onChange(of: self.asr.isRunning) { _, isRunning in
+            // Straight from the publisher: the stop path holds back view refreshes until the text
+            // is handed off, and the drill must hear the stop before the result.
+            .onReceive(self.asr.$isRunning.removeDuplicates()) { isRunning in
                 self.practiceRecordingChanged(isRunning: isRunning)
+            }
+            .onChange(of: self.canPracticeRecord) { _, canRecord in
+                // The idle hint counts from when a press could first work.
+                if canRecord, self.voicePractice.stage == .waiting { self.voicePractice.reset() }
             }
             .onChange(of: self.asr.partialTranscription) { _, words in
                 self.voicePractice.liveWordsChanged(words)
@@ -428,6 +437,15 @@ struct WelcomeView: View {
         self.isModelReady && self.asr.micStatus == .authorized
     }
 
+    /// Hints change with time only while the drill waits on the person.
+    private var practiceNeedsClock: Bool {
+        guard self.canPracticeRecord else { return false }
+        switch self.voicePractice.stage {
+        case .waiting, .listening, .missed: return true
+        case .transcribing, .heard: return false
+        }
+    }
+
     /// Practice routes dictation into the drill only while Getting Started is open and in front.
     private func updatePracticeGate() {
         self.practiceGateLease.update(
@@ -474,21 +492,51 @@ struct WelcomeView: View {
     /// observes: every event passes through untouched.
     private func installPracticeKeyMonitor() {
         guard self.practiceKeyMonitor == nil, !TestHostQuietMode.isActive else { return }
-        self.practiceKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            self.practiceKeyWentDown(event)
+        self.practiceKeyMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { event in
+            self.practiceEvent(event)
             return event
         }
     }
 
     private func removePracticeKeyMonitor() {
         self.practiceKeyCheck?.cancel()
+        self.practiceLoneModifier = nil
         if let monitor = self.practiceKeyMonitor {
             NSEvent.removeMonitor(monitor)
             self.practiceKeyMonitor = nil
         }
     }
 
-    private func practiceKeyWentDown(_ event: NSEvent) {
+    /// Keys that move around the window (focus, scrolling, buttons, Esc), never a try at the key.
+    private static let practiceNavigationKeys: Set<UInt16> = [36, 48, 49, 53, 76, 115, 116, 119, 121, 123, 124, 125, 126]
+
+    private func practiceEvent(_ event: NSEvent) {
+        switch event.type {
+        case .flagsChanged:
+            guard let flag = HotkeyShortcut.modifierFlag(forKeyCode: event.keyCode) else { return }
+            if event.modifierFlags.contains(flag) {
+                // Down: a wrong key only if it comes back up without a key or click in between,
+                // so ⌘W, ⇧ for a capital and ⌃-click never count.
+                self.practiceLoneModifier = event.keyCode
+            } else if self.practiceLoneModifier == event.keyCode {
+                self.practiceLoneModifier = nil
+                self.practiceKeyWentDown(event.keyCode)
+            }
+        case .keyDown:
+            self.practiceLoneModifier = nil
+            guard !event.isARepeat,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+                  !Self.practiceNavigationKeys.contains(event.keyCode)
+            else { return }
+            self.practiceKeyWentDown(event.keyCode)
+        default:
+            self.practiceLoneModifier = nil
+        }
+    }
+
+    private func practiceKeyWentDown(_ keyCode: UInt16) {
         guard self.isWelcomeVisible, self.canPracticeRecord else { return }
         switch self.voicePractice.stage {
         case .waiting, .missed: break
@@ -496,8 +544,8 @@ struct WelcomeView: View {
         }
         // Typing in a field is not a try at the dictation key.
         if NSApp.keyWindow?.firstResponder is NSText { return }
-        guard let name = Self.pressedKeyName(event),
-              !self.isPartOfDictationShortcut(event.keyCode)
+        guard let name = HotkeyShortcut.keyCodeToString(keyCode),
+              !self.isPartOfDictationShortcut(keyCode)
         else { return }
         // The dictation key itself starts a practice within the grace; anything else does not.
         self.practiceKeyCheck?.cancel()
@@ -509,28 +557,13 @@ struct WelcomeView: View {
         }
     }
 
-    /// The key that went down, by name, or nil for a release, a repeat, or a ⌘ shortcut.
-    private static func pressedKeyName(_ event: NSEvent) -> String? {
-        switch event.type {
-        case .flagsChanged:
-            guard let flag = HotkeyShortcut.modifierFlag(forKeyCode: event.keyCode),
-                  event.modifierFlags.contains(flag)
-            else { return nil }
-            return HotkeyShortcut.keyCodeToString(event.keyCode)
-        case .keyDown:
-            guard !event.isARepeat, !event.modifierFlags.contains(.command) else { return nil }
-            return HotkeyShortcut.keyCodeToString(event.keyCode)
-        default:
-            return nil
-        }
-    }
-
     private func isPartOfDictationShortcut(_ keyCode: UInt16) -> Bool {
         let modifier = HotkeyShortcut.modifierFlag(forKeyCode: keyCode)
         return self.settings.primaryDictationShortcuts.contains { shortcut in
-            (!shortcut.isMouseShortcut && shortcut.keyCode == keyCode)
-                || shortcut.modifierKeyCodes.contains(keyCode)
-                || modifier.map { shortcut.modifierFlags.contains($0) } == true
+            if !shortcut.isMouseShortcut, shortcut.keyCode == keyCode { return true }
+            // Modifier-only shortcuts name their physical keys, so Left ⌥ is not Right ⌥.
+            if !shortcut.modifierKeyCodes.isEmpty { return shortcut.modifierKeyCodes.contains(keyCode) }
+            return modifier.map { shortcut.modifierFlags.contains($0) } == true
         }
     }
 }

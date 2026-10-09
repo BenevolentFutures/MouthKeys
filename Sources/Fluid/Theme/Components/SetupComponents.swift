@@ -292,8 +292,10 @@ struct DatasheetVoicePractice: Equatable {
         let at: TimeInterval
     }
 
-    /// An audio level (0...1, linear in dB from -55 dBFS) that counts as a voice: about -38 dBFS.
-    static let voiceLevel: CGFloat = 0.3
+    /// An audio level (0...1, linear in dB from -55 dBFS) that counts as a voice: about -47 dBFS.
+    /// Low on purpose: a quiet lapel must never be told it is silent; a noisy room only loses
+    /// the hint.
+    static let voiceLevel: CGFloat = 0.15
     static let idleAfter: TimeInterval = 8
     static let silentMicAfter: TimeInterval = 4
     static let noWordsAfter: TimeInterval = 6
@@ -336,6 +338,7 @@ struct DatasheetVoicePractice: Equatable {
             guard self.awaitingCapture else { return }
             self.awaitingCapture = false
             self.wrongKey = nil
+            self.listenedFor = 0
             self.lastVoiceAt = nil
             self.lastWordsAt = nil
             self.lastWords = ""
@@ -382,6 +385,10 @@ struct DatasheetVoicePractice: Equatable {
 
     /// A late result after a timeout still counts.
     mutating func dictationFinished(text: String, at now: TimeInterval = DatasheetVoicePractice.now) {
+        // The result can arrive before the view hears that recording stopped.
+        if self.stage == .listening {
+            self.listenedFor = now - self.stageStartedAt
+        }
         switch self.stage {
         case .listening, .transcribing, .missed:
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -424,7 +431,11 @@ struct DatasheetVoicePractice: Equatable {
             }
             return self.stage == .waiting && elapsed >= Self.idleAfter ? .idle : .none
         case .listening:
-            let lastSpokeAt = wordsStreamLive ? self.lastWordsAt : self.lastVoiceAt
+            // With live words, finishing needs words; a voice alone keeps the clock running, so a
+            // stalled preview mid-sentence never says "Done?".
+            let lastSpokeAt = wordsStreamLive
+                ? self.lastWordsAt.map { max($0, self.lastVoiceAt ?? $0) }
+                : self.lastVoiceAt
             if let lastSpokeAt {
                 return now - lastSpokeAt >= Self.finishAfter ? .finish : .none
             }
@@ -857,6 +868,8 @@ struct DatasheetKeyPracticeReadout: View {
     let nudge: DatasheetVoicePractice.Nudge
     /// Where the recording overlay sits: "bottom" or "top".
     let overlayEdge: String
+    /// The overlay shows words as they arrive (Settings: streaming preview).
+    var overlayShowsWords = true
     let microphoneName: String
     /// The voice model and the microphone are ready, so a press can record.
     let canRecord: Bool
@@ -935,9 +948,10 @@ struct DatasheetKeyPracticeReadout: View {
                 : "Tap it once, say a few words, then tap it again. Watch \(bar)."
         case .listening:
             if liveWordsHeard {
+                let heard = self.overlayShowsWords ? "Your words are in \(bar)." : "MouthKeys hears you."
                 return isHold
-                    ? "Your words are in \(bar). Let go when you’re done."
-                    : "Your words are in \(bar). Press it again when you’re done."
+                    ? "\(heard) Let go when you’re done."
+                    : "\(heard) Press it again when you’re done."
             }
             return isHold
                 ? "Try “testing, one, two, three.” Then let go."

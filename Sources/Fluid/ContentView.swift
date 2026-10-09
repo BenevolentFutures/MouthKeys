@@ -2196,10 +2196,18 @@ struct ContentView: View {
         #endif
         var traceOutcome = "stopped"
         defer { trace.finishUnlessDelivering(outcome: traceOutcome) }
+        // A new recording can start while this one finishes (the keycap and Playground button
+        // skip the hotkey's stop guard); what this stop does afterwards must not touch that one.
+        let overlayLifecycleAtStop = self.overlayLifecycleID
+        let isPracticeStop = self.isPracticeDictation
         defer {
-            self.isPracticeDictation = false
-            if route == .onboardingSandbox {
-                NotificationCenter.default.post(name: .datasheetPracticeDictationFinished, object: nil)
+            // Only this practice's own result reaches the drill: not the onboarding playground's,
+            // and not one overtaken by a newer recording.
+            if self.overlayLifecycleID == overlayLifecycleAtStop {
+                self.isPracticeDictation = false
+                if isPracticeStop, route == .onboardingSandbox {
+                    NotificationCenter.default.post(name: .datasheetPracticeDictationFinished, object: nil)
+                }
             }
         }
         // No whole-app UI rebuild until the text is handed off (see ASRService.holdsStopUIRefresh).
@@ -2696,7 +2704,9 @@ struct ContentView: View {
         }
 
         if !didTypeExternally, !shouldShowAIProcessingFailure, !didRequestOverlayHideOnStop {
-            if route == .onboardingSandbox, self.overlayHoldsForOutcome {
+            if route == .onboardingSandbox, isPracticeStop, self.overlayHoldsForOutcome,
+               self.overlayLifecycleID == overlayLifecycleAtStop
+            {
                 // Practice ends the way a real dictation does: the overlay states the outcome.
                 self.menuBarManager.releaseOverlayForOutcomeHold()
                 BottomOverlayWindowController.shared.showPracticeOutcome(words: DatasheetOverlayModel.wordCount(finalText))
