@@ -1470,7 +1470,9 @@ struct ContentView: View {
             playgroundUsed: self.$playgroundUsed,
             isTranscriptionFocused: self.$isTranscriptionFocused,
             accessibilityEnabled: self.accessibilityEnabled,
-            stopAndProcessTranscription: { await self.stopAndProcessTranscription() },
+            stopAndProcessTranscription: {
+                await self.stopAndProcessTranscription(route: self.currentDictationOutputRouteForHotkeyStop())
+            },
             startRecording: { self.startRecording() },
             openAccessibilitySettings: self.openAccessibilitySettings,
             restartApp: self.restartApp
@@ -2191,6 +2193,11 @@ struct ContentView: View {
         #endif
         var traceOutcome = "stopped"
         defer { trace.finishUnlessDelivering(outcome: traceOutcome) }
+        defer {
+            if route == .onboardingSandbox {
+                NotificationCenter.default.post(name: .datasheetPracticeDictationFinished, object: nil)
+            }
+        }
         // No whole-app UI rebuild until the text is handed off (see ASRService.holdsStopUIRefresh).
         let uiRefreshHold = self.asr.holdStopUIRefresh()
         defer { self.asr.releaseStopUIRefresh(uiRefreshHold) }
@@ -2869,6 +2876,7 @@ struct ContentView: View {
 
     private var isOnboardingSandboxRouteActive: Bool {
         self.isOnboardingVoicePlaygroundStepActive
+            || DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive)
     }
 
     private func currentDictationOutputRouteForHotkeyStop() -> DictationOutputRoute {
@@ -3764,8 +3772,6 @@ struct ContentView: View {
             },
             isShortcutCaptureActiveProvider: {
                 self.isRecordingAnyShortcutCapture
-                    || (!self.asr.isRunningOrStarting
-                        && DatasheetQuickSetupPracticeGate.isActive(applicationIsActive: NSApp.isActive))
             }
         )
 
