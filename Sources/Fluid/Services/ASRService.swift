@@ -1118,13 +1118,22 @@ final class ASRService: ObservableObject {
                         defaultInputUID: deviceSnapshot.defaultInputUID,
                         excluding: selectionExclusions
                     )
-                    selectedInput = AudioCaptureIdlePolicy.bluetoothInputAwaitingAvailability(
-                        priorityInputUIDs: SettingsStore.shared.microphonePriority.map(\.uid),
-                        preferredInputUID: SettingsStore.shared.preferredInputDeviceUID,
-                        resolvedInputUID: resolvedInput?.uid,
-                        allDevices: allDevices,
-                        excluding: selectionExclusions
-                    ) ?? resolvedInput
+                    let coordinator = AppServices.shared.microphonePreferenceCoordinator
+                    // An overlay pick in hand wins over waiting on a settling Bluetooth mic, and
+                    // the wait only considers microphones MouthKeys may use (never Never).
+                    if let resolvedInput, resolvedInput.uid == coordinator.sessionPickUID {
+                        selectedInput = resolvedInput
+                    } else {
+                        let rankedUIDs = coordinator.rankedUsableInputUIDs(allDevices: allDevices)
+                        let preferredUID = SettingsStore.shared.preferredInputDeviceUID
+                        selectedInput = AudioCaptureIdlePolicy.bluetoothInputAwaitingAvailability(
+                            priorityInputUIDs: rankedUIDs,
+                            preferredInputUID: preferredUID.flatMap { rankedUIDs.contains($0) ? $0 : nil },
+                            resolvedInputUID: resolvedInput?.uid,
+                            allDevices: allDevices,
+                            excluding: selectionExclusions
+                        ) ?? resolvedInput
+                    }
                 }
                 let attemptIdentity = selectedInput == nil && wedgedInputUIDs.isEmpty == false
                     ? nil

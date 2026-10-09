@@ -19,7 +19,7 @@ extension VoiceEngineSettingsView {
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 DatasheetContentHeader(
-                    placard: "02 / Configure",
+                    placard: "03 / Configure",
                     title: "Voice Engine",
                     lede: "Click a row to preview. Press Activate to load the model."
                 ) {

@@ -1,5 +1,6 @@
 @testable import MouthKeys_Debug
 import Combine
+import CoreAudio
 import Foundation
 import SwiftUI
 import Vision
@@ -6221,19 +6222,21 @@ private struct DatasheetWindowChromeGallery: View {
                         VStack(spacing: 0) {
                             DatasheetNavRow(index: "00", title: "Getting Started", systemImage: "waveform.path", isSelected: false, action: {})
                             DatasheetSidebarSectionHeader(title: "Configure")
-                            DatasheetNavRow(index: "01", title: "Settings", systemImage: "slider.horizontal.3", isSelected: false, action: {})
-                            DatasheetNavRow(index: "02", title: "Voice Engine", systemImage: "cpu", isSelected: true, action: {})
-                            DatasheetNavRow(index: "03", title: "Custom Dictionary", systemImage: "text.book.closed", isSelected: false, action: {})
+                            DatasheetNavRow(index: "01", title: "Hotkeys", systemImage: "command", isSelected: false, action: {})
+                            DatasheetNavRow(index: "02", title: "Microphone", systemImage: "mic", isSelected: false, action: {})
+                            DatasheetNavRow(index: "03", title: "Voice Engine", systemImage: "cpu", isSelected: true, action: {})
+                            DatasheetNavRow(index: "04", title: "Custom Dictionary", systemImage: "text.book.closed", isSelected: false, action: {})
+                            DatasheetNavRow(index: "05", title: "App Settings", systemImage: "slider.horizontal.3", isSelected: false, action: {})
                             DatasheetSidebarSectionHeader(title: "Use", topSpacing: 10)
-                            DatasheetNavRow(index: "04", title: "Command Mode", systemImage: "terminal", isSelected: false, action: {})
-                            DatasheetNavRow(index: "05", title: "File Transcription", systemImage: "doc.text", isSelected: false, action: {})
+                            DatasheetNavRow(index: "06", title: "Command Mode", systemImage: "terminal", isSelected: false, action: {})
+                            DatasheetNavRow(index: "07", title: "File Transcription", systemImage: "doc.text", isSelected: false, action: {})
                             DatasheetSidebarSectionHeader(title: "Activity", topSpacing: 10)
-                            DatasheetNavRow(index: "06", title: "History", systemImage: "clock.arrow.circlepath", isSelected: false, action: {})
-                            DatasheetNavRow(index: "07", title: "Stats", systemImage: "chart.bar", isSelected: false, action: {})
+                            DatasheetNavRow(index: "08", title: "History", systemImage: "clock.arrow.circlepath", isSelected: false, action: {})
+                            DatasheetNavRow(index: "09", title: "Stats", systemImage: "chart.bar", isSelected: false, action: {})
                             DatasheetSidebarSectionHeader(title: "Advanced", topSpacing: 10)
-                            DatasheetNavRow(index: "08", title: "AI Enhancement", systemImage: "sparkle", isSelected: false, action: {})
+                            DatasheetNavRow(index: "10", title: "AI Enhancement", systemImage: "sparkle", isSelected: false, action: {})
                             DatasheetSidebarSectionHeader(title: "Help", topSpacing: 10)
-                            DatasheetNavRow(index: "09", title: "Feedback", systemImage: "bubble.left", isSelected: false, action: {})
+                            DatasheetNavRow(index: "11", title: "Feedback", systemImage: "bubble.left", isSelected: false, action: {})
                         }
                         .padding(.top, 14)
                         .padding(.bottom, 10)
@@ -6488,17 +6491,36 @@ final class ASettingsContentWidthRenderTests: XCTestCase {
         print("A_SETTINGS_WIDTH_RENDER_DIR=\(outputFolder.path)")
 
         let menuBarManager = MenuBarManager()
+        // The Microphone page shows its three groups with a realistic list, restored after.
+        let settings = SettingsStore.shared
+        let savedPriority = settings.microphonePriority
+        let savedPreferredUID = settings.preferredInputDeviceUID
+        defer {
+            settings.microphonePriority = savedPriority
+            settings.preferredInputDeviceUID = savedPreferredUID
+        }
+        settings.microphonePriority = [
+            .init(uid: "lapel", name: "Hollyland Lapel Mic", transportType: kAudioDeviceTransportTypeAggregate),
+            .init(uid: "internal", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn),
+            .init(uid: "usb", name: "Wireless Microphone", transportType: kAudioDeviceTransportTypeUSB),
+            .init(uid: "phone", name: "Hoplite17 Microphone", transportType: kAudioDeviceTransportTypeContinuityCaptureWired),
+            .init(uid: "bh2", name: "BlackHole 2ch", transportType: kAudioDeviceTransportTypeVirtual),
+            .init(uid: "bh64", name: "BlackHole 64ch", transportType: kAudioDeviceTransportTypeVirtual),
+        ]
         var darkRenderByWidth: [String: Data] = [:]
         let renderSizes: [(name: String, width: CGFloat, height: CGFloat)] = [
             ("549", 549, 6_400),
             ("749", 749, 5_600),
         ]
+        for page in [SettingsPage.hotkeys, .microphone, .app] {
+        let pageName = page == .app ? "body" : (page == .hotkeys ? "hotkeys" : "microphone")
         for size in renderSizes {
             for appearance in [NSAppearance.Name.darkAqua, .aqua] {
                 let theme = appearance == .darkAqua ? "dark" : "light"
                 let scheme: ColorScheme = appearance == .darkAqua ? .dark : .light
-                let view = self.productionSettingsBody(menuBarManager: menuBarManager)
-                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                let height = page == .app ? size.height : 2_200
+                let view = self.productionSettingsBody(menuBarManager: menuBarManager, page: page)
+                    .frame(width: size.width, height: height, alignment: .topLeading)
                     .background(DatasheetTheme.Palette.forScheme(scheme).surface)
                     .appTheme(AppTheme.adaptive(accent: DatasheetTheme.Palette.dark.accent, colorScheme: scheme))
                     .datasheetPalette()
@@ -6506,7 +6528,7 @@ final class ASettingsContentWidthRenderTests: XCTestCase {
                     .environment(\.colorScheme, scheme)
 
                 let hostingView = NSHostingView(rootView: view)
-                hostingView.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+                hostingView.frame = NSRect(x: 0, y: 0, width: size.width, height: height)
                 hostingView.wantsLayer = true
                 hostingView.layer?.contentsScale = 1
                 hostingView.layoutSubtreeIfNeeded()
@@ -6515,32 +6537,41 @@ final class ASettingsContentWidthRenderTests: XCTestCase {
                     "Could not allocate \(theme) Settings bitmap at \(size.name) pt detail width"
                 )
                 hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
-                representation.size = NSSize(width: size.width, height: size.height)
+                representation.size = NSSize(width: size.width, height: height)
                 let png = try XCTUnwrap(representation.representation(using: .png, properties: [:]))
                 if appearance == .darkAqua {
-                    darkRenderByWidth[size.name] = png
+                    darkRenderByWidth["\(pageName)-\(size.name)"] = png
                 } else {
-                    XCTAssertNotEqual(darkRenderByWidth[size.name], png, "Dark and Light palettes must differ at \(size.name) pt detail width")
+                    XCTAssertNotEqual(darkRenderByWidth["\(pageName)-\(size.name)"], png, "Dark and Light palettes must differ at \(size.name) pt detail width")
                 }
                 let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
-                attachment.name = "a-settings-production-body-\(size.name)-\(theme)"
+                attachment.name = "a-settings-production-\(pageName)-\(size.name)-\(theme)"
                 attachment.lifetime = .keepAlways
                 self.add(attachment)
-                try png.write(to: outputFolder.appendingPathComponent("a-settings-production-body-\(size.name)-\(theme).png"))
+                try png.write(to: outputFolder.appendingPathComponent("a-settings-production-\(pageName)-\(size.name)-\(theme).png"))
             }
+        }
         }
     }
 
-    private func productionSettingsBody(menuBarManager: MenuBarManager) -> some View {
+    private func productionSettingsBody(menuBarManager: MenuBarManager, page: SettingsPage) -> some View {
         let services = AppServices.shared
         let settings = SettingsStore.shared
+        let connected = [
+            AudioDevice.Device(id: 1, uid: "lapel", name: "Hollyland Lapel Mic", hasInput: true, hasOutput: false,
+                               transportType: kAudioDeviceTransportTypeAggregate),
+            AudioDevice.Device(id: 2, uid: "internal", name: "MacBook Pro Microphone", hasInput: true, hasOutput: false,
+                               transportType: kAudioDeviceTransportTypeBuiltIn),
+            AudioDevice.Device(id: 3, uid: "bh2", name: "BlackHole 2ch", hasInput: true, hasOutput: true,
+                               transportType: kAudioDeviceTransportTypeVirtual),
+        ]
         return SettingsView(
             microphonePreferenceCoordinator: services.microphonePreferenceCoordinator,
             appear: .constant(false),
             visualizerNoiseThreshold: .constant(settings.visualizerNoiseThreshold),
             selectedInputUID: .constant(""),
             selectedOutputUID: .constant(settings.preferredOutputDeviceUID ?? ""),
-            inputDevices: .constant([]),
+            inputDevices: .constant(page == .microphone ? connected : []),
             outputDevices: .constant([]),
             accessibilityEnabled: .constant(true),
             primaryDictationShortcuts: .constant(settings.primaryDictationShortcuts),
@@ -6567,7 +6598,7 @@ final class ASettingsContentWidthRenderTests: XCTestCase {
             restartApp: {},
             revealAppInFinder: {},
             openApplicationsFolder: {},
-            microphoneSettingsScrollRequest: 0
+            page: page
         )
         .environmentObject(services)
     }

@@ -65,7 +65,7 @@ struct StatsView: View {
     // MARK: - Header and KPIs
 
     private var pageHeader: some View {
-        DatasheetSheetHeader(placard: "ACTIVITY / 07", title: "Stats", lede: self.motivationalMessage(
+        DatasheetSheetHeader(placard: "ACTIVITY / 09", title: "Stats", lede: self.motivationalMessage(
             wordsToday: self.historyStore.todaySummary.words,
             streak: self.historyStore.currentStreak
         )) {

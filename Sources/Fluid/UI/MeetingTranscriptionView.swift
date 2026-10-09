@@ -43,7 +43,7 @@ struct MeetingTranscriptionView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 DatasheetSheetHeader(
-                    placard: "USE / 05",
+                    placard: "USE / 07",
                     title: "File Transcription",
                     lede: "Choose an audio or video file to transcribe."
                 )

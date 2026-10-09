@@ -32,7 +32,7 @@ struct FeedbackView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 DatasheetSheetHeader(
-                    placard: "09 / Help",
+                    placard: "11 / Help",
                     title: "Send Feedback",
                     lede: "Report a bug or suggest a change on the MouthKeys GitHub."
                 ) {
@@ -326,7 +326,7 @@ private struct FeedbackFigure: View {
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     self.ruleDivider
-                    self.placard("SHEET 09 / 09")
+                    self.placard("SHEET 11 / 11")
                         .frame(width: 102, alignment: .trailing)
                 }
                 .padding(.horizontal, 16)
@@ -338,7 +338,7 @@ private struct FeedbackFigure: View {
                         Spacer(minLength: 0)
                         self.placard("REV \(self.revision)")
                         Spacer(minLength: 0)
-                        self.placard("SHEET 09 / 09")
+                        self.placard("SHEET 11 / 11")
                     }
                     Link("MIT · github.com/BenevolentFutures/MouthKeys ↗", destination: self.repositoryURL)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))

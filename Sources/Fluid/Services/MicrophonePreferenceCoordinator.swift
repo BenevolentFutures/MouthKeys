@@ -7,11 +7,14 @@ protocol AudioDeviceManaging {
     func listInputDevices() -> [AudioDevice.Device]
     func defaultInputDevice() -> AudioDevice.Device?
     func isInputDeviceUsable(_ device: AudioDevice.Device) -> Bool
+    /// Whether macOS still lists the device at all, input stream or not.
+    func isDevicePresent(uid: String) -> Bool
 }
 
 extension AudioDeviceManaging {
     var isClamshellClosed: Bool { false }
     func isInputDeviceUsable(_: AudioDevice.Device) -> Bool { true }
+    func isDevicePresent(uid: String) -> Bool { self.listInputDevices().contains { $0.uid == uid } }
 }
 
 struct CoreAudioDeviceManager: AudioDeviceManaging {
@@ -29,6 +32,10 @@ struct CoreAudioDeviceManager: AudioDeviceManaging {
 
     func isInputDeviceUsable(_ device: AudioDevice.Device) -> Bool {
         AudioDevice.isInputDeviceAlive(device)
+    }
+
+    func isDevicePresent(uid: String) -> Bool {
+        AudioDevice.listAllDevices().contains { $0.uid == uid }
     }
 }
 
@@ -49,6 +56,9 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
     private var lastConfirmedInputUID: String?
     private var lastConfirmedInputName: String?
     @Published private(set) var confirmedActiveInputUID: String?
+    /// A microphone picked in the overlay: used until it disconnects or MouthKeys quits, without
+    /// changing the ranked list.
+    private(set) var sessionPickUID: String?
     private var startupNoticeTask: Task<Void, Never>?
     private var startupNoticeEligibilityEnabled = false
     private var didPresentStartupNotice = false
@@ -147,7 +157,7 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
             self.settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
             return
         }
-        let selectedInput: AudioDevice.Device?
+        var selectedInput: AudioDevice.Device?
         if migrationVersion == 0,
            previousMode == .manual
         {
@@ -177,6 +187,15 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
             selectedInput = preferredInput
                 ?? defaultInput
                 ?? self.fallbackInput(from: usableInputs, defaultInputUID: defaultInputUID)
+        }
+        // Never rank a virtual device or an iPhone first on its own: the first real microphone
+        // takes the place, or none.
+        if let chosen = selectedInput,
+           SettingsStore.MicrophoneTier.automatic(transportType: chosen.transportType) != .preferred
+        {
+            selectedInput = usableInputs.first {
+                SettingsStore.MicrophoneTier.automatic(transportType: $0.transportType) == .preferred
+            }
         }
         guard let selectedInput else {
             if migrationVersion == 0,
@@ -229,14 +248,20 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         return selectedInput
     }
 
-    /// The user picked `device` (the overlay's microphone card or the menu bar): it goes first in
-    /// MouthKeys' own order, never the macOS default input, so a daemon that pins the system
-    /// default (mic-priority) cannot revert it. ASRService moves capture to it at once, mid-
-    /// dictation included (`microphonePickDidChange`). No "microphone changed" notice: the user
-    /// just chose it.
-    func pick(_ device: AudioDevice.Device, source: String) {
+    /// The user picked `device`. From Settings (`persist`) it goes first in MouthKeys' own order;
+    /// from the overlay's microphone card it is used for now, until it disconnects or MouthKeys
+    /// quits, and the ranked list stays as the user set it. Never the macOS default input, so a
+    /// daemon that pins the system default (mic-priority) cannot revert it. ASRService moves
+    /// capture to it at once, mid-dictation included (`microphonePickDidChange`). No "microphone
+    /// changed" notice: the user just chose it.
+    func pick(_ device: AudioDevice.Device, source: String, persist: Bool) {
         let previousName = self.lastResolvedInputName
-        self.settings.recordInputDeviceSelection(device.uid, name: device.name)
+        if persist {
+            self.sessionPickUID = nil
+            self.settings.recordInputDeviceSelection(device.uid, name: device.name)
+        } else {
+            self.sessionPickUID = device.uid
+        }
         self.lastResolvedInputUID = device.uid
         self.lastResolvedInputName = device.name
         LapelMicBatteryMonitor.shared.noteSelectedInput(uid: device.uid)
@@ -244,7 +269,7 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
             DatasheetOverlayModel.shared.microphoneName = device.name
         }
         DebugLogger.shared.info(
-            "MIC_PICK source=\(source) name='\(device.name)' uid=\(device.uid) " +
+            "MIC_PICK source=\(source) persist=\(persist) name='\(device.name)' uid=\(device.uid) " +
                 "previous='\(previousName ?? "none")'",
             source: "MicrophonePreferenceCoordinator"
         )
@@ -392,15 +417,37 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         excluding excludedUIDs: Set<String> = []
     ) -> AudioDevice.Device? {
         let clamshellClosed = self.devices.isClamshellClosed
+        if let pickUID = self.sessionPickUID {
+            if let picked = availableInputs.first(where: { $0.uid == pickUID }) {
+                // Picked by hand: usable even if it was removed from the list or ranked Never.
+                if excludedUIDs.contains(pickUID) == false,
+                   clamshellClosed == false || picked.isUnavailableWhenClamshellClosed == false,
+                   self.devices.isInputDeviceUsable(picked)
+                {
+                    return picked
+                }
+            } else if self.devices.isDevicePresent(uid: pickUID) == false {
+                // It disconnected: back to the ranked order, and a reconnect does not revive it.
+                // A Bluetooth mic whose input only paused is still present and keeps the pick.
+                self.clearSessionPick(reason: "disconnected")
+            }
+        }
         let usableInputs = availableInputs.filter { device in
             excludedUIDs.contains(device.uid) == false &&
-                self.isInputDeviceAvailable(device, clamshellClosed: clamshellClosed)
+                self.isInputDeviceAvailable(device, clamshellClosed: clamshellClosed) &&
+                self.settings.microphoneTier(for: device) != .never
         }
         guard usableInputs.isEmpty == false else { return nil }
 
-        for entry in self.settings.microphonePriority {
-            if let input = usableInputs.first(where: { $0.uid == entry.uid }) {
-                return input
+        // Preferred in order, then last resort in order, by each device's live group. Never is
+        // never chosen.
+        for tier in [SettingsStore.MicrophoneTier.preferred, .lastResort] {
+            for entry in self.settings.microphonePriority {
+                if let input = usableInputs.first(where: { $0.uid == entry.uid }),
+                   self.settings.microphoneTier(for: input) == tier
+                {
+                    return input
+                }
             }
         }
 
@@ -414,6 +461,26 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
             from: usableInputs,
             defaultInputUID: defaultInputUID
         )
+    }
+
+    /// Ends an overlay pick: the microphone disconnected, or the user changed the order.
+    func clearSessionPick(reason: String) {
+        guard let uid = self.sessionPickUID else { return }
+        self.sessionPickUID = nil
+        DebugLogger.shared.info("MIC_PICK cleared reason=\(reason) uid=\(uid)", source: "MicrophonePreferenceCoordinator")
+    }
+
+    /// Ranked microphones MouthKeys may use, in the order it tries them (Preferred, then Last
+    /// resort; never Never), for the wait on a Bluetooth microphone that is still settling.
+    func rankedUsableInputUIDs(allDevices: [AudioDevice.Device]) -> [String] {
+        let devicesByUID = Dictionary(allDevices.map { ($0.uid, $0) }, uniquingKeysWith: { current, _ in current })
+        let entries = self.settings.microphonePriority
+        func tier(_ entry: SettingsStore.MicrophonePriorityEntry) -> SettingsStore.MicrophoneTier {
+            devicesByUID[entry.uid].map { self.settings.microphoneTier(for: $0) } ?? entry.effectiveTier
+        }
+        return [SettingsStore.MicrophoneTier.preferred, .lastResort].flatMap { wanted in
+            entries.filter { tier($0) == wanted }.map(\.uid)
+        }
     }
 
     func isInputDeviceAvailable(_ device: AudioDevice.Device) -> Bool {
