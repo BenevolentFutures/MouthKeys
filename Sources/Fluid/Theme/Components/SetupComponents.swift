@@ -960,6 +960,11 @@ private struct DatasheetCalloutCopy: Identifiable {
 struct DatasheetCalloutZone: Identifiable {
     let id: String
     let frame: CGRect
+
+    /// The zone under a point in the canvas. Later zones sit on top, as the outlines are drawn.
+    static func id(at point: CGPoint, in zones: [DatasheetCalloutZone]) -> String? {
+        zones.last { $0.frame.contains(point) }?.id
+    }
 }
 
 /// The teaching reference alone fits to its canvas. The pill, rails and all hover regions use
@@ -1161,15 +1166,19 @@ struct DatasheetInlineOverlayPreview: View {
                         .allowsHitTesting(false)
                 }
 
-                ForEach(zones) { zone in
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .frame(width: zone.frame.width, height: zone.frame.height)
-                        .position(x: zone.frame.midX, y: zone.frame.midY)
-                        .onHover { self.setHover(zone.id, hovering: $0) }
-                        .accessibilityHidden(true)
-                }
+                // One hover surface for the canvas, resolved to the zone under the pointer. A per-zone
+                // `.onHover` placed after `.position` tracks the whole canvas, so the last zone (mic)
+                // answered wherever the pointer was.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        var id: String?
+                        if case let .active(point) = phase {
+                            id = DatasheetCalloutZone.id(at: point, in: zones)
+                        }
+                        if self.activeCallout != id { self.activeCallout = id }
+                    }
+                    .accessibilityHidden(true)
             }
         }
         // Reserve the same teaching/card band across width and hover changes.
@@ -1326,13 +1335,5 @@ struct DatasheetInlineOverlayPreview: View {
         path.addLine(to: CGPoint(x: origin.x, y: elbowY))
         path.addLine(to: CGPoint(x: endX, y: elbowY))
         return path
-    }
-
-    private func setHover(_ id: String, hovering: Bool) {
-        if hovering {
-            self.activeCallout = id
-        } else if self.activeCallout == id {
-            self.activeCallout = nil
-        }
     }
 }
