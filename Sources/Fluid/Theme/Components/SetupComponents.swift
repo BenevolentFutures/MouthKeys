@@ -1245,21 +1245,12 @@ struct DatasheetInlineOverlayLayout {
         min(Self.cardMaxWidth, max(0, canvasWidth - 2 * Self.cardInset))
     }
 
-    /// Rail chips with another chip below them leave from their outer side, so the leader never
-    /// crosses the chip under them.
-    static let outerLeaderIDs: Set<String> = ["history", "cancel"]
-
-    /// The leader from a part down to the card's top edge: straight down from the part's bottom,
-    /// or out the side and down for the upper rail chips.
+    /// The leader from a part straight down to the card's top edge. It is drawn behind the
+    /// overlay, so it passes under the chip or pill content below the part and shows only
+    /// between the overlay and the card; a dot on top marks the part.
     func leader(for zone: DatasheetCalloutZone, cardTop: CGFloat) -> [CGPoint] {
         let rect = zone.frame
-        guard Self.outerLeaderIDs.contains(zone.id) else {
-            return [CGPoint(x: rect.midX, y: rect.maxY + 3), CGPoint(x: rect.midX, y: cardTop)]
-        }
-        let isLeft = rect.midX < self.canvasWidth / 2
-        let edge = isLeft ? rect.minX - 3 : rect.maxX + 3
-        let x = isLeft ? rect.minX - 9 : rect.maxX + 9
-        return [CGPoint(x: edge, y: rect.midY), CGPoint(x: x, y: rect.midY), CGPoint(x: x, y: cardTop)]
+        return [CGPoint(x: rect.midX, y: rect.maxY + 3), CGPoint(x: rect.midX, y: cardTop)]
     }
 
     /// The card's left edge: under where the leader lands, kept inside the canvas, so the leader
@@ -1389,7 +1380,15 @@ struct DatasheetInlineOverlayPreview: View {
         GeometryReader { proxy in
             let layout = DatasheetInlineOverlayLayout(geometry: self.geometry, canvasWidth: proxy.size.width)
             let zones = layout.calloutZones(micText: self.micText, micBattery: self.model.micBattery)
+            let activeZone = zones.first { $0.id == self.visibleCallout }
+            let cardTop = layout.rowBottom + DatasheetInlineOverlayLayout.cardGap
+            let leader = activeZone.map { layout.leader(for: $0, cardTop: cardTop) } ?? []
             ZStack(alignment: .topLeading) {
+                // Behind the overlay: it disappears under whatever lies below the part.
+                Path { path in path.addLines(leader) }
+                    .stroke(self.palette.text2, lineWidth: 1)
+                    .allowsHitTesting(false)
+
                 self.composition
                     .frame(width: layout.compositionWidth, height: self.overlayRowHeight, alignment: .top)
                     .scaleEffect(layout.scale, anchor: .topLeading)
@@ -1414,19 +1413,12 @@ struct DatasheetInlineOverlayPreview: View {
                         .allowsHitTesting(false)
                 }
 
-                let activeZone = zones.first { $0.id == self.visibleCallout }
                 let copy = activeZone.flatMap { zone in DatasheetCalloutCopy.all.first { $0.id == zone.id } }
                     ?? DatasheetCalloutCopy.resting
                 let cardWidth = layout.cardWidth(canvasWidth: proxy.size.width)
-                let cardTop = layout.rowBottom + DatasheetInlineOverlayLayout.cardGap
-                let leader = activeZone.map { layout.leader(for: $0, cardTop: cardTop) } ?? []
                 let cardX = layout.cardX(leaderX: leader.last?.x, canvasWidth: proxy.size.width)
 
                 if let start = leader.first {
-                    Path { path in path.addLines(leader) }
-                        .stroke(self.palette.text2, lineWidth: 1)
-                        .allowsHitTesting(false)
-
                     Rectangle()
                         .fill(self.palette.text)
                         .frame(width: 3, height: 3)
