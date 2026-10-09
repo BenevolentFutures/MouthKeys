@@ -304,8 +304,9 @@ struct SettingsView: View {
                             self.settingsZoneContent(zone)
                                 // Section headings already have 34 pt of top spacing.
                                 // Reserve the rest of the pinned strip, including a
-                                // legacy horizontal scroller, above each heading.
-                                .padding(.top, 24)
+                                // legacy horizontal scroller, above each heading. A page
+                                // with one zone has no strip.
+                                .padding(.top, self.pageZones.count > 1 ? 24 : 0)
                                 .id(zone.anchor)
                         }
                     }
@@ -1089,6 +1090,9 @@ private extension SettingsView {
                     }
                     .disabled(self.isMicrophonePriorityEditingDisabled)
                 }
+                self.sheetAction("Refresh", icon: "arrow.clockwise") { self.refreshSettingsAudioDevices() }
+                    .help("Refresh the available microphone and output device lists.")
+                    .accessibilityLabel("Refresh audio devices")
             }
 
             VStack(spacing: 0) {
@@ -1098,14 +1102,14 @@ private extension SettingsView {
                         .accessibilityHidden(true)
                     Text("#")
                         .frame(width: 26, alignment: .trailing)
-                    Text("INPUT DEVICE PRIORITY")
+                    Text("MICROPHONE")
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .lineLimit(1)
-                    Text("STATE")
-                        .frame(width: 96, alignment: .leading)
-                    self.sheetAction("Refresh", icon: "arrow.clockwise") { self.refreshSettingsAudioDevices() }
-                        .help("Refresh the available microphone and output device lists.")
-                        .accessibilityLabel("Refresh audio devices")
+                    Text("GROUP")
+                        .frame(width: 128, alignment: .leading)
+                    // Over the rows' remove button.
+                    Color.clear.frame(width: 28, height: 1)
+                        .accessibilityHidden(true)
                 }
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .tracking(0.4)
@@ -1238,31 +1242,29 @@ private extension SettingsView {
                 .frame(width: 26, alignment: .trailing)
                 .monospacedDigit()
 
-            Text(entry.name)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isAvailable ? self.datasheetPalette.text : self.datasheetPalette.textDim)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            self.settingsMicrophoneTierMenu(entry, tier: tier)
-
-            HStack(spacing: 6) {
-                DatasheetStatusSquare(kind: isActive ? .orange : (isAvailable && tier != .never ? .ink : .outline))
-                Text(isActive ? "ACTIVE" : (!isAvailable ? "UNAVAILABLE" : (tier == .never ? "NOT USED" : "STANDBY")))
+            // The name gets the width; its state rides underneath, so narrow windows keep names.
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isAvailable ? self.datasheetPalette.text : self.datasheetPalette.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    DatasheetStatusSquare(kind: isActive ? .orange : (isAvailable && tier != .never ? .ink : .outline))
+                    Text(
+                        (isActive ? "ACTIVE" : (!isAvailable ? "UNAVAILABLE" : (tier == .never ? "NOT USED" : "STANDBY")))
+                            + (battery.map { " · \($0)% BATT" } ?? "")
+                    )
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .tracking(0.4)
                     .foregroundStyle(self.datasheetPalette.text2)
-                    .frame(width: 84, alignment: .leading)
                     .lineLimit(1)
+                    .monospacedDigit()
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(battery.map { "\($0)% BATT" } ?? "— BATT")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .tracking(0.2)
-                .foregroundStyle(self.datasheetPalette.text2)
-                .frame(width: 66, alignment: .trailing)
-                .monospacedDigit()
+            self.settingsMicrophoneTierMenu(entry, tier: tier)
 
             Group {
                 if isHovered {
@@ -1354,12 +1356,12 @@ private extension SettingsView {
         self.refreshActiveInputSelection()
     }
 
-    /// The row's group, as a compact menu of fixed width.
+    /// The row's group, in the window's own picker at a fixed width, so rows line up.
     func settingsMicrophoneTierMenu(
         _ entry: SettingsStore.MicrophonePriorityEntry,
         tier: SettingsStore.MicrophoneTier
     ) -> some View {
-        Menu {
+        DatasheetPicker(title: "Group for \(entry.name)", value: tier.title, minimumWidth: 128) {
             ForEach(SettingsStore.MicrophoneTier.allCases) { option in
                 Button {
                     self.setMicrophoneTier(entry, option)
@@ -1367,28 +1369,9 @@ private extension SettingsView {
                     if option == tier { Label(option.title, systemImage: "checkmark") } else { Text(option.title) }
                 }
             }
-        } label: {
-            HStack(spacing: 4) {
-                Text(tier.title.uppercased())
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
-            .tracking(0.3)
-            .foregroundStyle(self.datasheetPalette.text)
-            .padding(.horizontal, 7)
-            .frame(width: 104, height: 24)
-            .background(self.datasheetPalette.field)
-            .overlay { Rectangle().strokeBorder(self.datasheetPalette.edge, lineWidth: 1) }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .disabled(self.isMicrophonePriorityEditingDisabled)
         .help("Where MouthKeys ranks \(entry.name)")
-        .accessibilityLabel("Group for \(entry.name): \(tier.title)")
     }
 
     var inputDevicePicker: some View {
