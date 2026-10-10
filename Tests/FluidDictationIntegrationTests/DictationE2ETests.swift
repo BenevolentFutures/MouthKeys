@@ -7641,7 +7641,7 @@ final class TranscriptionStatsSnapshotTests: XCTestCase {
 /// never ordered on screen.
 @MainActor
 final class HistoryScaleMainThreadTests: XCTestCase {
-    static let entryCount = 17_000
+    nonisolated static let entryCount = 17_000
 
     private var savedHistory: [TranscriptionHistoryEntry] = []
 
