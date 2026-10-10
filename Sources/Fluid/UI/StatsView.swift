@@ -1,7 +1,9 @@
 import SwiftUI
 
+/// Reads only the stats snapshot, never the history: every number here is computed off the main
+/// thread (`TranscriptionStatsModel`), so the page costs a dictation nothing.
 struct StatsView: View {
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
+    @ObservedObject private var stats = TranscriptionHistoryStore.shared.stats
     @ObservedObject private var settings = SettingsStore.shared
     @Environment(\.datasheetPalette) private var palette
 
@@ -23,11 +25,33 @@ struct StatsView: View {
         return formatter
     }()
 
+    private static let dayLabelFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+
+    private static let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    /// Nil until the first pass over the history lands: every readout shows "—" until then.
+    private var snapshot: TranscriptionStatsSnapshot? {
+        self.stats.snapshot
+    }
+
+    private var totalTranscriptions: Int {
+        self.snapshot?.total.transcriptions ?? 0
+    }
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 self.pageHeader
-                self.kpiGrid
+                self.rollingSection
+                self.kpiGrid.padding(.top, 34)
                 self.activitySection.padding(.top, 34)
                 self.milestonesSection.padding(.top, 34)
 
@@ -52,38 +76,136 @@ struct StatsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(self.palette.surface)
+        .onAppear { self.stats.beginLiveUpdates() }
+        .onDisappear { self.stats.endLiveUpdates() }
+        .onChange(of: self.settings.weekendsDontBreakStreak) { _, _ in self.stats.refresh() }
         .alert("Reset All Stats", isPresented: self.$showResetConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Reset Everything", role: .destructive) {
-                self.historyStore.clearAllHistory()
+                TranscriptionHistoryStore.shared.clearAllHistory()
             }
         } message: {
-            Text("This will permanently delete all \(self.historyStore.entries.count) transcriptions and reset all statistics. This action cannot be undone.")
+            Text("This will permanently delete all \(self.totalTranscriptions) transcriptions and reset all statistics. This action cannot be undone.")
         }
     }
 
     // MARK: - Header and KPIs
 
     private var pageHeader: some View {
-        DatasheetSheetHeader(placard: "ACTIVITY / 09", title: "Stats", lede: self.motivationalMessage(
-            wordsToday: self.historyStore.todaySummary.words,
-            streak: self.historyStore.currentStreak
+        let streak = self.snapshot?.currentStreak ?? 0
+        return DatasheetSheetHeader(placard: "ACTIVITY / 09", title: "Stats", lede: self.motivationalMessage(
+            wordsToday: self.snapshot?.today.words ?? 0,
+            streak: streak
         )) {
             HStack(spacing: 6) {
-                DatasheetStatusSquare(kind: self.historyStore.currentStreak > 0 ? .orange : .outline)
+                DatasheetStatusSquare(kind: streak > 0 ? .orange : .outline)
                 DatasheetMonoLabel(
-                    text: self.historyStore.currentStreak > 0
-                        ? "\(self.historyStore.currentStreak) DAY STREAK"
-                        : "NO STREAK",
+                    text: streak > 0 ? "\(streak) DAY STREAK" : "NO STREAK",
                     role: DatasheetTheme.Typography.tableLabel,
-                    color: self.historyStore.currentStreak > 0 ? self.palette.text : self.palette.text2
+                    color: streak > 0 ? self.palette.text : self.palette.text2
                 )
             }
             .fixedSize()
         }
     }
 
+    // MARK: - Rolling windows
+
+    /// Words in windows ending now. Six hours and seven days lead; the rest sit under them. The
+    /// model refreshes the snapshot every minute while this page is on screen, so the windows
+    /// decay with no new dictation.
+    private var rollingSection: some View {
+        VStack(spacing: 8) {
+            self.sectionHeading("WORDS SPOKEN", trailing: "ROLLING · ENDING NOW")
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    self.heroWindowCell(title: "LAST 6 HOURS", tally: self.snapshot?.lastSixHours)
+                    self.heroWindowCell(title: "LAST 7 DAYS", tally: self.snapshot?.lastSevenDays)
+                }
+                Rectangle().fill(self.palette.rule).frame(height: 1)
+                HStack(spacing: 0) {
+                    self.secondaryWindowCell(title: "LAST 24 HOURS", tally: self.snapshot?.lastTwentyFourHours)
+                    self.secondaryWindowCell(title: "LAST 30 DAYS", tally: self.snapshot?.lastThirtyDays)
+                    self.secondaryWindowCell(title: "ALL TIME", tally: self.snapshot?.total)
+                }
+            }
+            .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
+        }
+    }
+
+    private func heroWindowCell(title: String, tally: TranscriptionTally?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DatasheetMonoLabel(text: title, role: DatasheetTheme.Typography.tableLabel, color: self.palette.text2)
+
+            Text(tally.map { self.formatNumber($0.words) } ?? "—")
+                .font(.system(size: 40, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+
+            DatasheetMonoLabel(
+                text: "WORDS · \(self.transcriptionsText(tally))",
+                role: DatasheetTheme.Typography.tableLabel,
+                color: self.palette.text2
+            )
+            .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .frame(minWidth: 200, maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(self.windowAccessibilityLabel(title: title, tally: tally))
+    }
+
+    private func secondaryWindowCell(title: String, tally: TranscriptionTally?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            DatasheetMonoLabel(text: title, role: DatasheetTheme.Typography.tableLabel, color: self.palette.text2)
+
+            Text(tally.map { self.formatNumber($0.words) } ?? "—")
+                .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(self.palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+
+            DatasheetMonoLabel(text: self.transcriptionsText(tally), role: DatasheetTheme.Typography.tableLabel, color: self.palette.text2)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(minWidth: 150, maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(self.windowAccessibilityLabel(title: title, tally: tally))
+    }
+
+    private func transcriptionsText(_ tally: TranscriptionTally?) -> String {
+        guard let tally else { return "— TRANSCRIPTIONS" }
+        return "\(self.formatNumber(tally.transcriptions)) \(tally.transcriptions == 1 ? "TRANSCRIPTION" : "TRANSCRIPTIONS")"
+    }
+
+    private func windowAccessibilityLabel(title: String, tally: TranscriptionTally?) -> String {
+        guard let tally else { return "\(title.capitalized): not counted yet" }
+        return "\(title.capitalized): \(self.formatNumber(tally.words)) words, \(self.transcriptionsText(tally).lowercased())"
+    }
+
     private var kpiGrid: some View {
+        VStack(spacing: 8) {
+            self.sectionHeading("TOTALS")
+            self.kpiCells
+        }
+    }
+
+    private var kpiCells: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 0) {
                 self.timeSavedKPI
@@ -102,7 +224,7 @@ struct StatsView: View {
     }
 
     private var timeSavedKPI: some View {
-        self.kpiCell(title: "TIME SAVED", value: self.historyStore.formattedTimeSaved(typingWPM: self.settings.userTypingWPM)) {
+        self.kpiCell(title: "TIME SAVED", value: self.snapshot.map { $0.total.formattedTimeSaved(typingWPM: self.settings.userTypingWPM) } ?? "—") {
             Button {
                 self.editingWPM = "\(self.settings.userTypingWPM)"
                 self.showWPMEditor = true
@@ -127,9 +249,9 @@ struct StatsView: View {
     }
 
     private var totalWordsKPI: some View {
-        self.kpiCell(title: "TOTAL WORDS", value: self.formatNumber(self.historyStore.totalWords)) {
+        self.kpiCell(title: "TOTAL WORDS", value: self.snapshot.map { self.formatNumber($0.total.words) } ?? "—") {
             DatasheetMonoLabel(
-                text: "+\(self.formatNumber(self.historyStore.wordsToday)) TODAY",
+                text: self.snapshot.map { "+\(self.formatNumber($0.today.words)) TODAY" } ?? "— TODAY",
                 role: DatasheetTheme.Typography.tableLabel,
                 color: self.palette.text2
             )
@@ -137,9 +259,9 @@ struct StatsView: View {
     }
 
     private var streakKPI: some View {
-        self.kpiCell(title: "CURRENT STREAK", value: "\(self.historyStore.currentStreak)") {
+        self.kpiCell(title: "CURRENT STREAK", value: self.snapshot.map { "\($0.currentStreak)" } ?? "—") {
             DatasheetMonoLabel(
-                text: "BEST: \(self.historyStore.bestStreak) DAYS",
+                text: "BEST: \(self.snapshot.map { "\($0.bestStreak)" } ?? "—") DAYS",
                 role: DatasheetTheme.Typography.tableLabel,
                 color: self.palette.text2
             )
@@ -147,16 +269,16 @@ struct StatsView: View {
     }
 
     private var transcriptionsKPI: some View {
-        self.kpiCell(title: "TRANSCRIPTIONS", value: self.formatNumber(self.historyStore.entries.count)) {
+        self.kpiCell(title: "TRANSCRIPTIONS", value: self.snapshot.map { self.formatNumber($0.total.transcriptions) } ?? "—") {
             VStack(alignment: .leading, spacing: 3) {
                 DatasheetMonoLabel(
-                    text: "\(self.historyStore.todaySummary.transcriptions) TODAY",
+                    text: "\(self.snapshot.map { "\($0.today.transcriptions)" } ?? "—") TODAY",
                     role: DatasheetTheme.Typography.tableLabel,
                     color: self.palette.text2
                 )
-                .accessibilityLabel("\(self.historyStore.todaySummary.transcriptions) sessions today")
+                .accessibilityLabel("\(self.snapshot.map { "\($0.today.transcriptions)" } ?? "No") sessions today")
                 DatasheetMonoLabel(
-                    text: "AVG: \(self.historyStore.averageWordsPerTranscription) WORDS EACH",
+                    text: "AVG: \(self.snapshot.map { "\($0.total.averageWords)" } ?? "—") WORDS EACH",
                     role: DatasheetTheme.Typography.tableLabel,
                     color: self.palette.text2
                 )
@@ -275,7 +397,7 @@ struct StatsView: View {
     }
 
     private var activityData: [(date: Date, words: Int)] {
-        self.historyStore.dailyWordCounts(days: self.chartDays)
+        (self.snapshot?.dailyWords(days: self.chartDays) ?? []).map { (date: $0.date, words: $0.words) }
     }
 
     private var activityTotals: (words: Int, activeDays: Int) {
@@ -409,16 +531,18 @@ struct StatsView: View {
     // MARK: - Milestones
 
     private var milestonesSection: some View {
-        VStack(spacing: 8) {
+        // Before the first pass lands every milestone reads as not reached; the row count holds.
+        let snapshot = self.snapshot ?? TranscriptionStatsSnapshot()
+        return VStack(spacing: 8) {
             self.sectionHeading(
                 "MILESTONES",
-                trailing: "\(self.historyStore.totalMilestonesAchieved) OF \(self.historyStore.totalMilestonesPossible)"
+                trailing: "\(snapshot.milestonesAchieved) OF \(snapshot.milestonesPossible)"
             )
 
             VStack(spacing: 0) {
-                self.milestoneRow(title: "WORDS", milestones: self.historyStore.wordMilestones)
-                self.milestoneRow(title: "TRANSCRIPTIONS", milestones: self.historyStore.transcriptionMilestones)
-                self.milestoneRow(title: "STREAK", milestones: self.historyStore.streakMilestones)
+                self.milestoneRow(title: "WORDS", milestones: snapshot.wordMilestones)
+                self.milestoneRow(title: "TRANSCRIPTIONS", milestones: snapshot.transcriptionMilestones)
+                self.milestoneRow(title: "STREAK", milestones: snapshot.streakMilestones)
             }
             .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
         }
@@ -426,7 +550,7 @@ struct StatsView: View {
 
     private func milestoneRow(
         title: String,
-        milestones: [(target: Int, achieved: Bool, label: String)]
+        milestones: [TranscriptionStatsSnapshot.Milestone]
     ) -> some View {
         HStack(spacing: 0) {
             DatasheetMonoLabel(text: title, role: DatasheetTheme.Typography.tableLabel, color: self.palette.text2)
@@ -454,10 +578,10 @@ struct StatsView: View {
         VStack(spacing: 8) {
             self.sectionHeading("INSIGHTS")
             VStack(spacing: 0) {
-                self.insightRow(title: "TOP APPS", value: self.historyStore.topAppsFormatted(limit: 3).joined(separator: " · "), fallback: "No data yet")
-                self.insightRow(title: "AI ENHANCED", value: "\(self.historyStore.aiEnhancementRate)%", fallback: "0%")
-                self.insightRow(title: "PEAK TIME", value: self.historyStore.peakHourFormatted, fallback: "N/A")
-                self.insightRow(title: "AVG LENGTH", value: "\(self.historyStore.averageWordsPerTranscription) words", fallback: "0 words")
+                self.insightRow(title: "TOP APPS", value: self.snapshot.map { $0.topApps.joined(separator: " · ") } ?? "—", fallback: "No data yet")
+                self.insightRow(title: "AI ENHANCED", value: self.snapshot.map { "\($0.aiEnhancementRate)%" } ?? "—", fallback: "0%")
+                self.insightRow(title: "PEAK TIME", value: self.snapshot.map { Self.peakHourText($0.peakHour) } ?? "—", fallback: "N/A")
+                self.insightRow(title: "AVG LENGTH", value: self.snapshot.map { "\($0.total.averageWords) words" } ?? "—", fallback: "0 words")
             }
             .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
         }
@@ -468,9 +592,9 @@ struct StatsView: View {
         VStack(spacing: 8) {
             self.sectionHeading("PERSONAL RECORDS")
             VStack(spacing: 0) {
-                self.insightRow(title: "LONGEST TRANSCRIPTION", value: "\(self.historyStore.longestTranscriptionWords) words", fallback: "0 words")
-                self.insightRow(title: "MOST WORDS IN A DAY", value: "\(self.formatNumber(self.historyStore.mostWordsInDay)) words", fallback: "0 words")
-                self.insightRow(title: "MOST IN A DAY", value: "\(self.historyStore.mostTranscriptionsInDay) transcriptions", fallback: "0 transcriptions")
+                self.insightRow(title: "LONGEST TRANSCRIPTION", value: self.snapshot.map { "\(self.formatNumber($0.longestTranscriptionWords)) words" } ?? "—", fallback: "0 words")
+                self.insightRow(title: "MOST WORDS IN A DAY", value: self.snapshot.map { "\(self.formatNumber($0.mostWordsInDay)) words" } ?? "—", fallback: "0 words")
+                self.insightRow(title: "MOST IN A DAY", value: self.snapshot.map { "\(self.formatNumber($0.mostTranscriptionsInDay)) transcriptions" } ?? "—", fallback: "0 transcriptions")
             }
             .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
         }
@@ -530,8 +654,8 @@ struct StatsView: View {
                         .overlay { Rectangle().strokeBorder(self.palette.rule, lineWidth: 1) }
                 }
                 .buttonStyle(.plain)
-                .disabled(self.historyStore.entries.isEmpty)
-                .opacity(self.historyStore.entries.isEmpty ? 0.4 : 1)
+                .disabled(self.totalTranscriptions == 0)
+                .opacity(self.totalTranscriptions == 0 ? 0.4 : 1)
             }
         }
         .padding(.top, 2)
@@ -593,15 +717,30 @@ struct StatsView: View {
     }
 
     private func formatNumber(_ number: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+        Self.numberFormatter.string(from: NSNumber(value: number)) ?? "\(number)"
     }
 
     private func dayLabel(_ date: Date) -> String {
+        Self.dayLabelFormatter.string(from: date).uppercased()
+    }
+
+    /// "2 PM-3 PM" for the peak hour, "N/A" with no history.
+    static func peakHourText(_ hour: Int?) -> String {
+        guard let hour else { return "N/A" }
+
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date).uppercased()
+        formatter.dateFormat = "h a"
+
+        let calendar = Calendar.current
+        var components = DateComponents()
+        components.hour = hour
+
+        guard let startDate = calendar.date(from: components),
+              let endDate = calendar.date(byAdding: .hour, value: 1, to: startDate)
+        else {
+            return "N/A"
+        }
+        return "\(formatter.string(from: startDate))-\(formatter.string(from: endDate))"
     }
 }
 

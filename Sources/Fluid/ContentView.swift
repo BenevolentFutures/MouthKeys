@@ -1366,23 +1366,18 @@ struct ContentView: View {
         }
     }
 
+    /// The stamp's text is read once per render here, never in its clock: the input name alone
+    /// decodes the microphone list from UserDefaults.
     private var sidebarStamp: some View {
-        TimelineView(.periodic(from: .now, by: 0.125)) { context in
-            let menuJaw = DatasheetMenuBarMark.listeningJaw(
-                from: DatasheetOverlayModel.shared.trace,
-                at: context.date.timeIntervalSinceReferenceDate
-            )
-            DatasheetSidebarStamp(
-                version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
-                engine: self.settings.selectedSpeechModel.displayName,
-                input: self.selectedInputName,
-                hotkey: self.settings.primaryDictationShortcutDisplayString,
-                jaw: menuJaw * 1.5,
-                repositoryURL: MouthKeysLinks.newIssue
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-            )
-        }
+        DatasheetLiveSidebarStamp(
+            version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
+            engine: self.settings.selectedSpeechModel.displayName,
+            input: self.selectedInputName,
+            hotkey: self.settings.primaryDictationShortcutDisplayString,
+            repositoryURL: MouthKeysLinks.newIssue
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+        )
     }
 
     private var selectedInputName: String {

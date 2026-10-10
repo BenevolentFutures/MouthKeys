@@ -18,6 +18,9 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
     let appName: String
     let windowTitle: String
     let characterCount: Int
+    /// Words in `processedText`, counted once when the entry is made (or decoded from history
+    /// written before it was stored), so stats never re-tokenize the transcripts.
+    let wordCount: Int
     let wasAIProcessed: Bool
     let processingModel: String?
     /// Non-nil when AI post-processing was configured but failed and we fell
@@ -45,6 +48,7 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
         self.appName = appName
         self.windowTitle = windowTitle
         self.characterCount = processedText.count
+        self.wordCount = TranscriptionHistoryStore.countWords(in: processedText)
         self.wasAIProcessed = wasAIProcessed
         self.processingModel = processingModel
         self.aiProcessingError = aiProcessingError
@@ -59,6 +63,7 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
         appName: String,
         windowTitle: String,
         characterCount: Int,
+        wordCount: Int,
         wasAIProcessed: Bool,
         processingModel: String?,
         aiProcessingError: String?,
@@ -71,6 +76,7 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
         self.appName = appName
         self.windowTitle = windowTitle
         self.characterCount = characterCount
+        self.wordCount = wordCount
         self.wasAIProcessed = wasAIProcessed
         self.processingModel = processingModel
         self.aiProcessingError = aiProcessingError
@@ -86,6 +92,8 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
         self.appName = try container.decode(String.self, forKey: .appName)
         self.windowTitle = try container.decode(String.self, forKey: .windowTitle)
         self.characterCount = try container.decode(Int.self, forKey: .characterCount)
+        self.wordCount = try container.decodeIfPresent(Int.self, forKey: .wordCount)
+            ?? TranscriptionHistoryStore.countWords(in: self.processedText)
         self.wasAIProcessed = try container.decode(Bool.self, forKey: .wasAIProcessed)
         self.processingModel = try container.decodeIfPresent(String.self, forKey: .processingModel)
         self.aiProcessingError = try container.decodeIfPresent(String.self, forKey: .aiProcessingError)
@@ -94,7 +102,7 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
 
     private enum CodingKeys: String, CodingKey {
         case id, timestamp, rawText, processedText, appName, windowTitle
-        case characterCount, wasAIProcessed, processingModel, aiProcessingError, audio
+        case characterCount, wordCount, wasAIProcessed, processingModel, aiProcessingError, audio
     }
 
     /// Preview text for list display (first 80 chars)
@@ -141,6 +149,7 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
             appName: self.appName,
             windowTitle: self.windowTitle,
             characterCount: self.characterCount,
+            wordCount: self.wordCount,
             wasAIProcessed: self.wasAIProcessed,
             processingModel: self.processingModel,
             aiProcessingError: self.aiProcessingError,
@@ -228,31 +237,33 @@ final class TranscriptionHistoryStore: ObservableObject {
     }
 
     @Published private(set) var entries: [TranscriptionHistoryEntry] = [] {
-        didSet { self.refreshTodaySummary() }
+        didSet {
+            self.revision &+= 1
+            self.presence.update(hasEntries: !self.entries.isEmpty)
+            self.stats.historyDidChange()
+        }
     }
+
+    /// Changes whenever `entries` does, so views can cache what they derive from the history.
+    private(set) var revision: UInt64 = 0
 
     @Published var selectedEntryID: UUID?
 
-    /// Today's words and dictations, recomputed off the main thread whenever the history (or the
-    /// day) changes. Views read it on every render, so it must never scan the history itself.
-    @Published private(set) var todaySummary = TodaySummary(words: 0, transcriptions: 0)
-    private var todaySummaryTask: Task<Void, Never>?
-    private var todaySummaryRevision: UInt64 = 0
-    private var dayChangeObserver: NSObjectProtocol?
+    /// The Stats page's numbers, computed off the main thread whenever the history changes. A
+    /// separate object, so a history change never re-renders the views that only show stats.
+    let stats: TranscriptionStatsModel
+
+    /// Whether there is any history, for views that need nothing else (the overlay's History
+    /// chip). Observing the store itself re-rendered the overlay on every dictation, mid-stop.
+    let presence = TranscriptionHistoryPresence()
 
     /// `defaults` is injectable so tests and benchmarks never touch the app's own history.
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, statsSettleDelay: TimeInterval = 1) {
         self.defaults = defaults
         self.writer = TranscriptionHistoryWriter(defaults: defaults, key: Keys.transcriptionHistory)
+        self.stats = TranscriptionStatsModel(settleDelay: statsSettleDelay)
+        self.stats.historySource = { [weak self] in self?.entries ?? [] }
         self.loadEntries()
-        self.refreshTodaySummary()
-        self.dayChangeObserver = NotificationCenter.default.addObserver(
-            forName: .NSCalendarDayChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshTodaySummary() }
-        }
     }
 
     /// Blocks until every change so far is written. Called at termination.
@@ -357,16 +368,22 @@ final class TranscriptionHistoryStore: ObservableObject {
 
     /// Search entries by text content
     func search(query: String) -> [TranscriptionHistoryEntry] {
+        Self.search(query: query, in: self.entries)
+    }
+
+    /// Entries whose text, app or window title contains `query`, ignoring case. Safe off the main
+    /// thread. Bridged to NSString: Swift's `range(of:options:)` was 20 times slower, and
+    /// lowercasing four copies of every entry allocated tens of megabytes on a long history.
+    nonisolated static func search(query: String, in entries: [TranscriptionHistoryEntry]) -> [TranscriptionHistoryEntry] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return self.entries
+            return entries
         }
 
-        let lowercased = query.lowercased()
-        return self.entries.filter { entry in
-            entry.rawText.lowercased().contains(lowercased) ||
-                entry.processedText.lowercased().contains(lowercased) ||
-                entry.appName.lowercased().contains(lowercased) ||
-                entry.windowTitle.lowercased().contains(lowercased)
+        func matches(_ text: String) -> Bool {
+            (text as NSString).range(of: query, options: .caseInsensitive).location != NSNotFound
+        }
+        return entries.filter { entry in
+            matches(entry.processedText) || matches(entry.rawText) || matches(entry.appName) || matches(entry.windowTitle)
         }
     }
 
@@ -477,517 +494,46 @@ final class TranscriptionHistoryStore: ObservableObject {
     private func saveEntries() {
         self.writer.write(self.entries)
     }
+}
 
-    // MARK: - Today summary
+// MARK: - Presence
 
-    private func refreshTodaySummary() {
-        self.todaySummaryRevision &+= 1
-        guard self.todaySummaryTask == nil else { return }
-        self.todaySummaryTask = Task { @MainActor [weak self] in
-            // Coalesce a burst of changes (restore, delete-many) into one pass.
-            await Task.yield()
-            while let self {
-                let revision = self.todaySummaryRevision
-                let snapshot = self.entries
-                let day = Calendar.current.dateInterval(of: .day, for: Date())
-                let summary = await Task.detached(priority: .utility) {
-                    Self.calculateTodaySummary(entries: snapshot, day: day)
-                }.value
-                guard revision == self.todaySummaryRevision else { continue }
-                if self.todaySummary != summary {
-                    self.todaySummary = summary
-                }
-                self.todaySummaryTask = nil
-                return
-            }
+@MainActor
+final class TranscriptionHistoryPresence: ObservableObject {
+    @Published private(set) var hasEntries = false
+
+    func update(hasEntries: Bool) {
+        if self.hasEntries != hasEntries {
+            self.hasEntries = hasEntries
         }
-    }
-
-    /// Waits for the today summary to catch up with the history. For tests.
-    func waitForTodaySummary() async {
-        while let task = self.todaySummaryTask {
-            await task.value
-        }
-    }
-
-    nonisolated static func calculateTodaySummary(entries: [TranscriptionHistoryEntry], day: DateInterval?) -> TodaySummary {
-        guard let day else { return TodaySummary(words: 0, transcriptions: 0) }
-        var totals = (words: 0, transcriptions: 0)
-        for entry in entries where entry.timestamp >= day.start && entry.timestamp < day.end {
-            totals.words += Self.countWords(in: entry.processedText)
-            totals.transcriptions += 1
-        }
-        return TodaySummary(words: totals.words, transcriptions: totals.transcriptions)
     }
 }
 
-// MARK: - Stats Computation Extension
+// MARK: - Word Counting
 
 extension TranscriptionHistoryStore {
-    nonisolated struct TodaySummary: Equatable, Sendable {
-        let words: Int
-        let transcriptions: Int
+    private nonisolated static let wordSeparators = CharacterSet.whitespacesAndNewlines
 
-        func timeSavedMinutes(typingWPM: Int = 40, speakingWPM: Int = 150) -> Double {
-            guard typingWPM > 0 && speakingWPM > 0 else { return 0 }
-
-            let words = Double(self.words)
-            let typingTime = words / Double(typingWPM)
-            let speakingTime = words / Double(speakingWPM)
-
-            return max(0, typingTime - speakingTime)
-        }
-
-        func formattedTimeSaved(typingWPM: Int = 40) -> String {
-            let minutes = self.timeSavedMinutes(typingWPM: typingWPM)
-
-            if minutes < 1 {
-                return "< 1m"
-            } else if minutes < 60 {
-                return "\(Int(minutes))m"
-            } else {
-                let hours = Int(minutes) / 60
-                let mins = Int(minutes) % 60
-                if mins == 0 {
-                    return "\(hours)h"
-                }
-                return "\(hours)h \(mins)m"
-            }
-        }
-    }
-
-    // MARK: - Word Counting
-
-    /// Count words in a string (handles multiple spaces, newlines)
-    private func wordCount(in text: String) -> Int {
-        Self.countWords(in: text)
-    }
-
+    /// Words in `text`: runs of characters between whitespace and newlines. One walk over the
+    /// Unicode scalars with no allocation; splitting into substrings made a pass over a 17k-entry
+    /// history cost about a second on the main thread.
     nonisolated static func countWords(in text: String) -> Int {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return 0 }
-
-        let words = trimmed.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-        return words.count
-    }
-
-    /// Total words across all transcriptions
-    var totalWords: Int {
-        self.entries.reduce(0) { $0 + self.wordCount(in: $1.processedText) }
-    }
-
-    /// Words transcribed today
-    var wordsToday: Int {
-        self.todaySummary.words
-    }
-
-    /// Number of transcriptions recorded today
-    var transcriptionsToday: Int {
-        self.todaySummary.transcriptions
-    }
-
-    /// Average words per transcription
-    var averageWordsPerTranscription: Int {
-        guard !self.entries.isEmpty else { return 0 }
-        return self.totalWords / self.entries.count
-    }
-
-    // MARK: - Time Saved Calculation
-
-    /// Calculate time saved in minutes
-    /// - Parameters:
-    ///   - typingWPM: User's typing speed (default 40)
-    ///   - speakingWPM: Average speaking speed (default 150)
-    func timeSavedMinutes(typingWPM: Int = 40, speakingWPM: Int = 150) -> Double {
-        guard typingWPM > 0 && speakingWPM > 0 else { return 0 }
-
-        let words = Double(totalWords)
-        let typingTime = words / Double(typingWPM) // minutes to type
-        let speakingTime = words / Double(speakingWPM) // minutes to speak
-
-        return max(0, typingTime - speakingTime)
-    }
-
-    /// Formatted time saved string (e.g., "2h 45m" or "45m")
-    func formattedTimeSaved(typingWPM: Int = 40) -> String {
-        let minutes = self.timeSavedMinutes(typingWPM: typingWPM)
-
-        if minutes < 1 {
-            return "< 1m"
-        } else if minutes < 60 {
-            return "\(Int(minutes))m"
-        } else {
-            let hours = Int(minutes) / 60
-            let mins = Int(minutes) % 60
-            if mins == 0 {
-                return "\(hours)h"
+        var count = 0
+        var isInWord = false
+        for scalar in text.unicodeScalars {
+            let isSeparator: Bool
+            switch scalar.value {
+            case 0x09...0x0D, 0x20: isSeparator = true
+            case 0..<0x80: isSeparator = false
+            default: isSeparator = Self.wordSeparators.contains(scalar)
             }
-            return "\(hours)h \(mins)m"
-        }
-    }
-
-    // MARK: - Today Time Saved
-
-    /// Calculate time saved today in minutes
-    /// - Parameters:
-    ///   - typingWPM: User's typing speed (default 40)
-    ///   - speakingWPM: Average speaking speed (default 150)
-    func timeSavedTodayMinutes(typingWPM: Int = 40, speakingWPM: Int = 150) -> Double {
-        self.todaySummary.timeSavedMinutes(typingWPM: typingWPM, speakingWPM: speakingWPM)
-    }
-
-    /// Formatted time saved today string (e.g., "2h 45m" or "45m")
-    func formattedTimeSavedToday(typingWPM: Int = 40) -> String {
-        self.todaySummary.formattedTimeSaved(typingWPM: typingWPM)
-    }
-
-    // MARK: - Streak Calculation
-
-    /// Get unique days with activity (sorted newest first)
-    private var activeDays: [Date] {
-        let calendar = Calendar.current
-        var uniqueDays = Set<Date>()
-
-        for entry in self.entries {
-            let day = calendar.startOfDay(for: entry.timestamp)
-            uniqueDays.insert(day)
-        }
-
-        return uniqueDays.sorted(by: >) // newest first
-    }
-
-    /// Current streak (consecutive days including today or yesterday)
-    var currentStreak: Int {
-        let calendar = Calendar.current
-        let skipWeekends = SettingsStore.shared.weekendsDontBreakStreak
-
-        // Filter out weekend days if setting is enabled (so weekend usage doesn't interfere)
-        let days: [Date]
-        if skipWeekends {
-            days = self.activeDays.filter { !calendar.isDateInWeekend($0) }
-        } else {
-            days = self.activeDays
-        }
-
-        guard !days.isEmpty else { return 0 }
-
-        let today = calendar.startOfDay(for: Date())
-        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else {
-            return 0
-        }
-
-        // Find the most recent "valid" day (skip weekends if setting enabled)
-        var checkDay = today
-        if skipWeekends {
-            // Find the last weekday (today or before)
-            while calendar.isDateInWeekend(checkDay) {
-                guard let prev = calendar.date(byAdding: .day, value: -1, to: checkDay) else { break }
-                checkDay = prev
+            if isSeparator {
+                isInWord = false
+            } else if !isInWord {
+                isInWord = true
+                count += 1
             }
         }
-
-        // Must have activity on a recent valid day to have an active streak
-        guard let firstActiveDay = days.first else { return 0 }
-
-        // Check if the first active day is recent enough (today, yesterday, or last valid weekday)
-        let isRecent: Bool
-        if skipWeekends {
-            // Find previous weekday from today
-            var lastValidDay = today
-            while calendar.isDateInWeekend(lastValidDay) {
-                guard let prev = calendar.date(byAdding: .day, value: -1, to: lastValidDay) else { break }
-                lastValidDay = prev
-            }
-            // Allow one weekday gap (the previous weekday before lastValidDay)
-            guard let prevWeekday = self.previousWeekday(before: lastValidDay, calendar: calendar) else {
-                isRecent = firstActiveDay == lastValidDay
-                return isRecent ? 1 : 0
-            }
-            isRecent = firstActiveDay == lastValidDay || firstActiveDay == prevWeekday
-        } else {
-            isRecent = firstActiveDay == today || firstActiveDay == yesterday
-        }
-
-        guard isRecent else { return 0 }
-
-        var streak = 1
-        var previousDay = firstActiveDay
-
-        for day in days.dropFirst() {
-            let expectedPrevious: Date?
-            if skipWeekends {
-                expectedPrevious = self.previousWeekday(before: previousDay, calendar: calendar)
-            } else {
-                expectedPrevious = calendar.date(byAdding: .day, value: -1, to: previousDay)
-            }
-
-            guard let expected = expectedPrevious else { break }
-
-            if day == expected {
-                streak += 1
-                previousDay = day
-            } else {
-                break
-            }
-        }
-
-        return streak
-    }
-
-    /// Helper: get the previous weekday (skipping weekends)
-    private func previousWeekday(before date: Date, calendar: Calendar) -> Date? {
-        var candidate = calendar.date(byAdding: .day, value: -1, to: date)
-        while let c = candidate, calendar.isDateInWeekend(c) {
-            candidate = calendar.date(byAdding: .day, value: -1, to: c)
-        }
-        return candidate
-    }
-
-    /// Best streak ever achieved
-    var bestStreak: Int {
-        let calendar = Calendar.current
-        let skipWeekends = SettingsStore.shared.weekendsDontBreakStreak
-
-        // Filter out weekend days if setting is enabled (so weekend usage doesn't interfere)
-        let days: [Date]
-        if skipWeekends {
-            days = self.activeDays.filter { !calendar.isDateInWeekend($0) }.sorted()
-        } else {
-            days = self.activeDays.sorted() // oldest first for this calculation
-        }
-
-        guard !days.isEmpty else { return 0 }
-
-        var maxStreak = 1
-        var currentStreakCount = 1
-        var previousDay = days[0]
-
-        for day in days.dropFirst() {
-            let expectedNext: Date?
-            if skipWeekends {
-                expectedNext = self.nextWeekday(after: previousDay, calendar: calendar)
-            } else {
-                expectedNext = calendar.date(byAdding: .day, value: 1, to: previousDay)
-            }
-
-            if let expected = expectedNext, day == expected {
-                currentStreakCount += 1
-                maxStreak = max(maxStreak, currentStreakCount)
-            } else {
-                currentStreakCount = 1
-            }
-            previousDay = day
-        }
-
-        return maxStreak
-    }
-
-    /// Helper: get the next weekday (skipping weekends)
-    private func nextWeekday(after date: Date, calendar: Calendar) -> Date? {
-        var candidate = calendar.date(byAdding: .day, value: 1, to: date)
-        while let c = candidate, calendar.isDateInWeekend(c) {
-            candidate = calendar.date(byAdding: .day, value: 1, to: c)
-        }
-        return candidate
-    }
-
-    // MARK: - Daily Activity Data (for charts)
-
-    /// Daily word counts for the last N days
-    func dailyWordCounts(days: Int) -> [(date: Date, words: Int)] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        var result: [(date: Date, words: Int)] = []
-
-        for dayOffset in 0..<days {
-            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
-
-            let dayEntries = self.entries.filter { calendar.isDate($0.timestamp, inSameDayAs: date) }
-            let words = dayEntries.reduce(0) { $0 + self.wordCount(in: $1.processedText) }
-
-            result.append((date: date, words: words))
-        }
-
-        return result.reversed() // oldest to newest for chart display
-    }
-
-    /// Daily transcription counts for the last N days
-    func dailyTranscriptionCounts(days: Int) -> [(date: Date, count: Int)] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        var result: [(date: Date, count: Int)] = []
-
-        for dayOffset in 0..<days {
-            guard let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) else { continue }
-
-            let count = self.entries.filter { calendar.isDate($0.timestamp, inSameDayAs: date) }.count
-            result.append((date: date, count: count))
-        }
-
-        return result.reversed()
-    }
-
-    // MARK: - Top Apps
-
-    /// Most used apps (sorted by usage count)
-    var topApps: [(app: String, count: Int)] {
-        var appCounts: [String: Int] = [:]
-
-        for entry in self.entries {
-            let app = entry.appName.isEmpty ? "Unknown" : entry.appName
-            appCounts[app, default: 0] += 1
-        }
-
-        return appCounts
-            .map { (app: $0.key, count: $0.value) }
-            .sorted { $0.count > $1.count }
-    }
-
-    /// Top N apps formatted for display
-    func topAppsFormatted(limit: Int = 5) -> [String] {
-        self.topApps.prefix(limit).map { $0.app }
-    }
-
-    // MARK: - AI Enhancement Rate
-
-    /// Percentage of transcriptions that were AI-enhanced (0-100)
-    var aiEnhancementRate: Int {
-        guard !self.entries.isEmpty else { return 0 }
-        return (self.aiProcessedCount * 100) / self.entries.count
-    }
-
-    // MARK: - Peak Usage Hours
-
-    /// Hour of day with most transcriptions (0-23)
-    var peakHour: Int? {
-        guard !self.entries.isEmpty else { return nil }
-
-        let calendar = Calendar.current
-        var hourCounts: [Int: Int] = [:]
-
-        for entry in self.entries {
-            let hour = calendar.component(.hour, from: entry.timestamp)
-            hourCounts[hour, default: 0] += 1
-        }
-
-        return hourCounts.max(by: { $0.value < $1.value })?.key
-    }
-
-    /// Formatted peak hour range (e.g., "2-3 PM")
-    var peakHourFormatted: String {
-        guard let hour = peakHour else { return "N/A" }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-
-        let calendar = Calendar.current
-        var components = DateComponents()
-        components.hour = hour
-
-        guard let startDate = calendar.date(from: components),
-              let endDate = calendar.date(byAdding: .hour, value: 1, to: startDate)
-        else {
-            return "N/A"
-        }
-
-        let startStr = formatter.string(from: startDate)
-        let endStr = formatter.string(from: endDate)
-
-        return "\(startStr)-\(endStr)"
-    }
-
-    // MARK: - Personal Records
-
-    /// Longest single transcription (word count)
-    var longestTranscriptionWords: Int {
-        self.entries.map { self.wordCount(in: $0.processedText) }.max() ?? 0
-    }
-
-    /// Most words in a single day
-    var mostWordsInDay: Int {
-        let calendar = Calendar.current
-        var dayTotals: [Date: Int] = [:]
-
-        for entry in self.entries {
-            let day = calendar.startOfDay(for: entry.timestamp)
-            dayTotals[day, default: 0] += self.wordCount(in: entry.processedText)
-        }
-
-        return dayTotals.values.max() ?? 0
-    }
-
-    /// Most transcriptions in a single day
-    var mostTranscriptionsInDay: Int {
-        let calendar = Calendar.current
-        var dayCounts: [Date: Int] = [:]
-
-        for entry in self.entries {
-            let day = calendar.startOfDay(for: entry.timestamp)
-            dayCounts[day, default: 0] += 1
-        }
-
-        return dayCounts.values.max() ?? 0
-    }
-
-    // MARK: - Milestones
-
-    /// Word count milestones and whether they've been achieved
-    var wordMilestones: [(target: Int, achieved: Bool, label: String)] {
-        let milestones = [
-            (1000, "1K"),
-            (10_000, "10K"),
-            (50_000, "50K"),
-            (100_000, "100K"),
-            (500_000, "500K"),
-            (1_000_000, "1M"),
-        ]
-
-        let total = self.totalWords
-        return milestones.map { (target: $0.0, achieved: total >= $0.0, label: $0.1) }
-    }
-
-    /// Transcription count milestones
-    var transcriptionMilestones: [(target: Int, achieved: Bool, label: String)] {
-        let milestones = [
-            (50, "50"),
-            (100, "100"),
-            (500, "500"),
-            (1000, "1K"),
-            (5000, "5K"),
-            (10_000, "10K"),
-        ]
-
-        let total = self.entries.count
-        return milestones.map { (target: $0.0, achieved: total >= $0.0, label: $0.1) }
-    }
-
-    /// Streak milestones
-    var streakMilestones: [(target: Int, achieved: Bool, label: String)] {
-        let milestones = [
-            (7, "7 days"),
-            (14, "14 days"),
-            (30, "30 days"),
-            (60, "60 days"),
-            (100, "100 days"),
-            (365, "1 year"),
-        ]
-
-        let best = self.bestStreak
-        return milestones.map { (target: $0.0, achieved: best >= $0.0, label: $0.1) }
-    }
-
-    /// Total milestones achieved
-    var totalMilestonesAchieved: Int {
-        self.wordMilestones.filter { $0.achieved }.count +
-            self.transcriptionMilestones.filter { $0.achieved }.count +
-            self.streakMilestones.filter { $0.achieved }.count
-    }
-
-    /// Total possible milestones
-    var totalMilestonesPossible: Int {
-        self.wordMilestones.count + self.transcriptionMilestones.count + self.streakMilestones.count
+        return count
     }
 }

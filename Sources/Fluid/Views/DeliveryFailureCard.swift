@@ -389,7 +389,7 @@ struct DeliveryFailureCardView: View {
     /// card's own panel passes it; a render or another host reports nowhere.
     var floatShadow: DatasheetFloatShadow.State?
 
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
+    @ObservedObject private var historyPresence = TranscriptionHistoryStore.shared.presence
     @ObservedObject private var historyCard = BottomOverlayHistoryMenuController.shared
     @State private var isHovered = false
     @State private var hoveredChips: Set<String> = []
@@ -404,7 +404,7 @@ struct DeliveryFailureCardView: View {
     }
 
     private var hasHistory: Bool {
-        !self.historyStore.entries.isEmpty
+        self.historyPresence.hasEntries
     }
 
     var body: some View {
