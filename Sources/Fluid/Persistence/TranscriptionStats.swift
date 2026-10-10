@@ -375,6 +375,8 @@ final class TranscriptionStatsModel: ObservableObject {
     /// A Stats page appeared: refresh now and every `liveRefreshInterval` until the last one goes.
     func beginLiveUpdates() {
         self.liveViewers += 1
+        // Lets a log reader tie a dictation's STOP_SUMMARY to the Stats page being on screen.
+        DebugLogger.shared.info("STATS_PAGE visible=true viewers=\(self.liveViewers)", source: "TranscriptionStats")
         self.refresh()
         guard self.liveTimer == nil else { return }
         let timer = Timer(timeInterval: Self.liveRefreshInterval, repeats: true) { [weak self] _ in
@@ -387,6 +389,7 @@ final class TranscriptionStatsModel: ObservableObject {
 
     func endLiveUpdates() {
         self.liveViewers = max(0, self.liveViewers - 1)
+        DebugLogger.shared.info("STATS_PAGE visible=\(self.liveViewers > 0) viewers=\(self.liveViewers)", source: "TranscriptionStats")
         guard self.liveViewers == 0 else { return }
         self.liveTimer?.invalidate()
         self.liveTimer = nil
