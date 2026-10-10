@@ -13,7 +13,7 @@ struct BottomOverlayView: View {
     @ObservedObject private var model = DatasheetOverlayModel.shared
     @ObservedObject private var appServices = AppServices.shared
     @ObservedObject private var activeAppMonitor = ActiveAppMonitor.shared
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
+    @ObservedObject private var historyPresence = TranscriptionHistoryStore.shared.presence
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var spokenSend = SpokenSendController.shared
     @ObservedObject private var historyCard = BottomOverlayHistoryMenuController.shared
@@ -104,7 +104,7 @@ struct BottomOverlayView: View {
     }
 
     private var hasHistory: Bool {
-        !self.historyStore.entries.isEmpty
+        self.historyPresence.hasEntries
     }
 
     /// Inert: the chip looks at rest but acts on nothing. During the delivered hold no chip may

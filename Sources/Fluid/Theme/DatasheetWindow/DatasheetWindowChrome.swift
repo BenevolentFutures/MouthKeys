@@ -380,7 +380,8 @@ private struct DatasheetSidebarToggleButton: View {
 }
 
 private struct DatasheetTodayTitleButton: View {
-    @ObservedObject private var historyStore = TranscriptionHistoryStore.shared
+    /// The stats alone, not the history: a dictation re-renders this once, when its words land.
+    @ObservedObject private var stats = TranscriptionHistoryStore.shared.stats
 
     let typingWPM: Int
     let action: () -> Void
@@ -389,7 +390,7 @@ private struct DatasheetTodayTitleButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        let summary = self.historyStore.todaySummary
+        let summary = self.stats.snapshot?.today ?? TranscriptionTally()
         let hasActivity = summary.words > 0
         let formattedSaved = summary.formattedTimeSaved(typingWPM: self.typingWPM)
         let saved = formattedSaved
@@ -496,6 +497,35 @@ private struct DatasheetTitleStripButton: View {
             Rectangle().fill(self.palette.rule).frame(width: 1)
         }
         .accessibilityLabel(self.accessibilityLabel)
+    }
+}
+
+/// The sidebar stamp with its grin following the voice: an 8 Hz clock while listening, and no
+/// clock at all otherwise (it used to tick 8 times a second whenever the window was open).
+struct DatasheetLiveSidebarStamp: View {
+    let version: String
+    let engine: String
+    let input: String
+    let hotkey: String
+    let repositoryURL: URL
+
+    @ObservedObject private var overlay = DatasheetOverlayModel.shared
+
+    var body: some View {
+        let isListening = self.overlay.phase == .listening
+        TimelineView(.animation(minimumInterval: 0.125, paused: !isListening)) { context in
+            let jaw = isListening
+                ? DatasheetMenuBarMark.listeningJaw(from: self.overlay.trace, at: context.date.timeIntervalSinceReferenceDate)
+                : 0
+            DatasheetSidebarStamp(
+                version: self.version,
+                engine: self.engine,
+                input: self.input,
+                hotkey: self.hotkey,
+                jaw: jaw * 1.5,
+                repositoryURL: self.repositoryURL
+            )
+        }
     }
 }
 

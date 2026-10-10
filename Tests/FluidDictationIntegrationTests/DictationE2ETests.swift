@@ -2805,20 +2805,106 @@ final class TranscriptionHistoryPersistenceTests: XCTestCase {
         XCTAssertFalse(reloaded.entries.contains { $0.processedText == "Burst 18." })
     }
 
-    func testTodaySummaryIsCachedAndFollowsTheHistory() async {
-        let store = TranscriptionHistoryStore(defaults: self.defaults)
+    func testStatsAreComputedOffTheHistoryAndFollowIt() async {
+        let store = TranscriptionHistoryStore(defaults: self.defaults, statsSettleDelay: 0)
         store.restore(from: [
             TranscriptionHistoryEntry(timestamp: Date().addingTimeInterval(-3 * 86_400), rawText: "old", processedText: "an old one here", appName: "c11", windowTitle: "", wasAIProcessed: false),
         ])
         store.addEntry(rawText: "a", processedText: "three words here", appName: "c11", windowTitle: "")
         store.addEntry(rawText: "b", processedText: "two words", appName: "c11", windowTitle: "")
-        await store.waitForTodaySummary()
-        XCTAssertEqual(store.todaySummary, TranscriptionHistoryStore.TodaySummary(words: 5, transcriptions: 2))
+        await self.waitForStats(store)
+        XCTAssertEqual(store.stats.snapshot?.today, TranscriptionTally(words: 5, transcriptions: 2))
+        XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 9, transcriptions: 3))
+        XCTAssertEqual(store.stats.snapshot?.lastSixHours, TranscriptionTally(words: 5, transcriptions: 2))
 
         store.deleteEntries(ids: Set(store.entries.map(\.id)))
-        await store.waitForTodaySummary()
-        XCTAssertEqual(store.todaySummary, TranscriptionHistoryStore.TodaySummary(words: 0, transcriptions: 0))
+        await self.waitForStats(store)
+        XCTAssertEqual(store.stats.snapshot?.today, TranscriptionTally(words: 0, transcriptions: 0))
+        XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 0, transcriptions: 0))
         store.flushPendingWrites()
+    }
+
+    private func waitForStats(_ store: TranscriptionHistoryStore, file: StaticString = #filePath, line: UInt = #line) async {
+        let settled = await store.stats.waitForSnapshot(timeout: 5)
+        XCTAssertTrue(settled, "The stats never caught up with the history", file: file, line: line)
+    }
+
+    /// A delete shows at once, even while a dictation's settle is pending; audio changes leave
+    /// the stats alone.
+    func testADeleteRefreshesTheStatsAtOnceAndAudioChangesDoNot() async throws {
+        let store = TranscriptionHistoryStore(defaults: self.defaults, statsSettleDelay: 30)
+        await self.waitForStats(store)
+        store.addEntry(rawText: "a", processedText: "one two", appName: "c11", windowTitle: "")
+        store.addEntry(rawText: "b", processedText: "three", appName: "c11", windowTitle: "")
+        store.deleteEntry(id: store.entries[0].id)
+        await self.waitForStats(store)
+        XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 2, transcriptions: 1))
+
+        var published = 0
+        let subscription = store.stats.$snapshot.dropFirst().sink { _ in published += 1 }
+        defer { subscription.cancel() }
+        _ = store.deleteAllSavedAudio(includingKeptRecording: false)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(published, 0)
+        let idle = await store.stats.waitForSnapshot(timeout: 0.1)
+        XCTAssertTrue(idle, "An audio change scheduled a stats pass")
+        store.flushPendingWrites()
+    }
+
+    /// A dictation adds its entry just before it pastes and attaches its audio just after: the
+    /// stats wait for that to settle and then publish once.
+    func testABurstOfHistoryChangesPublishesTheStatsOnce() async throws {
+        let store = TranscriptionHistoryStore(defaults: self.defaults, statsSettleDelay: 0.2)
+        await self.waitForStats(store)
+        var published = 0
+        let subscription = store.stats.$snapshot.dropFirst().sink { _ in published += 1 }
+        defer { subscription.cancel() }
+
+        store.addEntry(rawText: "a", processedText: "one two", appName: "c11", windowTitle: "")
+        store.addEntry(rawText: "b", processedText: "three", appName: "c11", windowTitle: "")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(published, 0, "The stats published before the history settled")
+        await self.waitForStats(store)
+        XCTAssertEqual(published, 1)
+        XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 3, transcriptions: 2))
+        store.flushPendingWrites()
+    }
+
+    func testTheStoredWordCountMatchesTheOldSplitter() {
+        // The splitter the stats used before word counts were stored.
+        func reference(_ text: String) -> Int {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return 0 }
+            return trimmed.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
+        }
+        let pieces = [
+            "word", "two words", " ", "\t", "\n", "\r\n", "\u{00A0}", "\u{2003}", "\u{3000}", "\u{2028}", "\u{0085}",
+            "\u{1F600}", "e\u{0301}", "naïve", "日本語", "\u{200B}", "\u{FEFF}", "-", "\u{1C}", "x\u{1F}y", "",
+        ]
+        var generator = SystemRandomNumberGenerator()
+        var samples = pieces + ["", "   ", "Hello, world.", "  leading and trailing  ", "a\n\nb\t\tc"]
+        for _ in 0..<2000 {
+            samples.append((0..<Int.random(in: 1...8, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined())
+        }
+        for sample in samples {
+            XCTAssertEqual(TranscriptionHistoryStore.countWords(in: sample), reference(sample), sample.debugDescription)
+        }
+    }
+
+    func testTheWordCountIsStoredAndHistoryWrittenWithoutItStillCounts() throws {
+        let entry = TranscriptionHistoryEntry(rawText: "raw", processedText: "Four words in here.", appName: "c11", windowTitle: "", wasAIProcessed: false)
+        XCTAssertEqual(entry.wordCount, 4)
+
+        let encoded = try JSONEncoder().encode([entry])
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+        XCTAssertEqual(object[0]["wordCount"] as? Int, 4)
+
+        // History written before the count was stored.
+        object[0].removeValue(forKey: "wordCount")
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode([TranscriptionHistoryEntry].self, from: legacy)
+        XCTAssertEqual(decoded.first?.wordCount, 4)
+        XCTAssertEqual(decoded.first, entry)
     }
 }
 
@@ -6621,6 +6707,8 @@ final class DatasheetLaneDRenderTests: XCTestCase {
         super.setUp()
         self.savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
         TranscriptionHistoryStore.shared.restore(from: DatasheetRenderStage.sampleHistory)
+        // The Stats page shows "—" until its snapshot lands, which is async in the app.
+        TranscriptionHistoryStore.shared.stats.computeNow()
 
         let fileHistory = FileTranscriptionHistoryStore.shared
         self.savedFileHistory = fileHistory.entries
@@ -6707,6 +6795,7 @@ final class DatasheetLaneDRenderTests: XCTestCase {
         }
 
         TranscriptionHistoryStore.shared.restore(from: [])
+        TranscriptionHistoryStore.shared.stats.computeNow()
         for (theme, appearance) in appearances {
             try self.render(
                 TranscriptionHistoryView(),
@@ -7357,5 +7446,402 @@ final class DatasheetContentLaneCRenderTests: XCTestCase {
         } else {
             XCTAssertLessThan(fraction, 0.3, "\(name): parent panel must use dark surface, bright fraction=\(fraction)")
         }
+    }
+}
+
+/// The stats snapshot's numbers, on a fixed calendar and clock.
+@MainActor
+final class TranscriptionStatsSnapshotTests: XCTestCase {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        return calendar
+    }()
+
+    /// Friday 2026-10-09, 15:00 in Los Angeles.
+    private var now: Date {
+        self.calendar.date(from: DateComponents(year: 2026, month: 10, day: 9, hour: 15))!
+    }
+
+    private func entry(_ age: TimeInterval, words: Int, app: String = "c11", ai: Bool = false) -> TranscriptionHistoryEntry {
+        TranscriptionHistoryEntry(
+            timestamp: self.now.addingTimeInterval(-age),
+            rawText: "raw",
+            processedText: Array(repeating: "word", count: words).joined(separator: " "),
+            appName: app,
+            windowTitle: "",
+            wasAIProcessed: ai
+        )
+    }
+
+    private func entry(daysAgo: Int, hour: Int = 10, words: Int = 1) -> TranscriptionHistoryEntry {
+        let day = self.calendar.date(byAdding: .day, value: -daysAgo, to: self.calendar.startOfDay(for: self.now))!
+        let at = self.calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
+        return self.entry(self.now.timeIntervalSince(at), words: words)
+    }
+
+    private func make(_ entries: [TranscriptionHistoryEntry], at now: Date? = nil, skipWeekends: Bool = false) -> TranscriptionStatsSnapshot {
+        TranscriptionStatsSnapshot.make(entries: entries, now: now ?? self.now, calendar: self.calendar, weekendsDontBreakStreak: skipWeekends)
+    }
+
+    func testRollingWindowsEndNowNotAtMidnight() {
+        let hour: TimeInterval = 3600
+        let entries = [
+            self.entry(1 * hour, words: 3),
+            self.entry(5.9 * hour, words: 2),
+            self.entry(6.1 * hour, words: 4),
+            self.entry(23 * hour, words: 1),
+            self.entry(3 * 86_400, words: 5),
+            self.entry(8 * 86_400, words: 6),
+            self.entry(29 * 86_400, words: 7),
+            self.entry(31 * 86_400, words: 8),
+        ]
+        let snapshot = self.make(entries)
+        XCTAssertEqual(snapshot.lastSixHours, TranscriptionTally(words: 5, transcriptions: 2))
+        XCTAssertEqual(snapshot.lastTwentyFourHours, TranscriptionTally(words: 10, transcriptions: 4))
+        XCTAssertEqual(snapshot.lastSevenDays, TranscriptionTally(words: 15, transcriptions: 5))
+        XCTAssertEqual(snapshot.lastThirtyDays, TranscriptionTally(words: 28, transcriptions: 7))
+        XCTAssertEqual(snapshot.total, TranscriptionTally(words: 36, transcriptions: 8))
+        // Today is a calendar day (since midnight, 15 hours): 1 h, 5.9 h and 6.1 h ago.
+        XCTAssertEqual(snapshot.today, TranscriptionTally(words: 9, transcriptions: 3))
+        XCTAssertEqual(snapshot.tally(for: .sixHours), snapshot.lastSixHours)
+    }
+
+    /// With no new dictation the windows still decay: the same history two hours later.
+    func testRollingWindowsDecayAsTimePasses() {
+        let entries = [self.entry(1 * 3600, words: 3), self.entry(5 * 3600, words: 2)]
+        XCTAssertEqual(self.make(entries).lastSixHours.words, 5)
+        XCTAssertEqual(self.make(entries, at: self.now.addingTimeInterval(2 * 3600)).lastSixHours.words, 3)
+        XCTAssertEqual(self.make(entries, at: self.now.addingTimeInterval(6 * 3600)).lastSixHours.words, 0)
+        XCTAssertEqual(self.make(entries, at: self.now.addingTimeInterval(6 * 3600)).lastSevenDays.words, 5)
+    }
+
+    func testDailyWordsCoverThirtyDaysEndingToday() {
+        let snapshot = self.make([self.entry(daysAgo: 0, words: 4), self.entry(daysAgo: 0, hour: 8, words: 1), self.entry(daysAgo: 6, words: 2), self.entry(daysAgo: 40, words: 9)])
+        XCTAssertEqual(snapshot.dailyWords.count, 30)
+        XCTAssertEqual(snapshot.dailyWords.last?.date, self.calendar.startOfDay(for: self.now))
+        XCTAssertEqual(snapshot.dailyWords.last?.words, 5)
+        XCTAssertEqual(snapshot.dailyWords(days: 7).map(\.words), [2, 0, 0, 0, 0, 0, 5])
+        XCTAssertEqual(snapshot.dailyWords.map(\.words).reduce(0, +), 7)
+        XCTAssertEqual(snapshot.mostWordsInDay, 9)
+        XCTAssertEqual(snapshot.mostTranscriptionsInDay, 2)
+    }
+
+    func testStreaksCountConsecutiveDays() {
+        // Today, yesterday, the day before; then 5-6 days ago; then 10-13 days ago.
+        let days = [0, 1, 2, 5, 6, 10, 11, 12, 13]
+        let snapshot = self.make(days.map { self.entry(daysAgo: $0) })
+        XCTAssertEqual(snapshot.currentStreak, 3)
+        XCTAssertEqual(snapshot.bestStreak, 4)
+
+        // A streak that ended yesterday still counts; one that ended two days ago does not.
+        XCTAssertEqual(self.make([1, 2].map { self.entry(daysAgo: $0) }).currentStreak, 2)
+        XCTAssertEqual(self.make([2, 3].map { self.entry(daysAgo: $0) }).currentStreak, 0)
+        XCTAssertEqual(self.make([]).currentStreak, 0)
+        XCTAssertEqual(self.make([]).bestStreak, 0)
+    }
+
+    func testAWeekendDoesNotBreakTheStreakWhenWeekendsDontCount() {
+        // Thu 1 and Fri 2 October, then Mon 5 to Fri 9 (today), nothing on the weekend.
+        let days = [0, 1, 2, 3, 4, 7, 8]
+        let entries = days.map { self.entry(daysAgo: $0) }
+        XCTAssertEqual(self.make(entries).currentStreak, 5)
+        XCTAssertEqual(self.make(entries, skipWeekends: true).currentStreak, 7)
+        XCTAssertEqual(self.make(entries, skipWeekends: true).bestStreak, 7)
+    }
+
+    func testInsights() {
+        let entries = [
+            self.entry(daysAgo: 0, hour: 14, words: 30), self.entry(daysAgo: 1, hour: 14, words: 1),
+            self.entry(daysAgo: 2, hour: 9, words: 2),
+        ] + [
+            self.entry(3600, words: 1, app: "Mail", ai: true), self.entry(7200, words: 1, app: "Mail"),
+            self.entry(9000, words: 1, app: "Notes"), self.entry(9100, words: 1, app: ""),
+        ]
+        let snapshot = self.make(entries)
+        XCTAssertEqual(snapshot.topApps, ["c11", "Mail", "Notes"])
+        XCTAssertEqual(snapshot.peakHour, 14)
+        XCTAssertEqual(snapshot.longestTranscriptionWords, 30)
+        XCTAssertEqual(snapshot.aiEnhancementRate, 14)
+        XCTAssertEqual(snapshot.total.averageWords, 37 / 7)
+        XCTAssertNil(self.make([]).peakHour)
+        XCTAssertEqual(self.make([]).topApps, [])
+    }
+
+    func testMilestonesFollowTheTotals() {
+        var snapshot = TranscriptionStatsSnapshot()
+        snapshot.total = TranscriptionTally(words: 621_000, transcriptions: 16_565)
+        snapshot.bestStreak = 40
+        XCTAssertEqual(snapshot.wordMilestones.filter(\.achieved).map(\.label), ["1K", "10K", "50K", "100K", "500K"])
+        XCTAssertEqual(snapshot.transcriptionMilestones.filter(\.achieved).count, 6)
+        XCTAssertEqual(snapshot.streakMilestones.filter(\.achieved).count, 3)
+        XCTAssertEqual(snapshot.milestonesAchieved, 14)
+        XCTAssertEqual(snapshot.milestonesPossible, 18)
+    }
+
+    /// A Stats page on screen (its `.task`) keeps a once-a-minute refresh going; cancelling the
+    /// last one stops it.
+    func testLiveUpdatesRunOnlyWhileAStatsPageIsShown() async throws {
+        let model = TranscriptionStatsModel(settleDelay: 0)
+        model.historySource = { [self] in [self.entry(60, words: 2)] }
+        XCTAssertFalse(model.isRefreshingLive)
+        let first = Task { await model.runLiveUpdates() }
+        let second = Task { await model.runLiveUpdates() }
+        try await self.waitUntil { model.isRefreshingLive && model.snapshot != nil }
+        XCTAssertEqual(model.snapshot?.total, TranscriptionTally(words: 2, transcriptions: 1))
+        first.cancel()
+        await first.value
+        XCTAssertTrue(model.isRefreshingLive)
+        second.cancel()
+        await second.value
+        XCTAssertFalse(model.isRefreshingLive)
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !condition() {
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                XCTFail("Timed out")
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// The whole stats pass runs off the main thread, but it still should not take long.
+    func testTheStatsSnapshotOfARealScaleHistoryIsCheap() {
+        let entries = HistoryScaleMainThreadTests.realScaleHistory()
+        var timings: [Double] = []
+        var snapshot = TranscriptionStatsSnapshot()
+        for _ in 0..<5 {
+            let start = ProcessInfo.processInfo.systemUptime
+            snapshot = TranscriptionStatsSnapshot.make(entries: entries, now: Date(), weekendsDontBreakStreak: false)
+            timings.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+        }
+        let countStart = ProcessInfo.processInfo.systemUptime
+        let recounted = entries.reduce(0) { $0 + TranscriptionHistoryStore.countWords(in: $1.processedText) }
+        let countMs = (ProcessInfo.processInfo.systemUptime - countStart) * 1000
+        let searchStart = ProcessInfo.processInfo.systemUptime
+        let matches = TranscriptionHistoryStore.search(query: "Atlas before", in: entries).count
+        let searchMs = (ProcessInfo.processInfo.systemUptime - searchStart) * 1000
+        print(String(
+            format: "HISTORY_SCALE snapshot medianMs=%.1f recountAllMs=%.1f searchMs=%.1f words=%d matches=%d",
+            timings.sorted()[2], countMs, searchMs, snapshot.total.words, matches
+        ))
+        XCTAssertEqual(snapshot.total.words, recounted)
+        XCTAssertEqual(snapshot.total.transcriptions, HistoryScaleMainThreadTests.entryCount)
+        XCTAssertGreaterThan(matches, 0)
+        XCTAssertLessThan(timings.sorted()[2], 250, "The stats pass over 17k entries got slow")
+    }
+}
+
+/// History at Atin's real scale (17k dictations, about 10 MB, 2026-10-09): what a history change
+/// costs the main thread while the Stats or History page is hosted. Every dictation adds its entry
+/// before the paste, so this time sits on the dictation path. The hosts live in windows that are
+/// never ordered on screen.
+@MainActor
+final class HistoryScaleMainThreadTests: XCTestCase {
+    nonisolated static let entryCount = 17_000
+
+    private var savedHistory: [TranscriptionHistoryEntry] = []
+
+    override func setUp() async throws {
+        try await super.setUp()
+        self.savedHistory = TranscriptionHistoryStore.shared.makeBackupPayload()
+        TranscriptionHistoryStore.shared.restore(from: Self.realScaleHistory())
+    }
+
+    override func tearDown() async throws {
+        TranscriptionHistoryStore.shared.restore(from: self.savedHistory)
+        TranscriptionHistoryStore.shared.flushPendingWrites()
+        try await super.tearDown()
+    }
+
+    // Bounds a few times what the Debug build measured (13 ms and 37 ms, 2026-10-09). Before:
+    // 5.3 s with Stats open and 215 ms with History open, on every dictation.
+    func testAHistoryChangeCostsTheMainThreadLittleWithStatsOpen() async throws {
+        let report = try await self.measureHistoryChange(hosting: StatsView(), name: "stats")
+        print("HISTORY_SCALE stats \(report)")
+        XCTAssertLessThan(report.worstStretchMs, 150, "A history change blocked the main thread with Stats open")
+
+        // The page at real scale, for a look at the widest numbers. Native: ImageRenderer draws a
+        // scroll view blank.
+        if let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"] {
+            let settled = await TranscriptionHistoryStore.shared.stats.waitForSnapshot(timeout: 5)
+            XCTAssertTrue(settled)
+            for (theme, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
+                for width in [880, 580] as [CGFloat] {
+                    let rep = try Self.renderNative(StatsView(), appearance: appearance, size: CGSize(width: width, height: 1400))
+                    try DatasheetRenderStage.write(rep, to: URL(fileURLWithPath: folder).appendingPathComponent("\(theme)-stats-real-scale-\(Int(width)).png"))
+                }
+            }
+        }
+    }
+
+    private static func renderNative<V: View>(_ view: V, appearance: NSAppearance.Name, size: CGSize) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).datasheetPalette())
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: size.width, height: size.height),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(window.isVisible, "Native renders must never be ordered on screen")
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    func testAHistoryChangeCostsTheMainThreadLittleWithHistoryOpen() async throws {
+        let report = try await self.measureHistoryChange(hosting: TranscriptionHistoryView(), name: "history")
+        print("HISTORY_SCALE history \(report)")
+        XCTAssertLessThan(report.worstStretchMs, 150, "A history change blocked the main thread with History open")
+    }
+
+    // MARK: - Harness
+
+    struct Report: CustomStringConvertible {
+        var firstLayoutMs: Double
+        var worstStretchMs: Double
+        var busyMs: Double
+        var longStretches: [String] = []
+        var description: String {
+            String(format: "firstLayoutMs=%.1f worstStretchMs=%.1f busyMs=%.1f", self.firstLayoutMs, self.worstStretchMs, self.busyMs)
+                + " long=[\(self.longStretches.joined(separator: " "))]"
+        }
+    }
+
+    /// Hosts `content`, then adds three dictations and records every main run loop stretch until
+    /// things settle: the worst one is what a dictation would wait behind.
+    private func measureHistoryChange<Content: View>(hosting content: Content, name: String) async throws -> Report {
+        let host = NSHostingView(rootView: content.frame(width: 880, height: 1180).datasheetPalette())
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 880, height: 1180),
+            styleMask: .borderless, backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        let layoutStart = ProcessInfo.processInfo.systemUptime
+        host.layoutSubtreeIfNeeded()
+        let firstLayoutMs = (ProcessInfo.processInfo.systemUptime - layoutStart) * 1000
+
+        // One change first, so the host's (and the rest of the test host's) first update is not
+        // counted: in the app the page and the overlay have long been rendered. The stats settle
+        // for a second after it, then land.
+        TranscriptionHistoryStore.shared.addEntry(rawText: "Warm up", processedText: "Warm up.", appName: "c11", windowTitle: "")
+        try await Task.sleep(nanoseconds: 1_600_000_000)
+        host.layoutSubtreeIfNeeded()
+
+        let probe = MainRunLoopStretchProbe()
+        probe.start()
+        for index in 0..<3 {
+            probe.mark("add\(index)")
+            TranscriptionHistoryStore.shared.addEntry(
+                rawText: "Scale check \(index)",
+                processedText: "Scale check number \(index) for the history page.",
+                appName: "c11",
+                windowTitle: ""
+            )
+            try await Task.sleep(nanoseconds: 400_000_000)
+            host.layoutSubtreeIfNeeded()
+        }
+        // The stats settle for a second after the last change, then land: wait for that render.
+        try await Task.sleep(nanoseconds: 1_600_000_000)
+        host.layoutSubtreeIfNeeded()
+        probe.stop()
+        XCTAssertFalse(window.isVisible, name)
+        XCTAssertEqual(TestHostQuietModeTests.onScreenWindowCount(), 0, name)
+        return Report(
+            firstLayoutMs: firstLayoutMs,
+            worstStretchMs: probe.stretches.max() ?? 0,
+            busyMs: probe.stretches.reduce(0, +),
+            longStretches: probe.log.filter { $0.ms > 8 }.map { String(format: "%@:%.0f", $0.label, $0.ms) }
+        )
+    }
+
+    /// Dictations shaped like Atin's: about 37 words each, 300 a day across waking hours, newest
+    /// first, about 10 MB once encoded.
+    static func realScaleHistory(count: Int = entryCount, now: Date = Date()) -> [TranscriptionHistoryEntry] {
+        let words = [
+            "the", "stop", "path", "paste", "into", "terminal", "window", "please", "look", "at",
+            "agent", "review", "merge", "branch", "history", "stats", "page", "main", "thread", "and",
+            "then", "run", "tests", "on", "Atlas", "before", "we", "ship", "it", "today",
+        ]
+        var state: UInt64 = 0x5EED
+        func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+        // 300 a day inside 16 waking hours: one about every 192 s, then the night skipped.
+        let perDay = 300
+        return (0..<count).map { index in
+            let day = index / perDay
+            let slot = index % perDay
+            let age = Double(day) * 86_400 + Double(slot) * 192
+            let length = 20 + Int(next() % 36)
+            let text = (0..<length).map { _ in words[Int(next() % UInt64(words.count))] }.joined(separator: " ") + "."
+            return TranscriptionHistoryEntry(
+                timestamp: now.addingTimeInterval(-age),
+                rawText: text,
+                processedText: text.prefix(1).uppercased() + text.dropFirst(),
+                appName: index % 5 == 0 ? "Mail" : "c11",
+                windowTitle: "",
+                wasAIProcessed: false
+            )
+        }
+    }
+}
+
+/// Records each main run loop stretch between waking and going back to sleep, in ms. Its
+/// before-waiting observer runs last, so a view update committed then counts.
+@MainActor
+final class MainRunLoopStretchProbe {
+    private(set) var stretches: [Double] = []
+    /// Each stretch with the last mark set before it ended.
+    private(set) var log: [(label: String, ms: Double)] = []
+    private var label = "start"
+    private var observers: [CFRunLoopObserver] = []
+
+    func mark(_ label: String) {
+        self.label = label
+    }
+
+    func start() {
+        var awakeAt = ProcessInfo.processInfo.systemUptime
+        let woke = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, CFIndex.min) { _, _ in
+            awakeAt = ProcessInfo.processInfo.systemUptime
+        }
+        let sleeping = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, _ in
+            let stretch = (ProcessInfo.processInfo.systemUptime - awakeAt) * 1000
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.stretches.append(stretch)
+                self.log.append((self.label, stretch))
+            }
+        }
+        for observer in [woke, sleeping].compactMap({ $0 }) {
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            self.observers.append(observer)
+        }
+    }
+
+    func stop() {
+        for observer in self.observers {
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+        }
+        self.observers.removeAll()
     }
 }

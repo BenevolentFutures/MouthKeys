@@ -11,6 +11,13 @@ struct TranscriptionHistoryView: View {
     @State private var searchQuery = ""
     @State private var showClearConfirmation = false
     @State private var selectedEntryID: UUID?
+    /// The last search's matches, computed off the main thread for each query and history change.
+    @State private var searchResults: SearchResults?
+    /// Rows the index has built so far. It grows a page at a time as the list scrolls, so a
+    /// history change (one per dictation) costs a few hundred rows, not every entry.
+    @State private var shownRowLimit = Self.rowPageSize
+
+    static let rowPageSize = 200
 
     init(onOpenPlayground: (() -> Void)? = nil) {
         self.onOpenPlayground = onOpenPlayground
@@ -28,8 +35,55 @@ struct TranscriptionHistoryView: View {
         return formatter
     }()
 
+    private struct SearchKey: Equatable {
+        let query: String
+        let revision: UInt64
+    }
+
+    private struct SearchResults {
+        let query: String
+        let entries: [TranscriptionHistoryEntry]
+    }
+
+    private var isSearching: Bool {
+        !self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The history, or the matches for the search. Never searched here: rows and helpers read it
+    /// many times per render. While a new search runs, the previous matches stay up (the whole
+    /// history before the first ones land).
     private var filteredEntries: [TranscriptionHistoryEntry] {
-        self.historyStore.search(query: self.searchQuery)
+        guard self.isSearching, let results = self.searchResults else { return self.historyStore.entries }
+        return results.entries
+    }
+
+    /// Searches off the main thread, so a dictation landing while a search is up costs it nothing.
+    /// A new query waits briefly for the next keystroke.
+    private func runSearch() async {
+        guard self.isSearching else {
+            // Each history change reruns this; assigning nil again would render the page twice.
+            if self.searchResults != nil {
+                self.searchResults = nil
+            }
+            return
+        }
+        let query = self.searchQuery
+        if self.searchResults?.query != query {
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+        }
+        let entries = self.historyStore.entries
+        let matches = await Task.detached(priority: .userInitiated) {
+            TranscriptionHistoryStore.search(query: query, in: entries)
+        }.value
+        guard !Task.isCancelled else { return }
+        self.searchResults = SearchResults(query: query, entries: matches)
+    }
+
+    /// A deleted entry leaves the matches at once; the search reruns off the main thread after.
+    private func dropFromSearchResults(_ id: UUID) {
+        guard let results = self.searchResults else { return }
+        self.searchResults = SearchResults(query: results.query, entries: results.entries.filter { $0.id != id })
     }
 
     private var selectedEntry: TranscriptionHistoryEntry? {
@@ -67,6 +121,12 @@ struct TranscriptionHistoryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(self.palette.surface)
+        .onChange(of: self.searchQuery) { _, _ in
+            self.shownRowLimit = Self.rowPageSize
+        }
+        .task(id: SearchKey(query: self.searchQuery, revision: self.historyStore.revision)) {
+            await self.runSearch()
+        }
         .onAppear {
             if self.selectedEntryID == nil {
                 self.selectedEntryID = self.filteredEntries.first?.id
@@ -77,6 +137,7 @@ struct TranscriptionHistoryView: View {
             Button("Clear All", role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.historyStore.clearAllHistory()
+                    self.searchResults = nil
                     self.selectedEntryID = nil
                 }
             }
@@ -146,14 +207,23 @@ struct TranscriptionHistoryView: View {
     }
 
     private var entryListView: some View {
-        ScrollView {
+        let entries = self.filteredEntries
+        let shownCount = min(entries.count, self.shownRowLimit)
+        return ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Array(self.filteredEntries.enumerated()), id: \.element.id) { offset, entry in
+                ForEach(Array(entries.prefix(shownCount).enumerated()), id: \.element.id) { offset, entry in
                     if self.startsNewDay(at: offset) {
                         self.dayHeading(for: entry.timestamp)
                     }
 
                     self.entryRow(entry, index: offset + 1)
+                }
+
+                if shownCount < entries.count {
+                    // Scrolled to the end of the built rows: build the next page.
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear { self.shownRowLimit = shownCount + Self.rowPageSize }
                 }
             }
         }
@@ -219,7 +289,7 @@ struct TranscriptionHistoryView: View {
                         .multilineTextAlignment(.leading)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(self.durationText(for: entry)) · \(self.wordCount(entry.processedText)) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
+                        Text("\(self.durationText(for: entry)) · \(entry.wordCount) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 4) {
@@ -282,6 +352,7 @@ struct TranscriptionHistoryView: View {
             Button(role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.historyStore.deleteEntry(id: entry.id)
+                    self.dropFromSearchResults(entry.id)
                     if self.selectedEntryID == entry.id {
                         self.selectedEntryID = self.filteredEntries.first(where: { $0.id != entry.id })?.id
                     }
@@ -452,7 +523,7 @@ struct TranscriptionHistoryView: View {
             HStack(spacing: 0) {
                 self.factCell(label: "APPLICATION", value: entry.appName.isEmpty ? "Unknown" : entry.appName)
                 self.factCell(label: "LENGTH", value: self.durationText(for: entry))
-                self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                self.factCell(label: "WORDS", value: "\(entry.wordCount)")
                 self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
                 self.deliveryFact
             }
@@ -464,7 +535,7 @@ struct TranscriptionHistoryView: View {
                     self.factCell(label: "LENGTH", value: self.durationText(for: entry))
                 }
                 HStack(spacing: 0) {
-                    self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                    self.factCell(label: "WORDS", value: "\(entry.wordCount)")
                     self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
                     self.deliveryFact
                 }
@@ -599,6 +670,7 @@ struct TranscriptionHistoryView: View {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
                     self.historyStore.deleteEntry(id: entry.id)
+                    self.dropFromSearchResults(entry.id)
                     self.selectedEntryID = nextEntry?.id
                 }
             }
@@ -642,10 +714,6 @@ struct TranscriptionHistoryView: View {
         guard let audio = entry.audio, self.hasAudio(entry) else { return "—" }
         let seconds = max(0, Int((Double(audio.durationMilliseconds) / 1000).rounded()))
         return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
-    }
-
-    private func wordCount(_ text: String) -> Int {
-        text.split(whereSeparator: \.isWhitespace).count
     }
 
     private func windowLabel(_ entry: TranscriptionHistoryEntry) -> String {
