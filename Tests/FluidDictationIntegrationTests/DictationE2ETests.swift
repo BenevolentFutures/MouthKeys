@@ -2812,15 +2812,42 @@ final class TranscriptionHistoryPersistenceTests: XCTestCase {
         ])
         store.addEntry(rawText: "a", processedText: "three words here", appName: "c11", windowTitle: "")
         store.addEntry(rawText: "b", processedText: "two words", appName: "c11", windowTitle: "")
-        await store.stats.waitForSnapshot()
+        await self.waitForStats(store)
         XCTAssertEqual(store.stats.snapshot?.today, TranscriptionTally(words: 5, transcriptions: 2))
         XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 9, transcriptions: 3))
         XCTAssertEqual(store.stats.snapshot?.lastSixHours, TranscriptionTally(words: 5, transcriptions: 2))
 
         store.deleteEntries(ids: Set(store.entries.map(\.id)))
-        await store.stats.waitForSnapshot()
+        await self.waitForStats(store)
         XCTAssertEqual(store.stats.snapshot?.today, TranscriptionTally(words: 0, transcriptions: 0))
         XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 0, transcriptions: 0))
+        store.flushPendingWrites()
+    }
+
+    private func waitForStats(_ store: TranscriptionHistoryStore, file: StaticString = #filePath, line: UInt = #line) async {
+        let settled = await store.stats.waitForSnapshot(timeout: 5)
+        XCTAssertTrue(settled, "The stats never caught up with the history", file: file, line: line)
+    }
+
+    /// A delete shows at once, even while a dictation's settle is pending; audio changes leave
+    /// the stats alone.
+    func testADeleteRefreshesTheStatsAtOnceAndAudioChangesDoNot() async throws {
+        let store = TranscriptionHistoryStore(defaults: self.defaults, statsSettleDelay: 30)
+        await self.waitForStats(store)
+        store.addEntry(rawText: "a", processedText: "one two", appName: "c11", windowTitle: "")
+        store.addEntry(rawText: "b", processedText: "three", appName: "c11", windowTitle: "")
+        store.deleteEntry(id: store.entries[0].id)
+        await self.waitForStats(store)
+        XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 2, transcriptions: 1))
+
+        var published = 0
+        let subscription = store.stats.$snapshot.dropFirst().sink { _ in published += 1 }
+        defer { subscription.cancel() }
+        _ = store.deleteAllSavedAudio(includingKeptRecording: false)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(published, 0)
+        let idle = await store.stats.waitForSnapshot(timeout: 0.1)
+        XCTAssertTrue(idle, "An audio change scheduled a stats pass")
         store.flushPendingWrites()
     }
 
@@ -2828,7 +2855,7 @@ final class TranscriptionHistoryPersistenceTests: XCTestCase {
     /// stats wait for that to settle and then publish once.
     func testABurstOfHistoryChangesPublishesTheStatsOnce() async throws {
         let store = TranscriptionHistoryStore(defaults: self.defaults, statsSettleDelay: 0.2)
-        await store.stats.waitForSnapshot()
+        await self.waitForStats(store)
         var published = 0
         let subscription = store.stats.$snapshot.dropFirst().sink { _ in published += 1 }
         defer { subscription.cancel() }
@@ -2837,7 +2864,7 @@ final class TranscriptionHistoryPersistenceTests: XCTestCase {
         store.addEntry(rawText: "b", processedText: "three", appName: "c11", windowTitle: "")
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(published, 0, "The stats published before the history settled")
-        await store.stats.waitForSnapshot()
+        await self.waitForStats(store)
         XCTAssertEqual(published, 1)
         XCTAssertEqual(store.stats.snapshot?.total, TranscriptionTally(words: 3, transcriptions: 2))
         store.flushPendingWrites()
@@ -7552,22 +7579,59 @@ final class TranscriptionStatsSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.milestonesPossible, 18)
     }
 
-    /// A Stats page on screen keeps a once-a-minute refresh going; the last one to leave stops it.
-    func testLiveUpdatesRunOnlyWhileAStatsPageIsShown() async {
+    /// A Stats page on screen (its `.task`) keeps a once-a-minute refresh going; cancelling the
+    /// last one stops it.
+    func testLiveUpdatesRunOnlyWhileAStatsPageIsShown() async throws {
         let model = TranscriptionStatsModel(settleDelay: 0)
         model.historySource = { [self] in [self.entry(60, words: 2)] }
         XCTAssertFalse(model.isRefreshingLive)
-        model.beginLiveUpdates()
-        model.beginLiveUpdates()
-        XCTAssertTrue(model.isRefreshingLive)
-        await model.waitForSnapshot()
+        let first = Task { await model.runLiveUpdates() }
+        let second = Task { await model.runLiveUpdates() }
+        try await self.waitUntil { model.isRefreshingLive && model.snapshot != nil }
         XCTAssertEqual(model.snapshot?.total, TranscriptionTally(words: 2, transcriptions: 1))
-        model.endLiveUpdates()
+        first.cancel()
+        await first.value
         XCTAssertTrue(model.isRefreshingLive)
-        model.endLiveUpdates()
+        second.cancel()
+        await second.value
         XCTAssertFalse(model.isRefreshingLive)
-        model.endLiveUpdates()
-        XCTAssertFalse(model.isRefreshingLive)
+    }
+
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !condition() {
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                XCTFail("Timed out")
+                return
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// The whole stats pass runs off the main thread, but it still should not take long.
+    func testTheStatsSnapshotOfARealScaleHistoryIsCheap() {
+        let entries = HistoryScaleMainThreadTests.realScaleHistory()
+        var timings: [Double] = []
+        var snapshot = TranscriptionStatsSnapshot()
+        for _ in 0..<5 {
+            let start = ProcessInfo.processInfo.systemUptime
+            snapshot = TranscriptionStatsSnapshot.make(entries: entries, now: Date(), weekendsDontBreakStreak: false)
+            timings.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+        }
+        let countStart = ProcessInfo.processInfo.systemUptime
+        let recounted = entries.reduce(0) { $0 + TranscriptionHistoryStore.countWords(in: $1.processedText) }
+        let countMs = (ProcessInfo.processInfo.systemUptime - countStart) * 1000
+        let searchStart = ProcessInfo.processInfo.systemUptime
+        let matches = TranscriptionHistoryStore.search(query: "Atlas before", in: entries).count
+        let searchMs = (ProcessInfo.processInfo.systemUptime - searchStart) * 1000
+        print(String(
+            format: "HISTORY_SCALE snapshot medianMs=%.1f recountAllMs=%.1f searchMs=%.1f words=%d matches=%d",
+            timings.sorted()[2], countMs, searchMs, snapshot.total.words, matches
+        ))
+        XCTAssertEqual(snapshot.total.words, recounted)
+        XCTAssertEqual(snapshot.total.transcriptions, HistoryScaleMainThreadTests.entryCount)
+        XCTAssertGreaterThan(matches, 0)
+        XCTAssertLessThan(timings.sorted()[2], 250, "The stats pass over 17k entries got slow")
     }
 }
 
@@ -7603,7 +7667,8 @@ final class HistoryScaleMainThreadTests: XCTestCase {
         // The page at real scale, for a look at the widest numbers. Native: ImageRenderer draws a
         // scroll view blank.
         if let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"] {
-            await TranscriptionHistoryStore.shared.stats.waitForSnapshot()
+            let settled = await TranscriptionHistoryStore.shared.stats.waitForSnapshot(timeout: 5)
+            XCTAssertTrue(settled)
             for (theme, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
                 for width in [880, 580] as [CGFloat] {
                     let rep = try Self.renderNative(StatsView(), appearance: appearance, size: CGSize(width: width, height: 1400))
@@ -7639,32 +7704,6 @@ final class HistoryScaleMainThreadTests: XCTestCase {
         XCTAssertLessThan(report.worstStretchMs, 150, "A history change blocked the main thread with History open")
     }
 
-    /// The whole stats pass runs off the main thread, but it still should not take long.
-    func testTheStatsSnapshotOfARealScaleHistoryIsCheap() {
-        let entries = TranscriptionHistoryStore.shared.entries
-        XCTAssertEqual(entries.count, Self.entryCount)
-        var timings: [Double] = []
-        var snapshot = TranscriptionStatsSnapshot()
-        for _ in 0..<5 {
-            let start = ProcessInfo.processInfo.systemUptime
-            snapshot = TranscriptionStatsSnapshot.make(entries: entries, now: Date(), weekendsDontBreakStreak: false)
-            timings.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
-        }
-        let countStart = ProcessInfo.processInfo.systemUptime
-        let recounted = entries.reduce(0) { $0 + TranscriptionHistoryStore.countWords(in: $1.processedText) }
-        let countMs = (ProcessInfo.processInfo.systemUptime - countStart) * 1000
-        let searchStart = ProcessInfo.processInfo.systemUptime
-        let matches = TranscriptionHistoryStore.shared.search(query: "Atlas before").count
-        let searchMs = (ProcessInfo.processInfo.systemUptime - searchStart) * 1000
-        print(String(
-            format: "HISTORY_SCALE snapshot medianMs=%.1f recountAllMs=%.1f searchMs=%.1f words=%d matches=%d",
-            timings.sorted()[2], countMs, searchMs, snapshot.total.words, matches
-        ))
-        XCTAssertEqual(snapshot.total.words, recounted)
-        XCTAssertEqual(snapshot.total.transcriptions, Self.entryCount)
-        XCTAssertLessThan(timings.sorted()[2], 250, "The stats pass over 17k entries got slow")
-    }
-
     // MARK: - Harness
 
     struct Report: CustomStringConvertible {
@@ -7678,8 +7717,8 @@ final class HistoryScaleMainThreadTests: XCTestCase {
         }
     }
 
-    /// Hosts `content`, then adds three dictations a second apart and records every main run loop
-    /// stretch until things settle: the worst one is what a dictation would wait behind.
+    /// Hosts `content`, then adds three dictations and records every main run loop stretch until
+    /// things settle: the worst one is what a dictation would wait behind.
     private func measureHistoryChange<Content: View>(hosting content: Content, name: String) async throws -> Report {
         let host = NSHostingView(rootView: content.frame(width: 880, height: 1180).datasheetPalette())
         let window = NSWindow(
@@ -7695,10 +7734,12 @@ final class HistoryScaleMainThreadTests: XCTestCase {
         let layoutStart = ProcessInfo.processInfo.systemUptime
         host.layoutSubtreeIfNeeded()
         let firstLayoutMs = (ProcessInfo.processInfo.systemUptime - layoutStart) * 1000
+
         // One change first, so the host's (and the rest of the test host's) first update is not
-        // counted: in the app the page and the overlay have long been rendered.
+        // counted: in the app the page and the overlay have long been rendered. The stats settle
+        // for a second after it, then land.
         TranscriptionHistoryStore.shared.addEntry(rawText: "Warm up", processedText: "Warm up.", appName: "c11", windowTitle: "")
-        try await Task.sleep(nanoseconds: 2_500_000_000)
+        try await Task.sleep(nanoseconds: 1_600_000_000)
         host.layoutSubtreeIfNeeded()
 
         let probe = MainRunLoopStretchProbe()
@@ -7711,11 +7752,11 @@ final class HistoryScaleMainThreadTests: XCTestCase {
                 appName: "c11",
                 windowTitle: ""
             )
-            try await Task.sleep(nanoseconds: 1_000_000_000)
+            try await Task.sleep(nanoseconds: 400_000_000)
             host.layoutSubtreeIfNeeded()
         }
         // The stats settle for a second after the last change, then land: wait for that render.
-        try await Task.sleep(nanoseconds: 2_000_000_000)
+        try await Task.sleep(nanoseconds: 1_600_000_000)
         host.layoutSubtreeIfNeeded()
         probe.stop()
         XCTAssertFalse(window.isVisible, name)

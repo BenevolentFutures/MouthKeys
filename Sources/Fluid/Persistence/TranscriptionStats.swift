@@ -323,12 +323,23 @@ nonisolated struct TranscriptionStatsSnapshot: Equatable, Sendable {
 /// Publishes the stats snapshot, kept apart from the history store so a history change never
 /// re-renders the Stats page by itself: the page renders once, when the new snapshot lands.
 ///
-/// A history change waits `settleDelay` (a dictation adds its entry just before it pastes, and
-/// attaches its audio just after) and is then computed off the main thread. While a Stats page is
-/// on screen a timer refreshes the snapshot every `liveRefreshInterval`, so the rolling windows
-/// decay with no new dictation; a new day, a clock change or a time zone change refreshes it too.
+/// A dictation's history changes wait `settleDelay` (it adds its entry just before it pastes),
+/// then the snapshot is computed off the main thread. Deletes and restores show at once. While a
+/// Stats page is on screen (`runLiveUpdates`) the snapshot refreshes every `liveRefreshInterval`,
+/// so the rolling windows decay with no new dictation; a new day, a clock change or a time zone
+/// change refreshes it too.
 @MainActor
 final class TranscriptionStatsModel: ObservableObject {
+    /// How a history change reaches the stats.
+    enum HistoryChange {
+        /// A dictation's entry: settle first, so the page renders after the paste, not before it.
+        case dictation
+        /// A delete, clear or restore the user is looking at: refresh now.
+        case immediate
+        /// Audio attached or pruned: no stat reads audio, so nothing to do.
+        case unchanged
+    }
+
     /// Nil until the first pass over the history lands; views show "—" until then.
     @Published private(set) var snapshot: TranscriptionStatsSnapshot?
 
@@ -340,10 +351,13 @@ final class TranscriptionStatsModel: ObservableObject {
 
     private let settleNanoseconds: UInt64
     private var refreshTask: Task<Void, Never>?
+    /// Which task is current; a task cut short by a newer one sees a different value and stops.
+    private var refreshGeneration: UInt64 = 0
+    /// Bumped by every request, so a pass that raced a change is thrown away and redone.
     private var refreshRevision: UInt64 = 0
     private var pendingSettle = false
+    private var isSettling = false
     private var liveViewers = 0
-    private var liveTimer: Timer?
     private var observers: [NSObjectProtocol] = []
 
     init(settleDelay: TimeInterval = 1) {
@@ -358,52 +372,55 @@ final class TranscriptionStatsModel: ObservableObject {
 
     deinit {
         self.observers.forEach(NotificationCenter.default.removeObserver)
-        self.liveTimer?.invalidate()
     }
 
-    /// The store calls this on every history change. The first history is computed at once; later
-    /// changes settle first.
-    func historyDidChange() {
-        self.scheduleRefresh(settle: self.snapshot != nil)
+    /// The store calls this on every history change. The first history is computed at once.
+    func historyDidChange(_ change: HistoryChange) {
+        switch change {
+        case .dictation: self.scheduleRefresh(settle: self.snapshot != nil)
+        case .immediate: self.scheduleRefresh(settle: false)
+        case .unchanged: break
+        }
     }
 
-    /// Recomputes from the current history now (for a clock tick, a setting, a new day).
+    /// Recomputes from the current history now (a clock tick, a setting, a new day). Cuts a
+    /// pending settle short.
     func refresh() {
         self.scheduleRefresh(settle: false)
     }
 
-    /// A Stats page appeared: refresh now and every `liveRefreshInterval` until the last one goes.
-    func beginLiveUpdates() {
+    /// Runs for as long as a Stats page is on screen (its `.task`, which SwiftUI cancels when the
+    /// page goes): refreshes now, then every `liveRefreshInterval`.
+    func runLiveUpdates() async {
         self.liveViewers += 1
         // Lets a log reader tie a dictation's STOP_SUMMARY to the Stats page being on screen.
         DebugLogger.shared.info("STATS_PAGE visible=true viewers=\(self.liveViewers)", source: "TranscriptionStats")
-        self.refresh()
-        guard self.liveTimer == nil else { return }
-        let timer = Timer(timeInterval: Self.liveRefreshInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+        defer {
+            self.liveViewers -= 1
+            DebugLogger.shared.info("STATS_PAGE visible=\(self.liveViewers > 0) viewers=\(self.liveViewers)", source: "TranscriptionStats")
         }
-        timer.tolerance = 5
-        RunLoop.main.add(timer, forMode: .common)
-        self.liveTimer = timer
-    }
-
-    func endLiveUpdates() {
-        self.liveViewers = max(0, self.liveViewers - 1)
-        DebugLogger.shared.info("STATS_PAGE visible=\(self.liveViewers > 0) viewers=\(self.liveViewers)", source: "TranscriptionStats")
-        guard self.liveViewers == 0 else { return }
-        self.liveTimer?.invalidate()
-        self.liveTimer = nil
+        self.refresh()
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(Self.liveRefreshInterval * 1_000_000_000))
+            guard !Task.isCancelled else { break }
+            self.refresh()
+        }
     }
 
     var isRefreshingLive: Bool {
-        self.liveTimer != nil
+        self.liveViewers > 0
     }
 
-    /// Waits until the snapshot has caught up with the history. For tests.
-    func waitForSnapshot() async {
-        while let task = self.refreshTask {
-            await task.value
+    /// Waits until the snapshot has caught up with the history, at most `timeout`. Returns
+    /// whether it did. For tests.
+    @discardableResult
+    func waitForSnapshot(timeout: TimeInterval = 5) async -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while self.refreshTask != nil {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { return false }
+            try? await Task.sleep(nanoseconds: 5_000_000)
         }
+        return true
     }
 
     /// Computes the snapshot on the calling thread at once. For renders and tests only.
@@ -417,17 +434,35 @@ final class TranscriptionStatsModel: ObservableObject {
 
     private func scheduleRefresh(settle: Bool) {
         self.refreshRevision &+= 1
-        self.pendingSettle = self.pendingSettle || settle
-        guard self.refreshTask == nil else { return }
-        self.refreshTask = Task { @MainActor [weak self] in
-            // Coalesce a burst of changes (restore, delete-many, add then attach audio) into one pass.
-            if let self, self.pendingSettle, self.settleNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: self.settleNanoseconds)
-            } else {
-                await Task.yield()
+        if settle {
+            self.pendingSettle = true
+        } else {
+            self.pendingSettle = false
+            if self.isSettling {
+                // Waiting out a dictation's settle: cut it short, the user wants this one now.
+                self.refreshTask?.cancel()
+                self.refreshTask = nil
+                self.isSettling = false
             }
-            while let self {
-                self.pendingSettle = false
+        }
+        guard self.refreshTask == nil else { return }
+
+        self.refreshGeneration &+= 1
+        let generation = self.refreshGeneration
+        self.refreshTask = Task { @MainActor [weak self] in
+            // Coalesce a burst of changes (restore, delete-many) into one pass.
+            await Task.yield()
+            while let self, generation == self.refreshGeneration {
+                if self.pendingSettle, self.settleNanoseconds > 0 {
+                    // A change during the wait asks for another settle, so it ends a full
+                    // settle after the last dictation change.
+                    self.pendingSettle = false
+                    self.isSettling = true
+                    try? await Task.sleep(nanoseconds: self.settleNanoseconds)
+                    guard !Task.isCancelled, generation == self.refreshGeneration else { return }
+                    self.isSettling = false
+                    continue
+                }
                 let revision = self.refreshRevision
                 let entries = self.historySource()
                 let now = Date()
@@ -438,12 +473,8 @@ final class TranscriptionStatsModel: ObservableObject {
                         entries: entries, now: now, calendar: calendar, weekendsDontBreakStreak: skipWeekends
                     )
                 }.value
-                guard revision == self.refreshRevision else {
-                    if self.pendingSettle, self.settleNanoseconds > 0 {
-                        try? await Task.sleep(nanoseconds: self.settleNanoseconds)
-                    }
-                    continue
-                }
+                guard generation == self.refreshGeneration else { return }
+                guard revision == self.refreshRevision else { continue }
                 if self.snapshot != snapshot {
                     self.snapshot = snapshot
                 }

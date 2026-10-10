@@ -92,7 +92,8 @@ nonisolated struct TranscriptionHistoryEntry: Codable, Identifiable, Equatable, 
         self.appName = try container.decode(String.self, forKey: .appName)
         self.windowTitle = try container.decode(String.self, forKey: .windowTitle)
         self.characterCount = try container.decode(Int.self, forKey: .characterCount)
-        self.wordCount = try container.decodeIfPresent(Int.self, forKey: .wordCount)
+        // Derived data: a missing or unreadable count is recounted, never a reason to drop the history.
+        self.wordCount = (try? container.decodeIfPresent(Int.self, forKey: .wordCount))
             ?? TranscriptionHistoryStore.countWords(in: self.processedText)
         self.wasAIProcessed = try container.decode(Bool.self, forKey: .wasAIProcessed)
         self.processingModel = try container.decodeIfPresent(String.self, forKey: .processingModel)
@@ -236,15 +237,11 @@ final class TranscriptionHistoryStore: ObservableObject {
         static let transcriptionHistory = "TranscriptionHistoryEntries"
     }
 
-    @Published private(set) var entries: [TranscriptionHistoryEntry] = [] {
-        didSet {
-            self.revision &+= 1
-            self.presence.update(hasEntries: !self.entries.isEmpty)
-            self.stats.historyDidChange()
-        }
-    }
+    /// The history, newest first. Changed only in place through `updateEntries`: `@Published` has
+    /// no in-place modify, so `entries.insert` there copied all 17k entries on every dictation.
+    private(set) var entries: [TranscriptionHistoryEntry] = []
 
-    /// Changes whenever `entries` does, so views can cache what they derive from the history.
+    /// Changes whenever `entries` does, so views can key what they derive from the history.
     private(set) var revision: UInt64 = 0
 
     @Published var selectedEntryID: UUID?
@@ -269,6 +266,20 @@ final class TranscriptionHistoryStore: ObservableObject {
     /// Blocks until every change so far is written. Called at termination.
     func flushPendingWrites() {
         self.writer.flush()
+    }
+
+    /// Changes `entries` in place and tells observers and the stats. `stats` says how the stats
+    /// follow: a dictation's own changes settle first (they land around its paste), deletes and
+    /// restores show at once, and audio changes leave every stat as it was.
+    private func updateEntries(
+        stats: TranscriptionStatsModel.HistoryChange,
+        _ change: (inout [TranscriptionHistoryEntry]) -> Void
+    ) {
+        self.objectWillChange.send()
+        change(&self.entries)
+        self.revision &+= 1
+        self.presence.update(hasEntries: !self.entries.isEmpty)
+        self.stats.historyDidChange(stats)
     }
 
     // MARK: - Public Methods
@@ -313,7 +324,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         )
 
         // Insert at beginning (newest first)
-        self.entries.insert(entry, at: 0)
+        self.updateEntries(stats: .dictation) { $0.insert(entry, at: 0) }
 
         self.saveEntries()
         if audio != nil {
@@ -328,7 +339,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         if let audio = self.entries.first(where: { $0.id == id })?.audio {
             DictationAudioHistoryStore.shared.deleteAudio(fileName: audio.fileName)
         }
-        self.entries.removeAll { $0.id == id }
+        self.updateEntries(stats: .immediate) { $0.removeAll { $0.id == id } }
 
         // Clear selection if deleted
         if self.selectedEntryID == id {
@@ -345,7 +356,7 @@ final class TranscriptionHistoryStore: ObservableObject {
                 DictationAudioHistoryStore.shared.deleteAudio(fileName: audio.fileName)
             }
         }
-        self.entries.removeAll { ids.contains($0.id) }
+        self.updateEntries(stats: .immediate) { $0.removeAll { ids.contains($0.id) } }
 
         if let selected = selectedEntryID, ids.contains(selected) {
             self.selectedEntryID = self.entries.first?.id
@@ -359,7 +370,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         DictationAudioHistoryStore.shared.deleteAllAudioFiles()
         // Clearing history means no dictation audio is left, a timed-out recording included.
         DictationAudioHistoryStore.shared.discardKeptDictation()
-        self.entries.removeAll()
+        self.updateEntries(stats: .immediate) { $0.removeAll() }
         self.selectedEntryID = nil
         self.saveEntries()
 
@@ -387,27 +398,13 @@ final class TranscriptionHistoryStore: ObservableObject {
         }
     }
 
-    /// Get entries filtered by date range
-    func entriesInRange(from startDate: Date, to endDate: Date) -> [TranscriptionHistoryEntry] {
-        self.entries.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
-    }
-
-    /// Get total character count across all entries
-    var totalCharacterCount: Int {
-        self.entries.reduce(0) { $0 + $1.characterCount }
-    }
-
-    /// Get count of AI-processed entries
-    var aiProcessedCount: Int {
-        self.entries.filter { $0.wasAIProcessed }.count
-    }
-
     func makeBackupPayload() -> [TranscriptionHistoryEntry] {
         self.entries
     }
 
     func restore(from payload: [TranscriptionHistoryEntry]) {
-        self.entries = payload.sorted { $0.timestamp > $1.timestamp }
+        let sorted = payload.sorted { $0.timestamp > $1.timestamp }
+        self.updateEntries(stats: .immediate) { $0 = sorted }
         self.selectedEntryID = self.entries.first?.id
         self.saveEntries()
     }
@@ -417,7 +414,7 @@ final class TranscriptionHistoryStore: ObservableObject {
             DictationAudioHistoryStore.shared.deleteAudio(fileName: audio.fileName)
             return
         }
-        self.entries[index] = self.entries[index].replacingAudio(audio)
+        self.updateEntries(stats: .unchanged) { $0[index] = $0[index].replacingAudio(audio) }
         self.saveEntries()
         self.pruneAudioToBudget()
     }
@@ -431,7 +428,11 @@ final class TranscriptionHistoryStore: ObservableObject {
         if includingKeptRecording {
             DictationAudioHistoryStore.shared.discardKeptDictation()
         }
-        self.entries = self.entries.map { $0.replacingAudio(nil) }
+        self.updateEntries(stats: .unchanged) { entries in
+            for index in entries.indices where entries[index].audio != nil {
+                entries[index] = entries[index].replacingAudio(nil)
+            }
+        }
         self.saveEntries()
         DebugLogger.shared.info("Deleted saved dictation audio (\(removedCount) entries)", source: "TranscriptionHistoryStore")
         return removedCount
@@ -469,7 +470,7 @@ final class TranscriptionHistoryStore: ObservableObject {
         }
 
         if prunedCount > 0 {
-            self.entries = updatedEntries
+            self.updateEntries(stats: .unchanged) { $0 = updatedEntries }
             self.saveEntries()
             DebugLogger.shared.info("Pruned saved dictation audio (\(prunedCount) entries)", source: "TranscriptionHistoryStore")
         }
@@ -482,10 +483,10 @@ final class TranscriptionHistoryStore: ObservableObject {
         guard let data = defaults.data(forKey: Keys.transcriptionHistory),
               let decoded = try? JSONDecoder().decode([TranscriptionHistoryEntry].self, from: data)
         else {
-            self.entries = []
+            self.updateEntries(stats: .immediate) { $0 = [] }
             return
         }
-        self.entries = decoded
+        self.updateEntries(stats: .immediate) { $0 = decoded }
     }
 
     /// Hands the current history to the background writer. Encoding thousands of entries on

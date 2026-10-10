@@ -2003,7 +2003,10 @@ private extension SettingsView {
                     help: "Skip Saturday and Sunday when calculating usage streaks.",
                     isOn: Binding(
                         get: { self.settings.weekendsDontBreakStreak },
-                        set: { self.settings.weekendsDontBreakStreak = $0 }
+                        set: {
+                            self.settings.weekendsDontBreakStreak = $0
+                            TranscriptionHistoryStore.shared.stats.refresh()
+                        }
                     ),
                     showsBottomRule: false
                 )

@@ -76,16 +76,15 @@ struct StatsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(self.palette.surface)
-        .onAppear { self.stats.beginLiveUpdates() }
-        .onDisappear { self.stats.endLiveUpdates() }
-        .onChange(of: self.settings.weekendsDontBreakStreak) { _, _ in self.stats.refresh() }
+        // Refreshes now and every minute while the page is up; SwiftUI cancels it when it goes.
+        .task { await self.stats.runLiveUpdates() }
         .alert("Reset All Stats", isPresented: self.$showResetConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Reset Everything", role: .destructive) {
                 TranscriptionHistoryStore.shared.clearAllHistory()
             }
         } message: {
-            Text("This will permanently delete all \(self.totalTranscriptions) transcriptions and reset all statistics. This action cannot be undone.")
+            Text("This will permanently delete all \(self.snapshot.map { self.formatNumber($0.total.transcriptions) } ?? "your") transcriptions and reset all statistics. This action cannot be undone.")
         }
     }
 
@@ -155,7 +154,7 @@ struct StatsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
-        .frame(minWidth: 200, maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .frame(minWidth: 190, maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
         .overlay(alignment: .trailing) {
             Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
         }
@@ -180,7 +179,7 @@ struct StatsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(minWidth: 150, maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+        .frame(minWidth: 140, maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
         .overlay(alignment: .trailing) {
             Rectangle().fill(self.palette.ruleSoft).frame(width: 1)
         }
@@ -379,7 +378,9 @@ struct StatsView: View {
 
                 HStack(spacing: 8) {
                     DatasheetMonoLabel(
-                        text: "\(self.formatNumber(self.activityTotals.words)) WORDS ACROSS \(self.activityTotals.activeDays) ACTIVE DAYS",
+                        text: self.snapshot == nil
+                            ? "— WORDS ACROSS — ACTIVE DAYS"
+                            : "\(self.formatNumber(self.activityTotals.words)) WORDS ACROSS \(self.activityTotals.activeDays) ACTIVE DAYS",
                         role: DatasheetTheme.Typography.tableLabel,
                         color: self.palette.text
                     )
@@ -397,7 +398,14 @@ struct StatsView: View {
     }
 
     private var activityData: [(date: Date, words: Int)] {
-        (self.snapshot?.dailyWords(days: self.chartDays) ?? []).map { (date: $0.date, words: $0.words) }
+        if let snapshot = self.snapshot {
+            return snapshot.dailyWords(days: self.chartDays).map { (date: $0.date, words: $0.words) }
+        }
+        // Empty days until the first snapshot lands, so the bars never pop in.
+        let today = Calendar.current.startOfDay(for: Date())
+        return (0..<self.chartDays).reversed().compactMap { offset in
+            Calendar.current.date(byAdding: .day, value: -offset, to: today).map { (date: $0, words: 0) }
+        }
     }
 
     private var activityTotals: (words: Int, activeDays: Int) {
@@ -455,7 +463,7 @@ struct StatsView: View {
         .padding(.top, 16)
         .padding(.bottom, 8)
         .overlay(alignment: .bottom) {
-            if maxWords == 0 {
+            if maxWords == 0, self.snapshot != nil {
                 Text("NO ACTIVITY YET")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .tracking(0.5)
@@ -536,7 +544,7 @@ struct StatsView: View {
         return VStack(spacing: 8) {
             self.sectionHeading(
                 "MILESTONES",
-                trailing: "\(snapshot.milestonesAchieved) OF \(snapshot.milestonesPossible)"
+                trailing: "\(self.snapshot == nil ? "—" : "\(snapshot.milestonesAchieved)") OF \(snapshot.milestonesPossible)"
             )
 
             VStack(spacing: 0) {
@@ -724,13 +732,17 @@ struct StatsView: View {
         Self.dayLabelFormatter.string(from: date).uppercased()
     }
 
+    private static let peakHourFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h a"
+        return formatter
+    }()
+
     /// "2 PM-3 PM" for the peak hour, "N/A" with no history.
     static func peakHourText(_ hour: Int?) -> String {
         guard let hour else { return "N/A" }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-
+        let formatter = Self.peakHourFormatter
         let calendar = Calendar.current
         var components = DateComponents()
         components.hour = hour

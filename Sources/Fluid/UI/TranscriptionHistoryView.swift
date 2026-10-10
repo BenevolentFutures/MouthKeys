@@ -61,7 +61,10 @@ struct TranscriptionHistoryView: View {
     /// A new query waits briefly for the next keystroke.
     private func runSearch() async {
         guard self.isSearching else {
-            self.searchResults = nil
+            // Each history change reruns this; assigning nil again would render the page twice.
+            if self.searchResults != nil {
+                self.searchResults = nil
+            }
             return
         }
         let query = self.searchQuery
@@ -75,6 +78,12 @@ struct TranscriptionHistoryView: View {
         }.value
         guard !Task.isCancelled else { return }
         self.searchResults = SearchResults(query: query, entries: matches)
+    }
+
+    /// A deleted entry leaves the matches at once; the search reruns off the main thread after.
+    private func dropFromSearchResults(_ id: UUID) {
+        guard let results = self.searchResults else { return }
+        self.searchResults = SearchResults(query: results.query, entries: results.entries.filter { $0.id != id })
     }
 
     private var selectedEntry: TranscriptionHistoryEntry? {
@@ -128,6 +137,7 @@ struct TranscriptionHistoryView: View {
             Button("Clear All", role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.historyStore.clearAllHistory()
+                    self.searchResults = nil
                     self.selectedEntryID = nil
                 }
             }
@@ -279,7 +289,7 @@ struct TranscriptionHistoryView: View {
                         .multilineTextAlignment(.leading)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(self.durationText(for: entry)) · \(self.wordCount(entry.processedText)) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
+                        Text("\(self.durationText(for: entry)) · \(entry.wordCount) WORDS · \(entry.appName.isEmpty ? "UNKNOWN APP" : entry.appName.uppercased())")
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 4) {
@@ -342,6 +352,7 @@ struct TranscriptionHistoryView: View {
             Button(role: .destructive) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.historyStore.deleteEntry(id: entry.id)
+                    self.dropFromSearchResults(entry.id)
                     if self.selectedEntryID == entry.id {
                         self.selectedEntryID = self.filteredEntries.first(where: { $0.id != entry.id })?.id
                     }
@@ -512,7 +523,7 @@ struct TranscriptionHistoryView: View {
             HStack(spacing: 0) {
                 self.factCell(label: "APPLICATION", value: entry.appName.isEmpty ? "Unknown" : entry.appName)
                 self.factCell(label: "LENGTH", value: self.durationText(for: entry))
-                self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                self.factCell(label: "WORDS", value: "\(entry.wordCount)")
                 self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
                 self.deliveryFact
             }
@@ -524,7 +535,7 @@ struct TranscriptionHistoryView: View {
                     self.factCell(label: "LENGTH", value: self.durationText(for: entry))
                 }
                 HStack(spacing: 0) {
-                    self.factCell(label: "WORDS", value: "\(self.wordCount(entry.processedText))")
+                    self.factCell(label: "WORDS", value: "\(entry.wordCount)")
                     self.factCell(label: "CHARACTERS", value: "\(entry.characterCount)")
                     self.deliveryFact
                 }
@@ -659,6 +670,7 @@ struct TranscriptionHistoryView: View {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     let nextEntry = self.filteredEntries.first(where: { $0.id != entry.id })
                     self.historyStore.deleteEntry(id: entry.id)
+                    self.dropFromSearchResults(entry.id)
                     self.selectedEntryID = nextEntry?.id
                 }
             }
@@ -702,10 +714,6 @@ struct TranscriptionHistoryView: View {
         guard let audio = entry.audio, self.hasAudio(entry) else { return "—" }
         let seconds = max(0, Int((Double(audio.durationMilliseconds) / 1000).rounded()))
         return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
-    }
-
-    private func wordCount(_ text: String) -> Int {
-        text.split(whereSeparator: \.isWhitespace).count
     }
 
     private func windowLabel(_ entry: TranscriptionHistoryEntry) -> String {
