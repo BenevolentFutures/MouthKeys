@@ -1,6 +1,6 @@
 # MouthKeys
 
-<p align="center"><b><i>Straight voice to text for macOS, built to land every word</i></b></p>
+<p align="center"><b><i>Wicked fast voice to text for macOS, built to land every word</i></b></p>
 
 <p align="center"><img src="docs/images/overlay.png" width="560" alt="The MouthKeys overlay mid-dictation: the live transcript above a voice trace, a 13-second timer, 43 words and 203 words per minute in the foot row, and the active mic. History and copy sit on the left rail, cancel and reprocess on the right."></p>
 
