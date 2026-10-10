@@ -1,6 +1,6 @@
 # contributing.
 
-thanks for helping. MouthKeys is for straight voice to text on macOS. the most welcome changes make that more reliable: recognition, delivery, hotkeys, audio and the overlay.
+thanks for helping. MouthKeys is for wicked fast voice to text on macOS. the most welcome changes make that more reliable: recognition, delivery, hotkeys, audio and the overlay.
 
 ## issues.
 

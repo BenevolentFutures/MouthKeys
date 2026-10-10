@@ -10,7 +10,7 @@
 
 ## 1. Thesis
 
-MouthKeys is straight voice to text. Its overlay is seen hundreds of times a day, so the language is **an engineering drawing of an instrument that stays quiet until you reach for it**: square solid surfaces, 1 px rules, square-ended ink bars, mono numerals and placards, and schematic selection brackets that draw outside a box's corners only under the pointer. No gradients, no blur, no glow, no materials, no corner radius. International orange is the only colour, and it only ever marks something live. Every state reads in a tenth of a second, and nothing moves unless it means something.
+MouthKeys is wicked fast voice to text. Its overlay is seen hundreds of times a day, so the language is **an engineering drawing of an instrument that stays quiet until you reach for it**: square solid surfaces, 1 px rules, square-ended ink bars, mono numerals and placards, and schematic selection brackets that draw outside a box's corners only under the pointer. No gradients, no blur, no glow, no materials, no corner radius. International orange is the only colour, and it only ever marks something live. Every state reads in a tenth of a second, and nothing moves unless it means something.
 
 The diagram grammar (brackets, mono, thin rules, status in solid colour and words, never blinking) is inherited from an earlier engineering-drawing deck design of Atin's. Its colours are not.
 

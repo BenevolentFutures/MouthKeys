@@ -1,6 +1,6 @@
 # MouthKeys
 
-macOS dictation app, forked from FluidVoice (see `UPSTREAM.md`). The product is **straight voice to text**. Fluid Intelligence is removed, telemetry is hard-off (`AnalyticsConfig.isConfigured` is false), and the upstream updater is off (`AppDelegate.upstreamUpdatesDisabled`). Keep all three that way.
+macOS dictation app, forked from FluidVoice (see `UPSTREAM.md`). The product is **wicked fast voice to text**. Fluid Intelligence is removed, telemetry is hard-off (`AnalyticsConfig.isConfigured` is false), and the upstream updater is off (`AppDelegate.upstreamUpdatesDisabled`). Keep all three that way.
 
 Atin dictates into Claude Code in c11 all day with the installed app. Text delivery into c11 and Ghostty (forced Reliable Paste) must never regress.
 

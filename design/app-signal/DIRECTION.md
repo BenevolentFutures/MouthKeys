@@ -113,7 +113,7 @@ The MouthKeys repo, `https://github.com/BenevolentFutures/MouthKeys`, is linked 
 9. Getting Started is the bare 00 row at the top of the sidebar. (Atin, round 5)
 10. Getting Started teaches the dictation key with a practice drill; the reference pill shows its hoverable zones in dashed orange; Settings leads with the microphone, then hotkeys, then dictation. (Atin, round 7)
 11. No keyboard shortcuts jump between screens; the prototype's digit keys are for clicking through the prototype. (Atin, 2026-10-07)
-12. Command Mode's honest state for a straight-dictation user is "not ready", shown with its banner. (Atin, 2026-10-07)
+12. Command Mode's honest state for a dictation-only user is "not ready", shown with its banner. (Atin, 2026-10-07)
 13. Spoken Send follows `main` after PR #57, not the prototype: no "Allow in c11" row (terminals always get Return), and a Q for Question Mark toggle. (Atin, 2026-10-07)
 
 ## Unsure

@@ -1080,7 +1080,7 @@ struct OnboardingFlowView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("MOUTHKEYS")
-                Text("STRAIGHT VOICE TO TEXT")
+                Text("WICKED FAST VOICE TO TEXT")
                 Text("LOCAL · NO TELEMETRY")
             }
             .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -3583,7 +3583,7 @@ struct OnboardingFlowView: View {
         self.goNext()
     }
 
-    /// The playground is the last step. MouthKeys is straight voice to text, so setup
+    /// The playground is the last step. MouthKeys is wicked fast voice to text, so setup
     /// never asks about AI; it records the choice as skipped unless a provider is already set.
     private func finishSetup(outcome: AnalyticsOnboardingOutcome) {
         if !DictationAIPostProcessingGate.isProviderConfigured() {

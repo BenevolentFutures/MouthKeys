@@ -1296,7 +1296,7 @@ function sPrefs() {
     sec("Global Hotkey", `<p class="note">Primary dictation can use a keyboard shortcut or allowed mouse button. Changes usually apply immediately. Click a shortcut to record a new one.</p><div class="rows">
       ${row("Primary Dictation Shortcuts", "Use any keyboard shortcut, auxiliary mouse button, or modified click.", hk(["Right ⌥"]) + hk(["Mouse 4"], { x: "×" }) + btn2("Add shortcut", { icon: "plus", sm: 1 }))}
       ${row("Activation Mode", `<span id="act-help">Tap once to start, tap again to stop.</span>`, seg([["toggle", "Toggle"], ["hold", "Hold"], ["both", "Both"]], "toggle", { w: 84 }).replace('class="seg', 'id="act-seg" class="seg'))}
-      ${row("AI Prompt", "The prompt profile your primary shortcut runs. AI Enhancement is unsupported; Off keeps dictation straight.", pick("Off", ["Off", "Default"], { cls: "w-sm" }))}
+      ${row("AI Prompt", "The prompt profile your primary shortcut runs. AI Enhancement is unsupported; Off leaves dictation as you spoke it.", pick("Off", ["Off", "Default"], { cls: "w-sm" }))}
       ${shortcutRow("Command Mode", "Execute voice commands", [], false)}
       ${shortcutRow("Edit Mode", "Select text and speak how to edit, or generate new content", ["⌥", "R"], true)}
       ${shortcutRow("Cancel Recording", "Cancel the current recording or dismiss the active recording overlay", ["Esc"])}
@@ -1551,7 +1551,7 @@ function sStats() {
 function sAI() {
   const provs = ["OpenAI", "Anthropic", "xAI", "Groq", "Cerebras", "Google", "OpenRouter", "Ollama", "LM Studio"];
   return head("08 / Advanced", "AI Enhancement", "", seg([["prov", "AI Providers"], ["prompts", "Advanced Prompts"]], "prov", { group: "ai", w: 150, pro: 1 })) +
-    `<div class="callout warn" style="margin-bottom:24px"><i></i><div><span class="placard"><b>Unsupported</b></span><p>Untested and unsupported. Kept from FluidVoice; fix or change it with your own agent.</p><p>MouthKeys is straight voice to text. Nothing on this page runs unless you set it up, and setup and Getting Started never ask for it.</p></div></div>` +
+    `<div class="callout warn" style="margin-bottom:24px"><i></i><div><span class="placard"><b>Unsupported</b></span><p>Untested and unsupported. Kept from FluidVoice; fix or change it with your own agent.</p><p>MouthKeys is wicked fast voice to text. Nothing on this page runs unless you set it up, and setup and Getting Started never ask for it.</p></div></div>` +
     `<div data-pane-of="ai" data-pane="prov">` +
     sec("Verified providers", `<div class="empty" style="padding:34px 24px"><div class="card"><span class="placard">00 verified</span><h3>No verified providers yet</h3><p>Set up a provider below and verify its connection.</p></div></div>`, { r: "0" }) +
     sec("All providers", `<div style="margin-bottom:12px"><label class="field bk" style="width:300px">${G.search}<input placeholder="Search providers"></label></div><div class="tbl">
@@ -1591,7 +1591,7 @@ function wizard() {
   return `<div class="wiz" role="dialog" aria-label="Set up MouthKeys">
     <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><div class="crumb"><span>Setup</span><span class="sep">/</span><span><b id="wiz-crumb">Welcome</b></span></div><div class="status"><span>${tbtn("Skip setup", { attr: "data-wiz-close" })}</span></div></div>
     <div class="wiz-body">
-      <div class="wiz-rail">${steps.map(([t], i) => `<div class="ws" data-i="${i}"><span class="n">${String(i + 1).padStart(2, "0")}</span><span class="t">${t}</span><span class="s"></span></div>`).join("")}<span class="grow"></span><div class="legend">MouthKeys<br>Straight voice to text<br>Local · no telemetry</div></div>
+      <div class="wiz-rail">${steps.map(([t], i) => `<div class="ws" data-i="${i}"><span class="n">${String(i + 1).padStart(2, "0")}</span><span class="t">${t}</span><span class="s"></span></div>`).join("")}<span class="grow"></span><div class="legend">MouthKeys<br>Wicked fast voice to text<br>Local · no telemetry</div></div>
       <div>
         <div class="wiz-page" data-title="Welcome"><div class="placard">01 / Welcome</div><div class="wdwg">${grinDrawing({ w: 660, h: 282, cx: 258, s: 6.4, rl: 196 })}</div><h1 style="font-size:40px;line-height:44px;margin-top:4px">Just speak.<br>We'll handle the rest.</h1><p class="lede" style="margin-top:12px">Accurate. Fast. Private. Free. Talk anywhere. MouthKeys types for you.</p></div>
         <div class="wiz-page" data-title="Language"><div class="placard">02 / Language</div><h1>What language will you speak most?</h1><p class="lede">We'll show the best voice engines for it.</p>
