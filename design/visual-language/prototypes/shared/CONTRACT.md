@@ -4,7 +4,7 @@ Every direction prototype is one file, `prototypes/<direction>/index.html`, with
 
 ## What MouthKeys is
 
-A macOS dictation app. Straight voice to text, nothing else. The owner uses it hundreds of times a day to dictate prompts into coding agents running in c11, a terminal multiplexer. The overlay is the surface he sees more than any other. It has to read at a glance, never shift under the cursor, and feel solid.
+A macOS dictation app. Wicked fast voice to text, nothing else. The owner uses it hundreds of times a day to dictate prompts into coding agents running in c11, a terminal multiplexer. The overlay is the surface he sees more than any other. It has to read at a glance, never shift under the cursor, and feel solid.
 
 ## Anatomy to preserve (from the current app, `notes/overlay-anatomy.md`)
 

@@ -75,6 +75,6 @@ Settled; the build does not reopen them:
 
 1. No keyboard shortcuts jump between screens (phase 1). The prototype's 0 to 9 keys are prototype navigation only.
 2. The round 2 grin is approved as prototyped (decision 6): tileless and themed (ink on white in light mode), the stamp bottom-left on every screen, outline grins only in the two empty states.
-3. Command Mode keeps its honest "not ready" banner for a straight-dictation user.
+3. Command Mode keeps its honest "not ready" banner for a dictation-only user.
 4. PR #57 merged before the build: no "Allow in c11" row, and a Q for Question Mark toggle the prototype never drew (rules 1 and 2).
 5. Seats (2026-10-08): the run happens entirely in Codex, overnight and full auto. Sol (`gpt-6.1-sol`, high, standard speed) coordinates and is Merge Captain; Luna (`gpt-6-luna`, max, fast mode) implements every phase and lane and runs a final QA round; Astra (`gpt-6-astra`, xhigh) reviews. Details in `BUILD-PROMPT.md`.

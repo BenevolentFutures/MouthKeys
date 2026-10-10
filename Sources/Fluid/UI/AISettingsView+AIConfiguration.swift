@@ -145,7 +145,7 @@ extension AIEnhancementSettingsView {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(self.palette.text)
 
-                Text("MouthKeys is straight voice to text. Nothing on this page runs unless you set it up, and setup and Getting Started never ask for it.")
+                Text("MouthKeys is wicked fast voice to text. Nothing on this page runs unless you set it up, and setup and Getting Started never ask for it.")
                     .font(.system(size: 13))
                     .lineSpacing(2)
                     .foregroundStyle(self.palette.text2)
