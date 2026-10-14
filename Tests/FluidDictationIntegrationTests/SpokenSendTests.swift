@@ -584,6 +584,64 @@ final class QuestionMarkShortcutTests: XCTestCase {
     }
 }
 
+// MARK: - The examples Settings > Spoken Shortcuts shows
+
+final class SpokenShortcutExamplesTests: XCTestCase {
+    private func rows(_ examples: [SpokenShortcutExample]) -> [String] {
+        examples.map { "\($0.said)\($0.inTerminal ? " (terminal)" : "") -> \($0.typed)\($0.sends ? " +send" : "")" }
+    }
+
+    func testQuestionMarkExamplesForTheDefaultLiteralWord() {
+        XCTAssertEqual(self.rows(SpokenShortcutExamples.questionMark(literalPrefix: "literal")), [
+            "is it green Q -> is it green?",
+            "is it green QQ and then what -> is it green? And then what",
+            "press literal Q -> press Q",
+            "add it to the queue -> add it to the queue",
+        ])
+    }
+
+    func testQuestionMarkExamplesFollowTheStartWord() {
+        XCTAssertEqual(
+            self.rows(SpokenShortcutExamples.questionMark(literalPrefix: "verbatim"))[2],
+            "press verbatim Q -> press Q"
+        )
+    }
+
+    func testSpokenSendExamplesForTheDefaultPhrase() {
+        XCTAssertEqual(self.rows(SpokenShortcutExamples.spokenSend(phrase: "send it")), [
+            "fix the typo send it -> fix the typo. +send",
+            "fix the typo send it (terminal) -> fix the typo +send",
+            "send it ->  +send",
+            "I'll send it tomorrow -> I'll send it tomorrow",
+            "can you send it -> can you send it",
+            "literal send it -> send it",
+        ])
+    }
+
+    func testSpokenSendExamplesFollowTheUsersPhrase() {
+        XCTAssertEqual(self.rows(SpokenShortcutExamples.spokenSend(phrase: " send send ")), [
+            "fix the typo send send -> fix the typo. +send",
+            "fix the typo send send (terminal) -> fix the typo +send",
+            "send send ->  +send",
+            "I'll send send tomorrow -> I'll send send tomorrow",
+            "can you send send -> can you send send",
+            "literal send send -> send send",
+        ])
+    }
+
+    /// The hint copy as the transcriber delivers it: capitalized, with its own punctuation.
+    func testTheHintExamplesHoldForTranscribedText() {
+        let send = { (text: String, terminal: Bool) in SpokenSendParser.parse(text, phrase: "send it", enabled: true, forTerminal: terminal) }
+        XCTAssertEqual(send("Fix the typo send it.", false), SpokenSendParseResult(text: "Fix the typo.", shouldSend: true))
+        XCTAssertEqual(send("Fix the typo, send it.", true), SpokenSendParseResult(text: "Fix the typo", shouldSend: true))
+        XCTAssertEqual(send("I'll send it tomorrow.", false), SpokenSendParseResult(text: "I'll send it tomorrow.", shouldSend: false))
+        XCTAssertEqual(send("Can you send it?", false), SpokenSendParseResult(text: "Can you send it?", shouldSend: false))
+        XCTAssertEqual(send("Literal send it.", false), SpokenSendParseResult(text: "send it", shouldSend: false))
+        XCTAssertEqual(QuestionMarkShortcut.apply("Is it green QQ.", literalPrefix: "literal"), "Is it green?")
+        XCTAssertEqual(QuestionMarkShortcut.apply("Literal Q.", literalPrefix: "literal"), "Q.")
+    }
+}
+
 // MARK: - Which apps are terminals, and which key they get
 
 final class SpokenSendPolicyTests: XCTestCase {
