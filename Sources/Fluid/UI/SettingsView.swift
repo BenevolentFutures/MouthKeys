@@ -38,6 +38,7 @@ struct SettingsView: View {
         case microphone
         case hotkeys
         case dictation
+        case shortcuts
         case app
         case history
         case format
@@ -55,6 +56,7 @@ struct SettingsView: View {
             case .microphone: "Microphone"
             case .hotkeys: "Hotkeys"
             case .dictation: "Dictation"
+            case .shortcuts: "Spoken Shortcuts"
             case .app: "App"
             case .history: "History & Privacy"
             case .format: "Text Formatting"
@@ -70,6 +72,7 @@ struct SettingsView: View {
             case .microphone: "MIC"
             case .hotkeys: "HOTKEYS"
             case .dictation: "DICT."
+            case .shortcuts: "SPOKEN"
             case .app: "APP"
             case .history: "HISTORY"
             case .format: "FORMAT"
@@ -719,7 +722,7 @@ private extension SettingsView {
         switch self.page {
         case .hotkeys: [.hotkeys]
         case .microphone: [.microphone]
-        case .app: [.dictation, .app, .history, .format, .alerts, .overlay, .backup, .debug]
+        case .app: [.dictation, .shortcuts, .app, .history, .format, .alerts, .overlay, .backup, .debug]
         }
     }
 
@@ -734,6 +737,7 @@ private extension SettingsView {
         case .microphone: AnyView(self.microphoneSettingsZone)
         case .hotkeys: AnyView(self.hotkeysSettingsZone)
         case .dictation: AnyView(self.dictationSettingsZone)
+        case .shortcuts: AnyView(self.spokenShortcutsSettingsZone)
         case .app: AnyView(self.appSettingsZone)
         case .history: AnyView(self.historySettingsZone)
         case .format: AnyView(self.formatSettingsZone)
@@ -1713,7 +1717,7 @@ private extension SettingsView {
     }
 
     var dictationSettingsZone: some View {
-        DatasheetSection(letter: self.letter(for: .dictation), title: "Dictation", note: "Controls for text delivery and spoken commands.") {
+        DatasheetSection(letter: self.letter(for: .dictation), title: "Dictation", note: "Controls for text delivery and recording.") {
             VStack(spacing: 0) {
                 self.sheetToggleRow(
                     "Copy to Clipboard",
@@ -1749,15 +1753,6 @@ private extension SettingsView {
                     )
                 )
                 self.sheetToggleRow(
-                    "Q for Question Mark",
-                    help: "Say “Q” as the last word, or “Q Q” anywhere, to type a question mark. Say “\(self.settings.punctuationDictionaryPrefix) Q” to type the letter.",
-                    isOn: Binding(
-                        get: { self.settings.questionMarkShortcutEnabled },
-                        set: { self.settings.questionMarkShortcutEnabled = $0 }
-                    )
-                )
-                self.spokenSendSettingsDatasheet
-                self.sheetToggleRow(
                     "Skip Silent Recordings",
                     help: "Avoid transcription when a recording up to four seconds contains only clear silence. Disabled by default to preserve quiet speech.",
                     isOn: Binding(
@@ -1778,11 +1773,105 @@ private extension SettingsView {
         }
     }
 
+    var spokenShortcutsSettingsZone: some View {
+        DatasheetSection(letter: self.letter(for: .shortcuts), title: "Spoken Shortcuts", note: "Words you say that do something instead of being typed.") {
+            VStack(spacing: 0) {
+                self.sheetToggleRow(
+                    "Q for Question Mark",
+                    help: "Say “QQ” anywhere, or a single “Q” as the last word, and MouthKeys types a question mark. “QQ” also starts a new sentence.",
+                    isOn: Binding(
+                        get: { self.settings.questionMarkShortcutEnabled },
+                        set: { self.settings.questionMarkShortcutEnabled = $0 }
+                    )
+                )
+                self.spokenShortcutExamplesPanel(
+                    SpokenShortcutExamples.questionMark(literalPrefix: self.settings.punctuationDictionaryPrefix),
+                    showsSendKey: false
+                )
+                self.spokenSendSettingsDatasheet
+                self.spokenShortcutExamplesPanel(
+                    SpokenShortcutExamples.spokenSend(phrase: self.settings.spokenSendPhrase),
+                    showsSendKey: true
+                )
+                DatasheetRow(
+                    label: "Literal Word",
+                    help: self.literalWordHelp,
+                    showsBottomRule: false,
+                    control: {
+                        self.sheetAction("Custom Dictionary", icon: "text.book.closed") {
+                            NotificationCenter.default.post(name: .openCustomDictionaryFromVoiceEngine, object: nil)
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    /// Q uses the Start Word from Custom Dictionary; the send phrase is always escaped by "literal".
+    private var literalWordHelp: String {
+        let prefix = self.settings.punctuationDictionaryPrefix
+        let location = "The Start Word is set in Custom Dictionary, under Spoken Formatting."
+        if prefix == SpokenShortcutExamples.sendLiteralWord {
+            return "Say “\(prefix)” right before a shortcut to type it as you said it. \(location)"
+        }
+        return "Say “\(prefix)” right before Q, or “\(SpokenShortcutExamples.sendLiteralWord)” right before your send phrase, to type it as you said it. \(location)"
+    }
+
+    /// "Say this, get this" rows in mono, built by running the real parsers on what is said.
+    func spokenShortcutExamplesPanel(_ examples: [SpokenShortcutExample], showsSendKey: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("TRY SAYING")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(0.6)
+                .foregroundStyle(self.datasheetPalette.text2)
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+                ForEach(examples) { example in
+                    GridRow(alignment: .firstTextBaseline) {
+                        (Text(example.said).foregroundStyle(self.datasheetPalette.text) +
+                            Text(example.inTerminal ? "  (terminal)" : "").foregroundStyle(self.datasheetPalette.text2))
+                            .font(.system(size: 12, design: .monospaced))
+                        Text("→")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(self.datasheetPalette.text2)
+                        Text(example.typed.isEmpty ? "(nothing typed)" : example.typed)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(example.typed.isEmpty ? self.datasheetPalette.text2 : self.datasheetPalette.text)
+                        if showsSendKey {
+                            Text(self.sendOutcome(for: example))
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .tracking(0.6)
+                                .foregroundStyle(self.datasheetPalette.text2)
+                                .padding(.leading, 14)
+                        }
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(self.datasheetPalette.sidebar)
+        .overlay { Rectangle().strokeBorder(self.datasheetPalette.edge, lineWidth: 1) }
+        .padding(.vertical, 8)
+    }
+
+    private func sendOutcome(for example: SpokenShortcutExample) -> String {
+        guard example.sends else { return "NOT SENT" }
+        let key = SpokenSendPolicy.effectiveKey(self.settings.spokenSendKey, isTerminal: example.inTerminal)
+        return "+ \(key.displayName.uppercased())"
+    }
+
+    private var spokenSendHelp: String {
+        let key = self.settings.spokenSendKey
+        let terminals = key == .enter ? "" : " Terminals get Return."
+        return "End a dictation with your send phrase and MouthKeys presses \(key.displayName) after the text lands.\(terminals) It counts only as the last thing you say, and not when it belongs to the sentence."
+    }
+
     var spokenSendSettingsDatasheet: some View {
         Group {
             self.sheetToggleRow(
                 "Spoken Send",
-                help: "End a dictation with a phrase and MouthKeys presses Return after the text lands.",
+                help: self.spokenSendHelp,
                 isOn: Binding(
                     get: { self.settings.spokenSendEnabled },
                     set: { self.settings.spokenSendEnabled = $0 }
@@ -1791,7 +1880,7 @@ private extension SettingsView {
             if self.settings.spokenSendEnabled {
                 DatasheetRow(
                     label: "Send Phrase",
-                    help: "Say it last. Say “literal \(self.settings.spokenSendPhrase)” to type it instead.",
+                    help: "Say it as the last words of a dictation.",
                     indent: true,
                     control: {
                         self.sheetField(
@@ -1818,7 +1907,6 @@ private extension SettingsView {
                     label: "Send Key",
                     help: "The key MouthKeys sends with. Terminals always get Return.",
                     indent: true,
-                    showsBottomRule: false,
                     control: {
                         let selection = Binding(
                             get: { self.settings.spokenSendKey },

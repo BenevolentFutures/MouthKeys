@@ -94,7 +94,7 @@ From 0.1.1 the app is `com.stage11.mouthkeys`. 0.1.0 ran under the app's earlier
 13. No voice model: in 03 Voice Engine, select a model you have not downloaded (do not download it). Press the dictation hotkey: nothing records, and a "No voice model" card says which model and offers **Download**. Click Download: the card says "Downloading the voice model", and once it is done "Voice model ready" (`grep -E 'SPEECH_MODEL_MISSING|MODEL_DOWNLOAD' ~/Library/Logs/MouthKeys/Fluid.log`). Dictate: the text lands. Switch back to your usual model.
 14. Cancel after the stop: dictate a long passage into c11, stop, and click the Cancel chip (X) on the pill while it shows Transcribing. The pill goes away, nothing is pasted, and the text is the newest entry in History. In onboarding, start a model download and click Cancel: the model you had before is selected again (`grep MODEL_RESTORE`).
 
-## 4. Spoken Send (05 App Settings: turn it on)
+## 4. Spoken Send (05 App Settings, Spoken Shortcuts: turn it on)
 12. In a Claude Code prompt in c11, say "fix the typo in the README, send it". The text lands without the phrase and the prompt submits.
     Log: `stop_target_capture pid=<c11> element=true`, then `SPOKEN_SEND outcome=sent`. If you see `focus_unreadable` instead, tell Cairn: the feature is failing safe and needs a fix.
 13. Say "Draft the reply but don't send it." No send, and no countdown.
@@ -102,7 +102,7 @@ From 0.1.1 the app is `com.stage11.mouthkeys`. 0.1.0 ran under the app's earlier
 15. Answer a Claude question with "Yes, go ahead and send it". It types "Yes" and submits.
 16. In Terminal.app, say "echo hello send it". `echo hello` lands with no period and runs (a plain Return).
 16a. Set the phrase to "send send". In c11, say "fix the typo send send": it stops within about half a second of the phrase, "fix the typo" lands and submits.
-16b. Turn on Q for Question Mark (05 App Settings, under Return to Starting Field). Say "is that right Q": it types "is that right?". Say "is that right Q send send" in c11: "is that right?" submits. Say "is it ready Q Q and then deploy it": "is it ready? And then deploy it". Say "add it to the queue": unchanged. Say "plan literal Q": "plan Q".
+16b. Turn on Q for Question Mark (05 App Settings, Spoken Shortcuts). Say "is that right Q": it types "is that right?". Say "is that right Q send send" in c11: "is that right?" submits. Say "is it ready Q Q and then deploy it": "is it ready? And then deploy it". Say "add it to the queue": unchanged. Say "plan literal Q": "plan Q".
 
 ## 5. The cut
 17. App Settings has no Fluid-1 or Fluid Intelligence anywhere. Updates is one line. Analytics says nothing is sent.
