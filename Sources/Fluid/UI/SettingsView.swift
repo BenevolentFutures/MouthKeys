@@ -1812,9 +1812,9 @@ private extension SettingsView {
         let prefix = self.settings.punctuationDictionaryPrefix
         let location = "The Start Word is set in Custom Dictionary, under Spoken Formatting."
         if prefix == SpokenShortcutExamples.sendLiteralWord {
-            return "Say “\(prefix)” right before a shortcut to type it as words instead. \(location)"
+            return "Say “\(prefix)” right before a shortcut to type it as you said it. \(location)"
         }
-        return "Say “\(prefix)” right before Q, or “\(SpokenShortcutExamples.sendLiteralWord)” right before your send phrase, to type it as words instead. \(location)"
+        return "Say “\(prefix)” right before Q, or “\(SpokenShortcutExamples.sendLiteralWord)” right before your send phrase, to type it as you said it. \(location)"
     }
 
     /// "Say this, get this" rows in mono, built by running the real parsers on what is said.
@@ -1841,6 +1841,7 @@ private extension SettingsView {
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .tracking(0.6)
                                 .foregroundStyle(self.datasheetPalette.text2)
+                                .padding(.leading, 14)
                         }
                     }
                 }
@@ -1860,11 +1861,17 @@ private extension SettingsView {
         return "+ \(key.displayName.uppercased())"
     }
 
+    private var spokenSendHelp: String {
+        let key = self.settings.spokenSendKey
+        let terminals = key == .enter ? "" : " Terminals get Return."
+        return "End a dictation with your send phrase and MouthKeys presses \(key.displayName) after the text lands.\(terminals) It counts only as the last thing you say, and not when it belongs to the sentence."
+    }
+
     var spokenSendSettingsDatasheet: some View {
         Group {
             self.sheetToggleRow(
                 "Spoken Send",
-                help: "End a dictation with your send phrase and MouthKeys presses \(self.settings.spokenSendKey.displayName) after the text lands. It counts only as the last thing you say, and not when it belongs to the sentence.",
+                help: self.spokenSendHelp,
                 isOn: Binding(
                     get: { self.settings.spokenSendEnabled },
                     set: { self.settings.spokenSendEnabled = $0 }
