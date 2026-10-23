@@ -71,7 +71,7 @@ going back to the DMG: quit MouthKeys, drag the downloaded app over yours, and d
 
 ## 4. first launch.
 
-grant Microphone, to hear you, and Accessibility, to type into other apps. then pick a speech model; the default, Parakeet TDT v3, is about a 460 MiB download. the README's [first launch](../README.md#first-launch) section has the rest.
+grant Microphone, to hear you, and Accessibility, to type into other apps. then pick a speech model; the default, Parakeet TDT v3, is about a 460 MiB download.
 
 ## when something goes wrong.
 
