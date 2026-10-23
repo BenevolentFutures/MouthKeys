@@ -2,7 +2,7 @@
 
 a release is a Developer ID signed, notarized and stapled `MouthKeys.app` inside a signed, notarized and stapled DMG, attached to a GitHub release. `scripts/release.sh` does all of it; `./build.sh dist` is the same thing.
 
-there is no auto-update. the upstream updater stays off, and people download each release by hand.
+there is no auto-update yet. the upstream updater stays off, and people download each release by hand. an updater of our own, Sparkle 2 with the appcast as a release asset, is decided and planned in [UPDATES.md](UPDATES.md); when it ships, this page changes with it.
 
 ## once.
 
