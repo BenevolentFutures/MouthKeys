@@ -9,7 +9,7 @@ thanks for helping. MouthKeys is for wicked fast voice to text on macOS. the mos
 
 ## build and test.
 
-`./build.sh` makes a signed Debug build; the README covers signing. the test suite, unsigned:
+`./build.sh` makes a signed Debug build; [docs/BUILDING.md](docs/BUILDING.md) covers what to install and how to sign. the test suite, unsigned:
 
 ```bash
 xcodebuild test -project Fluid.xcodeproj -scheme Fluid -destination 'platform=macOS' \

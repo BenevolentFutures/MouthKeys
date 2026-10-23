@@ -15,6 +15,7 @@
 #   scripts/release.sh install [APP]       # put a Developer ID app in /Applications: backup,
 #                                          # rollback script, swap, hotkey check
 #   scripts/release.sh publish [VERSION]   # publish the draft, check the download's sha256
+#                                          # and the README's link (latest/download/MouthKeys.dmg)
 #
 # The two halves can run on different Macs: `build` needs only Xcode 26 and no
 # signing identity, so a build host can make the app; `package` needs the
@@ -51,6 +52,9 @@ SKIP_NOTARIZE="${MOUTHKEYS_SKIP_NOTARIZE:-0}"
 BUILT_APP="${DERIVED_DATA_PATH}/Build/Products/Release/MouthKeys.app"
 APP_NAME="MouthKeys.app"
 VOLUME_NAME="MouthKeys"
+# The README's download link is releases/latest/download/MouthKeys.dmg, so every release also
+# carries its DMG under this unversioned name (the same file; signature and staple travel with it).
+LATEST_DMG="MouthKeys.dmg"
 
 IDENTITY=""
 
@@ -415,8 +419,10 @@ run_package() {
 
     run_verify "${app}" "${dmg}"
     CLEANUP_UNSIGNED=""
+    cp -f "${dmg}" "${DIST_DIR}/${LATEST_DMG}"
     echo
     echo "Release artifact: ${dmg}"
+    echo "The same DMG as ${DIST_DIR}/${LATEST_DMG}, for the README's download link."
     [ "${SKIP_NOTARIZE}" = "1" ] && echo "NOT notarized: for a signing check only, not for upload."
     return 0
 }
@@ -689,11 +695,24 @@ release_state() {
     fi
 }
 
+# Size in bytes of one asset of a release, or nothing when it has none by that name.
+asset_size() {
+    gh release view "$1" --repo "${REPO_SLUG}" --json assets --jq ".assets[] | select(.name == \"$2\") | .size" \
+        || die "cannot read the assets of $1 from GitHub."
+}
+
 run_publish() {
     local version="${1:-$(source_version)}" dmg="${2:-}"
     local tag="v${version}" local_sum remote_sum
     step "Publish ${tag}"
     [ "$(release_state "${tag}")" = "draft" ] || die "${tag} is not a draft release (already published, or not drafted)."
+    # The README's link needs a ${LATEST_DMG} that is this release's DMG: same name, same size.
+    local versioned_size latest_size
+    versioned_size="$(asset_size "${tag}" "MouthKeys-${version}.dmg")"
+    latest_size="$(asset_size "${tag}" "${LATEST_DMG}")"
+    [ -n "${latest_size}" ] && [ "${latest_size}" = "${versioned_size}" ] \
+        || die "${tag} needs a ${LATEST_DMG} asset the same size as MouthKeys-${version}.dmg (${latest_size:-none} vs ${versioned_size:-none})." \
+            "Copy MouthKeys-${version}.dmg to ${LATEST_DMG} and upload it: gh release upload ${tag} <path>/${LATEST_DMG} --clobber --repo ${REPO_SLUG}"
     gh release edit "${tag}" --repo "${REPO_SLUG}" --draft=false --latest >/dev/null
     echo "Published. Checking the download..."
     local attempt
@@ -710,6 +729,14 @@ run_publish() {
         [ "${local_sum}" = "${remote_sum}" ] || die "the download does not match ${dmg} (${local_sum})."
         echo "Matches ${dmg}."
     fi
+    local latest_url="https://github.com/${REPO_SLUG}/releases/latest/download/${LATEST_DMG}" latest_sum=""
+    for attempt in 1 2 3 4 5; do
+        latest_sum="$(curl -fsSL "${latest_url}" | shasum -a 256 | cut -d' ' -f1)" && [ "${latest_sum}" = "${remote_sum}" ] && break
+        latest_sum=""
+        sleep $((attempt * 3))
+    done
+    [ -n "${latest_sum}" ] || die "${latest_url} does not serve ${tag}'s DMG. The README's download link is broken until it does."
+    echo "The README's download link serves ${tag}."
     echo "Published: https://github.com/${REPO_SLUG}/releases/tag/${tag}"
 }
 
@@ -757,17 +784,17 @@ run_ship() {
     rm -rf "${work}/build"
     CLEANUP_BUILD=""
 
-    local dmg="${work}/dist/MouthKeys-${version}.dmg"
+    local dmg="${work}/dist/MouthKeys-${version}.dmg" latest_dmg="${work}/dist/${LATEST_DMG}"
     step "Draft ${tag}"
     local state
     state="$(release_state "${tag}")"
     [ "${state}" != "published" ] || die "${tag} was published while this ran. Nothing was uploaded."
     if [ "${state}" = "draft" ]; then
-        gh release upload "${tag}" "${dmg}" --clobber --repo "${REPO_SLUG}"
+        gh release upload "${tag}" "${dmg}" "${latest_dmg}" --clobber --repo "${REPO_SLUG}"
         gh release edit "${tag}" --repo "${REPO_SLUG}" --notes-file "${notes}" --target "${sha}" >/dev/null
     else
         gh release create "${tag}" --draft --repo "${REPO_SLUG}" --target "${sha}" \
-            --title "MouthKeys ${version}" --notes-file "${notes}" "${dmg}" >/dev/null
+            --title "MouthKeys ${version}" --notes-file "${notes}" "${dmg}" "${latest_dmg}" >/dev/null
     fi
     echo "Draft ready (not public yet)."
 
@@ -820,7 +847,7 @@ case "${1:-all}" in
         run_publish "${2:-}"
         ;;
     -h|--help|help)
-        sed -n '3,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         ;;
     *)
         die "unknown command: $1 (use ship, all, build, remote-build, package, verify, install or publish)."
