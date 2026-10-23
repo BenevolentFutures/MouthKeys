@@ -695,17 +695,24 @@ release_state() {
     fi
 }
 
+# Size in bytes of one asset of a release, or nothing when it has none by that name.
+asset_size() {
+    gh release view "$1" --repo "${REPO_SLUG}" --json assets --jq ".assets[] | select(.name == \"$2\") | .size" \
+        || die "cannot read the assets of $1 from GitHub."
+}
+
 run_publish() {
     local version="${1:-$(source_version)}" dmg="${2:-}"
     local tag="v${version}" local_sum remote_sum
     step "Publish ${tag}"
     [ "$(release_state "${tag}")" = "draft" ] || die "${tag} is not a draft release (already published, or not drafted)."
-    local assets
-    assets="$(gh release view "${tag}" --repo "${REPO_SLUG}" --json assets --jq '.assets[].name')" \
-        || die "cannot read the assets of ${tag} from GitHub."
-    [[ $'\n'"${assets}"$'\n' == *$'\n'"${LATEST_DMG}"$'\n'* ]] \
-        || die "${tag} has no ${LATEST_DMG} asset, which the README's download link needs." \
-            "Copy MouthKeys-${version}.dmg to ${LATEST_DMG} and upload it: gh release upload ${tag} <path>/${LATEST_DMG} --repo ${REPO_SLUG}"
+    # The README's link needs a ${LATEST_DMG} that is this release's DMG: same name, same size.
+    local versioned_size latest_size
+    versioned_size="$(asset_size "${tag}" "MouthKeys-${version}.dmg")"
+    latest_size="$(asset_size "${tag}" "${LATEST_DMG}")"
+    [ -n "${latest_size}" ] && [ "${latest_size}" = "${versioned_size}" ] \
+        || die "${tag} needs a ${LATEST_DMG} asset the same size as MouthKeys-${version}.dmg (${latest_size:-none} vs ${versioned_size:-none})." \
+            "Copy MouthKeys-${version}.dmg to ${LATEST_DMG} and upload it: gh release upload ${tag} <path>/${LATEST_DMG} --clobber --repo ${REPO_SLUG}"
     gh release edit "${tag}" --repo "${REPO_SLUG}" --draft=false --latest >/dev/null
     echo "Published. Checking the download..."
     local attempt
@@ -840,7 +847,7 @@ case "${1:-all}" in
         run_publish "${2:-}"
         ;;
     -h|--help|help)
-        sed -n '3,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         ;;
     *)
         die "unknown command: $1 (use ship, all, build, remote-build, package, verify, install or publish)."

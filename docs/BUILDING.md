@@ -4,10 +4,10 @@ you don't need any of this to use MouthKeys. the [DMG](https://github.com/Benevo
 
 ## what you need.
 
-- **a Mac with Apple Silicon.** the default speech engines need it. Intel builds compile, but this fork has not tested them.
+- **a Mac with Apple Silicon.** the default speech engines need it. Intel is untested.
 - **macOS 15.6 or later**, which Xcode 26 needs. the app itself runs on macOS 15.
 - **Xcode 26**, from the App Store. open it once so it installs its components. the Command Line Tools alone are not enough.
-- **about 2 GB free.** the clone is about 40 MB; a build with its Swift packages is about 1.5 GB, in the repo's `DerivedData` folder.
+- **about 3 GB free.** the clone is about 200 MB (about 40 MB with `--depth 1`), and a build with its Swift packages about 1.5 GB, in the repo's `DerivedData` folder.
 - **an Apple Account**, for signing. a free one is fine. you can skip it, at a cost (below).
 
 nothing else: no Homebrew, no package manager. the first build downloads its Swift packages itself.
@@ -30,6 +30,8 @@ macOS ties the Microphone and Accessibility permissions to an app's signature. s
 3. check: `security find-identity -v -p codesigning` lists an `Apple Development:` identity.
 
 with several teams, pick one with `export MOUTHKEYS_DEVELOPMENT_TEAM=<your 10-character Team ID>`. `build.sh` passes your team at build time, so you never edit the project.
+
+no Apple Account? skip this step and build with `./build.sh unsigned` below.
 
 ## 3. build and run.
 
@@ -60,12 +62,12 @@ it builds a signed Release, quits a running MouthKeys, backs up the installed ap
 
 **if your MouthKeys came from the DMG**, the dev build above is the easier road. installing your own build over it changes the app's signature from ours (Developer ID) to yours (Apple Development). macOS keeps showing the Accessibility switch as on, but it no longer matches, and the hotkeys go quiet. to switch for good:
 
-1. run `./build.sh install`. it lists any other copy of MouthKeys signed by someone else (an old download, the Trash, the backup it just made).
-2. once you're happy with your build, delete those copies and empty the Trash. a stale copy can make System Settings grant the wrong one.
+1. run `./build.sh install`. it quits MouthKeys, swaps in your build, and lists every other copy of MouthKeys signed by someone else: the backup it just made, an old download, the Trash.
+2. before you open MouthKeys again, delete those copies and empty the Trash. a stale copy can make System Settings grant the wrong one. the backup is your way back, so if you want to keep it, zip it first and delete the folder.
 3. reset the old grant: `tccutil reset Accessibility com.stage11.mouthkeys`.
 4. open MouthKeys and grant Microphone and Accessibility when it asks.
 
-going back to the DMG is the same in reverse: drag the downloaded app over yours, then steps 2 to 4. your settings, dictionary and history stay either way; only the permissions are tied to the signature.
+going back to the DMG: quit MouthKeys, drag the downloaded app over yours, and delete the copies your builds left, then steps 3 and 4. `mdfind "kMDItemCFBundleIdentifier == 'com.stage11.mouthkeys'"` lists every copy on the Mac; keep only `/Applications/MouthKeys.app`. the Release build in your clone's `DerivedData` counts, so delete that folder too. your settings, dictionary and history stay either way; only the permissions are tied to the signature.
 
 ## 4. first launch.
 
@@ -77,10 +79,9 @@ grant Microphone, to hear you, and Accessibility, to type into other apps. then 
 - **`xcodebuild` says it requires Xcode.** the Command Line Tools are selected. point it at Xcode: `sudo xcode-select -s /Applications/Xcode.app`.
 - **the build sits at `ClangStatCache` and never moves.** kill `clang-stat-cache` and build again. `build.sh` already avoids this; a hand-typed `xcodebuild` needs `SDK_STAT_CACHE_ENABLE=NO`.
 - **a warning about `CTranscribe.framework/Versions/Current`.** harmless.
-- **the hotkey does nothing, though Accessibility shows on.** almost always a signature mismatch: see *if your MouthKeys came from the DMG* above. the log says which: `grep HOTKEY_TAP ~/Library/Logs/MouthKeys/Fluid.log | tail -1` (for the dev build, `~/Library/Logs/MouthKeys-Dev/Fluid.log`) should end in `state=installed`. `waiting_for_accessibility` means macOS does not trust this copy yet. the app's Accessibility step also names any other copy that is confusing macOS.
+- **the hotkey does nothing, though Accessibility shows on.** almost always a signature mismatch: see *if your MouthKeys came from the DMG* above. check the log: `grep HOTKEY_TAP ~/Library/Logs/MouthKeys/Fluid.log | tail -1` (for the dev build, `~/Library/Logs/MouthKeys-Dev/Fluid.log`) should end in `state=installed`. with Accessibility switched on, `waiting_for_accessibility` means macOS does not trust this copy. the app's Accessibility step also names any other copy that is confusing macOS.
 
 ## going further.
 
-- tests and pull requests: [CONTRIBUTING.md](../CONTRIBUTING.md).
-- the house rules, including how tests must behave: [CLAUDE.md](../CLAUDE.md).
+- tests, house rules and pull requests: [CONTRIBUTING.md](../CONTRIBUTING.md).
 - the app's log: App Settings › Debug › Reveal Log File.

@@ -340,7 +340,8 @@ a.tb-cell:hover { background: var(--inv-bg); color: var(--inv-fg); }
     .then(function (rel) {
       if (!rel || !rel.tag_name) return;
       document.querySelectorAll("[data-version]").forEach(function (el) { el.textContent = rel.tag_name; });
-      var dmg = (rel.assets || []).filter(function (a) { return /\.dmg$/i.test(a.name); })[0];
+      var dmgs = (rel.assets || []).filter(function (a) { return /\.dmg$/i.test(a.name); });
+      var dmg = dmgs.filter(function (a) { return a.name === "MouthKeys.dmg"; })[0] || dmgs[0];
       if (dmg) document.querySelectorAll("[data-download]").forEach(function (a) { a.href = dmg.browser_download_url; });
     })
     .catch(function () {});

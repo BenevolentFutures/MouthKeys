@@ -8,7 +8,7 @@
 
 <p align="center"><a href="https://github.com/BenevolentFutures/MouthKeys/releases/latest/download/MouthKeys.dmg"><img src="https://img.shields.io/github/v/release/BenevolentFutures/MouthKeys?style=for-the-badge&label=download%20MouthKeys.dmg&labelColor=111111&color=FF4F1F" height="36" alt="download MouthKeys.dmg, the latest release"></a></p>
 
-<p align="center">free and open source · macOS 15 or later · Apple Silicon · <a href="https://mouthkeys.com">mouthkeys.com</a> · <a href="docs/BUILDING.md">build from source</a></p>
+<p align="center">free and open source · macOS 15 or later · made for Apple Silicon · <a href="https://mouthkeys.com">mouthkeys.com</a> · <a href="docs/BUILDING.md">build from source</a></p>
 
 ---
 
