@@ -6,7 +6,9 @@
 
 <p align="center"><sub>mid-dictation: the live transcript, your voice as a trace, and the word count and words per minute as you speak.</sub></p>
 
-<p align="center"><b><a href="https://github.com/BenevolentFutures/MouthKeys/releases/latest">download for macOS</a></b> · <a href="https://mouthkeys.com">mouthkeys.com</a> · free and open source · macOS 15 or later</p>
+<p align="center"><a href="https://github.com/BenevolentFutures/MouthKeys/releases/latest/download/MouthKeys.dmg"><img src="https://img.shields.io/github/v/release/BenevolentFutures/MouthKeys?style=for-the-badge&label=download%20MouthKeys.dmg&labelColor=111111&color=FF4F1F" height="36" alt="download MouthKeys.dmg, the latest release"></a></p>
+
+<p align="center">free and open source · macOS 15 or later · Apple Silicon · <a href="https://mouthkeys.com">mouthkeys.com</a> · <a href="docs/BUILDING.md">build from source</a></p>
 
 ---
 
@@ -38,31 +40,33 @@ the problem is not hearing you. the problem is. delivery.
 
 ## install.
 
-the app runs on macOS 15 or later. by engine: Parakeet, Nemotron and Cohere, the defaults, need Apple Silicon. Apple Speech needs macOS 26. Whisper up to Medium and Apple ASR Legacy, the older Apple engine, also run on Intel, which this fork has not tested.
-
 ### download.
 
-get the DMG from the [latest release](https://github.com/BenevolentFutures/MouthKeys/releases/latest), open it, and drag MouthKeys to Applications. it is signed with a Developer ID and notarized by Apple, so it opens like any other app.
+1. **[download MouthKeys.dmg](https://github.com/BenevolentFutures/MouthKeys/releases/latest/download/MouthKeys.dmg)**, the latest release.
+2. open it and drag MouthKeys to Applications.
+3. open MouthKeys. it walks you through the rest: Microphone, Accessibility and a speech model.
 
-the app does not update itself. to update, download the new release and replace the app; your settings, dictionary and history stay.
+that's the whole install. you don't need to clone this repo, install Xcode or build anything. the app is signed with a Developer ID and notarized by Apple, so it opens like any other app.
+
+it runs on macOS 15 or later. Parakeet, Nemotron and Cohere, the default engines, need Apple Silicon. Apple Speech needs macOS 26. Whisper up to Medium and Apple ASR Legacy, the older Apple engine, also run on Intel, which this fork has not tested.
+
+**updating.** the app does not update itself. download the new DMG and drag MouthKeys over the old one; your settings, dictionary, history and permissions stay.
 
 ### build it yourself.
 
-building needs Xcode 26, which needs macOS 15.6 or later.
+the code is all here, and you're welcome to build your own. it takes Xcode 26 and, ideally, a free Apple Account for signing:
 
 ```bash
-git clone --depth 1 https://github.com/BenevolentFutures/MouthKeys.git
+git clone https://github.com/BenevolentFutures/MouthKeys.git
 cd MouthKeys
-./build.sh install
+./build.sh
 ```
 
-`./build.sh install` builds a signed Release, quits a running MouthKeys, backs up the installed app to `~/Backups/`, and replaces `/Applications/MouthKeys.app`. it prints the command to roll back. to update, pull and run it again.
-
-**signing.** the install needs an Apple Development identity, so macOS keeps your permissions across rebuilds. a free Personal Team is enough: add an Apple Account in Xcode › Settings › Accounts, then create an Apple Development certificate. with several teams, set `MOUTHKEYS_DEVELOPMENT_TEAM` to the Team ID you want. if your installed MouthKeys came from the DMG, update it from the next DMG instead: `./build.sh install` replaces its Developer ID signature with your Apple Development one, and macOS stops honouring the Accessibility switch it had (the hotkeys go quiet). without an identity, `./build.sh unsigned` makes an unsigned Debug build, `DerivedData/Build/Products/Debug/MouthKeys Debug.app`. it is a separate app with its own settings and data, and macOS may ask for Accessibility again after each rebuild.
+[docs/BUILDING.md](docs/BUILDING.md) walks you through it: what to install, signing, a dev build that runs beside the downloaded app, installing your own build in its place, and what to do if the hotkeys go quiet.
 
 ### first launch.
 
-**permissions.** Microphone, to hear you. Accessibility, to type into other apps. Apple ASR Legacy also asks for Speech Recognition. then pick a speech model; the default on Apple Silicon, Parakeet TDT v3, is about a 460 MiB download. a download and your own build share settings and data, but not a signature, so moving from one to the other means granting Microphone and Accessibility again, once.
+**permissions.** Microphone, to hear you. Accessibility, to type into other apps. Apple ASR Legacy also asks for Speech Recognition. then pick a speech model; the default on Apple Silicon, Parakeet TDT v3, is about a 460 MiB download.
 
 **coming from 0.1.0.** from 0.1.1 MouthKeys has its own bundle ID. on its first launch it copies your settings, dictionary and history from 0.1.0 once and leaves the old copy untouched. macOS sees a new app, so it asks for Microphone and Accessibility again.
 
@@ -101,7 +105,7 @@ we follow FluidVoice's work and port the fixes that fit here by hand, crediting 
 
 ## contributing.
 
-bugs and ideas go in [issues](https://github.com/BenevolentFutures/MouthKeys/issues). pull requests target `main`; start with [CONTRIBUTING.md](CONTRIBUTING.md).
+bugs and ideas go in [issues](https://github.com/BenevolentFutures/MouthKeys/issues). pull requests target `main`; start with [CONTRIBUTING.md](CONTRIBUTING.md), and [docs/BUILDING.md](docs/BUILDING.md) for the build.
 
 ---
 

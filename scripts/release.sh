@@ -15,6 +15,7 @@
 #   scripts/release.sh install [APP]       # put a Developer ID app in /Applications: backup,
 #                                          # rollback script, swap, hotkey check
 #   scripts/release.sh publish [VERSION]   # publish the draft, check the download's sha256
+#                                          # and the README's link (latest/download/MouthKeys.dmg)
 #
 # The two halves can run on different Macs: `build` needs only Xcode 26 and no
 # signing identity, so a build host can make the app; `package` needs the
@@ -51,6 +52,9 @@ SKIP_NOTARIZE="${MOUTHKEYS_SKIP_NOTARIZE:-0}"
 BUILT_APP="${DERIVED_DATA_PATH}/Build/Products/Release/MouthKeys.app"
 APP_NAME="MouthKeys.app"
 VOLUME_NAME="MouthKeys"
+# The README's download link is releases/latest/download/MouthKeys.dmg, so every release also
+# carries its DMG under this unversioned name (the same file; signature and staple travel with it).
+LATEST_DMG="MouthKeys.dmg"
 
 IDENTITY=""
 
@@ -415,8 +419,10 @@ run_package() {
 
     run_verify "${app}" "${dmg}"
     CLEANUP_UNSIGNED=""
+    cp -f "${dmg}" "${DIST_DIR}/${LATEST_DMG}"
     echo
     echo "Release artifact: ${dmg}"
+    echo "The same DMG as ${DIST_DIR}/${LATEST_DMG}, for the README's download link."
     [ "${SKIP_NOTARIZE}" = "1" ] && echo "NOT notarized: for a signing check only, not for upload."
     return 0
 }
@@ -694,6 +700,12 @@ run_publish() {
     local tag="v${version}" local_sum remote_sum
     step "Publish ${tag}"
     [ "$(release_state "${tag}")" = "draft" ] || die "${tag} is not a draft release (already published, or not drafted)."
+    local assets
+    assets="$(gh release view "${tag}" --repo "${REPO_SLUG}" --json assets --jq '.assets[].name')" \
+        || die "cannot read the assets of ${tag} from GitHub."
+    [[ $'\n'"${assets}"$'\n' == *$'\n'"${LATEST_DMG}"$'\n'* ]] \
+        || die "${tag} has no ${LATEST_DMG} asset, which the README's download link needs." \
+            "Copy MouthKeys-${version}.dmg to ${LATEST_DMG} and upload it: gh release upload ${tag} <path>/${LATEST_DMG} --repo ${REPO_SLUG}"
     gh release edit "${tag}" --repo "${REPO_SLUG}" --draft=false --latest >/dev/null
     echo "Published. Checking the download..."
     local attempt
@@ -710,6 +722,14 @@ run_publish() {
         [ "${local_sum}" = "${remote_sum}" ] || die "the download does not match ${dmg} (${local_sum})."
         echo "Matches ${dmg}."
     fi
+    local latest_url="https://github.com/${REPO_SLUG}/releases/latest/download/${LATEST_DMG}" latest_sum=""
+    for attempt in 1 2 3 4 5; do
+        latest_sum="$(curl -fsSL "${latest_url}" | shasum -a 256 | cut -d' ' -f1)" && [ "${latest_sum}" = "${remote_sum}" ] && break
+        latest_sum=""
+        sleep $((attempt * 3))
+    done
+    [ -n "${latest_sum}" ] || die "${latest_url} does not serve ${tag}'s DMG. The README's download link is broken until it does."
+    echo "The README's download link serves ${tag}."
     echo "Published: https://github.com/${REPO_SLUG}/releases/tag/${tag}"
 }
 
@@ -757,17 +777,17 @@ run_ship() {
     rm -rf "${work}/build"
     CLEANUP_BUILD=""
 
-    local dmg="${work}/dist/MouthKeys-${version}.dmg"
+    local dmg="${work}/dist/MouthKeys-${version}.dmg" latest_dmg="${work}/dist/${LATEST_DMG}"
     step "Draft ${tag}"
     local state
     state="$(release_state "${tag}")"
     [ "${state}" != "published" ] || die "${tag} was published while this ran. Nothing was uploaded."
     if [ "${state}" = "draft" ]; then
-        gh release upload "${tag}" "${dmg}" --clobber --repo "${REPO_SLUG}"
+        gh release upload "${tag}" "${dmg}" "${latest_dmg}" --clobber --repo "${REPO_SLUG}"
         gh release edit "${tag}" --repo "${REPO_SLUG}" --notes-file "${notes}" --target "${sha}" >/dev/null
     else
         gh release create "${tag}" --draft --repo "${REPO_SLUG}" --target "${sha}" \
-            --title "MouthKeys ${version}" --notes-file "${notes}" "${dmg}" >/dev/null
+            --title "MouthKeys ${version}" --notes-file "${notes}" "${dmg}" "${latest_dmg}" >/dev/null
     fi
     echo "Draft ready (not public yet)."
 
