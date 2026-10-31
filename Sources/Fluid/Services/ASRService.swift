@@ -1097,6 +1097,12 @@ final class ASRService: ObservableObject {
             // Do not let direct capture startup overlap a queued AVAudioEngine
             // release.
             await self.audioEngineRetirementDrain.waitForScheduledReleases()
+            // What an AVAudioEngine fallback may use, taken from this attempt's off-main device
+            // snapshot so the fallback never lists devices on the main thread.
+            var snapshotInputs: [AudioDevice.Device] = []
+            var snapshotDefaultInputUID: String?
+            var selectionExclusions = excludedInputUIDs
+            var attemptedInput: AudioDevice.Device?
             do {
                 let deviceSnapshot = await Task.detached(priority: .userInitiated) {
                     let allDevices = AudioDevice.listAllDevices()
@@ -1108,7 +1114,9 @@ final class ASRService: ObservableObject {
                 let allDevices = deviceSnapshot.allDevices
                 let availableInputs = allDevices.filter(\.hasInput)
                 let wedgedInputUIDs = self.currentlyWedgedDirectInputUIDs()
-                let selectionExclusions = excludedInputUIDs.union(wedgedInputUIDs)
+                selectionExclusions = excludedInputUIDs.union(wedgedInputUIDs)
+                snapshotInputs = availableInputs
+                snapshotDefaultInputUID = deviceSnapshot.defaultInputUID
                 let selectedInput: AudioDevice.Device?
                 if let forcingInputUID, wedgedInputUIDs.contains(forcingInputUID) == false {
                     selectedInput = availableInputs.first { $0.uid == forcingInputUID }
@@ -1185,6 +1193,7 @@ final class ASRService: ObservableObject {
                 self.audioStartAttemptInputName = device.name
                 self.audioStartAttemptIsBluetooth = device.isBluetooth
                 self.audioStartAttemptIsInternalMicrophone = device.isUnavailableWhenClamshellClosed
+                attemptedInput = device
                 AppServices.shared.microphonePreferenceCoordinator.reportResolvedSelection(
                     uid: device.uid,
                     name: device.name
@@ -1234,6 +1243,30 @@ final class ASRService: ObservableObject {
                     )
                 }
                 await self.directAudioLifecycleController.invalidate(reason: "recording_start_failed")
+                let inputs = snapshotInputs
+                let defaultInputUID = snapshotDefaultInputUID
+                let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
+                    afterDirectFailureOn: attemptedInput,
+                    excluding: selectionExclusions
+                ) { exclusions in
+                    self.resolvedInputDeviceForCapture(
+                        availableInputs: inputs,
+                        defaultInputUID: defaultInputUID,
+                        excluding: exclusions
+                    )
+                }
+                guard case let .bind(primary, alternate) = fallback else {
+                    DebugLogger.shared.error(
+                        "Direct Core Audio capture failed: \(error.localizedDescription) " +
+                            "— no microphone left for an AVAudioEngine fallback",
+                        source: "ASRService"
+                    )
+                    self.benchmarkLog(
+                        "audio_backend_fallback_skipped reason=no_selected_input " +
+                            "excluded=\(selectionExclusions.count) error=\(error.localizedDescription)"
+                    )
+                    throw error
+                }
                 DebugLogger.shared.error(
                     "Direct Core Audio capture failed: \(error.localizedDescription) " +
                         "— falling back to AVAudioEngine for this session",
@@ -1241,10 +1274,14 @@ final class ASRService: ObservableObject {
                 )
                 self.benchmarkLog(
                     "audio_backend_fallback from=direct_core_audio to=av_audio_engine " +
+                        "input='\(primary.name)' alternate='\(alternate?.name ?? "none")' " +
                         "error=\(error.localizedDescription)"
                 )
                 do {
-                    try await self.startAVAudioEngineCapture(reason: "direct_core_audio_failed")
+                    try await self.startAVAudioEngineCapture(
+                        reason: "direct_core_audio_failed",
+                        inputPlan: AudioEngineInputPlan(primary: primary, alternate: alternate)
+                    )
                 } catch let engineError {
                     DebugLogger.shared.error(
                         "AVAudioEngine fallback failed as well: \(engineError.localizedDescription)",
@@ -1294,11 +1331,30 @@ final class ASRService: ObservableObject {
         }
     }
 
-    private func startAVAudioEngineCapture(reason: String) async throws {
+    /// The microphones an AVAudioEngine fallback binds, decided before it starts. Without a plan
+    /// (direct capture disabled) the engine resolves the input itself.
+    struct AudioEngineInputPlan {
+        let primary: AudioDevice.Device
+        let alternate: AudioDevice.Device?
+    }
+
+    private struct PlannedInputBindFailed: LocalizedError {
+        let plan: AudioEngineInputPlan
+
+        var errorDescription: String? {
+            let names = [self.plan.primary, self.plan.alternate].compactMap { $0?.name }
+            return "AVAudioEngine could not bind " + names.map { "'\($0)'" }.joined(separator: " or ")
+        }
+    }
+
+    private func startAVAudioEngineCapture(
+        reason: String,
+        inputPlan: AudioEngineInputPlan? = nil
+    ) async throws {
         await self.audioEngineRetirementDrain.waitForScheduledReleases()
         self.benchmarkLog("audio_backend kind=av_audio_engine reason=\(reason)")
         try self.configureSession()
-        try await self.startEngine()
+        try await self.startEngine(inputPlan: inputPlan)
         try self.setupEngineTap()
         self.activeAudioCaptureBackend = .audioEngine
     }
@@ -2559,6 +2615,12 @@ final class ASRService: ObservableObject {
                             fallbackAttempt += 1
                         }
                     }
+                } else {
+                    // No microphone is on record for this attempt (AVAudioEngine resolved its
+                    // own), so nothing can be excluded; it still spends an attempt, or the loop
+                    // rebuilds the engine forever (2026-10-31: every 2.5 s until the main
+                    // thread froze inside Core Audio).
+                    fallbackAttempt += 1
                 }
                 guard retryBluetoothInput || fallbackAttempt <= maximumStartAttempts else {
                     let message: String
@@ -3485,8 +3547,12 @@ final class ASRService: ObservableObject {
     /// In sync-with-system mode, we intentionally do nothing so the engine follows macOS defaults.
     /// Returns true if binding succeeded or if no binding was needed, false if binding failed completely.
     @discardableResult
-    private func bindPreferredInputDeviceIfNeeded() -> Bool {
+    private func bindPreferredInputDeviceIfNeeded(inputPlan: AudioEngineInputPlan? = nil) -> Bool {
         DebugLogger.shared.debug("bindPreferredInputDeviceIfNeeded() - Starting input device binding", source: "ASRService")
+
+        if let inputPlan {
+            return self.bindPlannedInputDevice(inputPlan)
+        }
 
         guard let device = self.resolvedInputDeviceForCapture() else {
             DebugLogger.shared.error(
@@ -3523,6 +3589,22 @@ final class ASRService: ObservableObject {
 
         DebugLogger.shared.info("Using current macOS default output device", source: "ASRService")
         return true
+    }
+
+    /// Binds the fallback's planned microphone, then its alternate. Never the macOS default
+    /// input: with the lid closed that is often the built-in microphone, which cannot capture.
+    private func bindPlannedInputDevice(_ plan: AudioEngineInputPlan) -> Bool {
+        for device in [plan.primary, plan.alternate].compactMap({ $0 }) {
+            if self.setEngineInputDevice(deviceID: device.id, deviceUID: device.uid, deviceName: device.name) {
+                DebugLogger.shared.info("✅ Bound AVAudioEngine input to '\(device.name)'", source: "ASRService")
+                return true
+            }
+            DebugLogger.shared.warning(
+                "Failed to bind engine input to planned microphone '\(device.name)' (uid: \(device.uid))",
+                source: "ASRService"
+            )
+        }
+        return false
     }
 
     /// Attempts to bind to the system default input device as a fallback.
@@ -3749,7 +3831,7 @@ final class ASRService: ObservableObject {
         }
     }
 
-    private func startEngine() async throws {
+    private func startEngine(inputPlan: AudioEngineInputPlan? = nil) async throws {
         DebugLogger.shared.debug("🚀 startEngine() - ENTERED", source: "ASRService")
         var attempts = 0
         var lastError: Error?
@@ -3760,8 +3842,14 @@ final class ASRService: ObservableObject {
                 // Note: This may fail for aggregate devices (Bluetooth, etc.) with OSStatus -10851
                 // In that case, we fall back to system defaults (same as sync mode)
                 DebugLogger.shared.debug("🎚️ Binding input device (before prepare)...", source: "ASRService")
-                let inputBindOk = self.bindPreferredInputDeviceIfNeeded()
+                let inputBindOk = self.bindPreferredInputDeviceIfNeeded(inputPlan: inputPlan)
                 DebugLogger.shared.debug("✅ Input device binding result: \(inputBindOk)", source: "ASRService")
+                if inputBindOk == false, let inputPlan {
+                    // A planned fallback never captures from whatever macOS defaults to: that
+                    // microphone was already ruled out or never chosen. Rebuilding the engine
+                    // would not change the answer either, so this ends the fallback.
+                    throw PlannedInputBindFailed(plan: inputPlan)
+                }
 
                 DebugLogger.shared.debug("🔊 Binding output device (before prepare)...", source: "ASRService")
                 let outputBindOk = self.bindPreferredOutputDeviceIfNeeded()
@@ -3794,6 +3882,8 @@ final class ASRService: ObservableObject {
                 try self.engine.start()
                 DebugLogger.shared.info("AVAudioEngine started successfully on attempt \(attempts + 1)", source: "ASRService")
                 return
+            } catch let bindFailure as PlannedInputBindFailed {
+                throw bindFailure
             } catch {
                 lastError = error
                 attempts += 1

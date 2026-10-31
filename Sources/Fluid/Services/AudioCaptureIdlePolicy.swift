@@ -246,4 +246,26 @@ enum AudioCaptureIdlePolicy {
         }
         return requiresIdlePrewarm
     }
+
+    /// Which microphones an AVAudioEngine fallback may bind after direct capture failed.
+    enum AudioEngineFallback: Equatable {
+        /// Direct capture chose no microphone: every input was quarantined, already failed, or
+        /// unavailable. Binding AVAudioEngine to one of them anyway re-entered a Core Audio call
+        /// stuck on that microphone and froze the main thread (2026-10-31), so the attempt fails.
+        case none
+        /// Bind the microphone direct capture just failed on; if that bind fails, the alternate,
+        /// which is resolved with the same exclusions (never a quarantined or failed input, nor
+        /// the built-in microphone while the lid is closed).
+        case bind(primary: AudioDevice.Device, alternate: AudioDevice.Device?)
+    }
+
+    static func audioEngineFallback(
+        afterDirectFailureOn attemptedInput: AudioDevice.Device?,
+        excluding excludedUIDs: Set<String>,
+        resolveAlternate: (Set<String>) -> AudioDevice.Device?
+    ) -> AudioEngineFallback {
+        guard let attemptedInput else { return .none }
+        let alternate = resolveAlternate(excludedUIDs.union([attemptedInput.uid]))
+        return .bind(primary: attemptedInput, alternate: alternate)
+    }
 }
