@@ -1247,15 +1247,11 @@ final class ASRService: ObservableObject {
                 let defaultInputUID = snapshotDefaultInputUID
                 let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
                     afterDirectFailureOn: attemptedInput,
-                    excluding: selectionExclusions
-                ) { exclusions in
-                    self.resolvedInputDeviceForCapture(
-                        availableInputs: inputs,
-                        defaultInputUID: defaultInputUID,
-                        excluding: exclusions
-                    )
-                }
-                guard case let .bind(primary, alternate) = fallback else {
+                    excluding: selectionExclusions,
+                    systemDefaultInputUID: defaultInputUID,
+                    clamshellClosed: ClamshellState.isClosed
+                )
+                guard case let .bind(primary, alternateExclusions, mayFollowSystemDefault) = fallback else {
                     DebugLogger.shared.error(
                         "Direct Core Audio capture failed: \(error.localizedDescription) " +
                             "— no microphone left for an AVAudioEngine fallback",
@@ -1274,13 +1270,24 @@ final class ASRService: ObservableObject {
                 )
                 self.benchmarkLog(
                     "audio_backend_fallback from=direct_core_audio to=av_audio_engine " +
-                        "input='\(primary.name)' alternate='\(alternate?.name ?? "none")' " +
+                        "input='\(primary.name)' mayFollowSystemDefault=\(mayFollowSystemDefault) " +
                         "error=\(error.localizedDescription)"
                 )
+                // Resolved only if the primary bind fails, from this attempt's snapshot.
+                let plan = AudioEngineInputPlan(
+                    primary: primary,
+                    mayFollowSystemDefault: mayFollowSystemDefault
+                ) { [weak self] in
+                    self?.resolvedInputDeviceForCapture(
+                        availableInputs: inputs,
+                        defaultInputUID: defaultInputUID,
+                        excluding: alternateExclusions
+                    )
+                }
                 do {
                     try await self.startAVAudioEngineCapture(
                         reason: "direct_core_audio_failed",
-                        inputPlan: AudioEngineInputPlan(primary: primary, alternate: alternate)
+                        inputPlan: plan
                     )
                 } catch let engineError {
                     DebugLogger.shared.error(
@@ -1335,15 +1342,16 @@ final class ASRService: ObservableObject {
     /// (direct capture disabled) the engine resolves the input itself.
     struct AudioEngineInputPlan {
         let primary: AudioDevice.Device
-        let alternate: AudioDevice.Device?
+        /// See `AudioCaptureIdlePolicy.AudioEngineFallback.bind`.
+        let mayFollowSystemDefault: Bool
+        let resolveAlternate: @MainActor () -> AudioDevice.Device?
     }
 
     private struct PlannedInputBindFailed: LocalizedError {
-        let plan: AudioEngineInputPlan
+        let primaryName: String
 
         var errorDescription: String? {
-            let names = [self.plan.primary, self.plan.alternate].compactMap { $0?.name }
-            return "AVAudioEngine could not bind " + names.map { "'\($0)'" }.joined(separator: " or ")
+            "'\(self.primaryName)' did not accept the recording, and no other microphone is usable."
         }
     }
 
@@ -3591,18 +3599,39 @@ final class ASRService: ObservableObject {
         return true
     }
 
-    /// Binds the fallback's planned microphone, then its alternate. Never the macOS default
-    /// input: with the lid closed that is often the built-in microphone, which cannot capture.
+    /// Binds the fallback's planned microphone, then its alternate, and records the one that
+    /// bound as this attempt's input. Never binds the macOS default otherwise: with the lid
+    /// closed that is often the built-in microphone, which cannot capture.
     private func bindPlannedInputDevice(_ plan: AudioEngineInputPlan) -> Bool {
-        for device in [plan.primary, plan.alternate].compactMap({ $0 }) {
-            if self.setEngineInputDevice(deviceID: device.id, deviceUID: device.uid, deviceName: device.name) {
-                DebugLogger.shared.info("✅ Bound AVAudioEngine input to '\(device.name)'", source: "ASRService")
-                return true
-            }
-            DebugLogger.shared.warning(
-                "Failed to bind engine input to planned microphone '\(device.name)' (uid: \(device.uid))",
+        if self.setEngineInputDevice(
+            deviceID: plan.primary.id,
+            deviceUID: plan.primary.uid,
+            deviceName: plan.primary.name
+        ) {
+            DebugLogger.shared.info("✅ Bound AVAudioEngine input to '\(plan.primary.name)'", source: "ASRService")
+            return true
+        }
+        DebugLogger.shared.warning(
+            "Failed to bind engine input to planned microphone '\(plan.primary.name)' (uid: \(plan.primary.uid))",
+            source: "ASRService"
+        )
+        if let alternate = plan.resolveAlternate(),
+           self.setEngineInputDevice(deviceID: alternate.id, deviceUID: alternate.uid, deviceName: alternate.name)
+        {
+            self.audioStartAttemptInputUID = alternate.uid
+            self.audioStartAttemptInputName = alternate.name
+            self.audioStartAttemptIsBluetooth = alternate.isBluetooth
+            self.audioStartAttemptIsInternalMicrophone = alternate.isUnavailableWhenClamshellClosed
+            DebugLogger.shared.info("✅ Bound AVAudioEngine input to alternate '\(alternate.name)'", source: "ASRService")
+            return true
+        }
+        if plan.mayFollowSystemDefault {
+            // The primary is the macOS default; an unbound engine captures from it.
+            DebugLogger.shared.info(
+                "AVAudioEngine follows the macOS default input '\(plan.primary.name)' unbound",
                 source: "ASRService"
             )
+            return true
         }
         return false
     }
@@ -3848,7 +3877,7 @@ final class ASRService: ObservableObject {
                     // A planned fallback never captures from whatever macOS defaults to: that
                     // microphone was already ruled out or never chosen. Rebuilding the engine
                     // would not change the answer either, so this ends the fallback.
-                    throw PlannedInputBindFailed(plan: inputPlan)
+                    throw PlannedInputBindFailed(primaryName: inputPlan.primary.name)
                 }
 
                 DebugLogger.shared.debug("🔊 Binding output device (before prepare)...", source: "ASRService")

@@ -2501,18 +2501,42 @@ final class HotkeyShortcutTests: XCTestCase {
 
     @MainActor
     func testAudioEngineFallbackFailsWhenDirectCaptureChoseNoMicrophone() {
-        var resolverCalls = 0
+        XCTAssertEqual(
+            AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: nil,
+                excluding: ["continuity"],
+                systemDefaultInputUID: "internal",
+                clamshellClosed: true
+            ),
+            .none
+        )
+    }
 
-        let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
-            afterDirectFailureOn: nil,
-            excluding: ["continuity"]
-        ) { _ in
-            resolverCalls += 1
-            return Self.device(uid: "continuity", name: "Hoplite17 Microphone")
+    @MainActor
+    func testAudioEngineFallbackFollowsSystemDefaultOnlyForAUsableDefault() {
+        let builtIn = Self.device(
+            uid: "internal",
+            name: "MacBook Pro Microphone",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let aggregate = Self.device(uid: "lapel-aggregate", name: "Hollyland Lapel Mic")
+        func follows(_ input: AudioDevice.Device, defaultUID: String, lidClosed: Bool) -> Bool {
+            guard case let .bind(_, _, mayFollow) = AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: input,
+                excluding: [],
+                systemDefaultInputUID: defaultUID,
+                clamshellClosed: lidClosed
+            ) else {
+                XCTFail("expected a bind plan")
+                return false
+            }
+            return mayFollow
         }
 
-        XCTAssertEqual(fallback, .none)
-        XCTAssertEqual(resolverCalls, 0)
+        XCTAssertTrue(follows(aggregate, defaultUID: aggregate.uid, lidClosed: true))
+        XCTAssertFalse(follows(aggregate, defaultUID: builtIn.uid, lidClosed: false))
+        XCTAssertTrue(follows(builtIn, defaultUID: builtIn.uid, lidClosed: false))
+        XCTAssertFalse(follows(builtIn, defaultUID: builtIn.uid, lidClosed: true))
     }
 
     /// 2026-10-31: lid closed, the Continuity microphone stuck in Core Audio. The fallback must
@@ -2546,29 +2570,30 @@ final class HotkeyShortcutTests: XCTestCase {
                 isClamshellClosed: true
             )
             let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
-            func fallback(excluding excluded: Set<String>, among available: [AudioDevice.Device]) ->
-                AudioCaptureIdlePolicy.AudioEngineFallback
-            {
-                AudioCaptureIdlePolicy.audioEngineFallback(
-                    afterDirectFailureOn: continuity,
-                    excluding: excluded
-                ) { exclusions in
-                    coordinator.inputDeviceForCapture(
-                        availableInputs: available,
-                        defaultInputUID: builtIn.uid,
-                        excluding: exclusions
-                    )
-                }
+            let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: continuity,
+                excluding: ["lapel"],
+                systemDefaultInputUID: builtIn.uid,
+                clamshellClosed: true
+            )
+            guard case let .bind(primary, alternateExclusions, mayFollow) = fallback else {
+                return XCTFail("expected a bind plan")
             }
+            let alternateWithUSB = coordinator.inputDeviceForCapture(
+                availableInputs: inputs,
+                defaultInputUID: builtIn.uid,
+                excluding: alternateExclusions
+            )
+            let alternateWithoutUSB = coordinator.inputDeviceForCapture(
+                availableInputs: [builtIn, continuity, lapel],
+                defaultInputUID: builtIn.uid,
+                excluding: alternateExclusions
+            )
 
-            XCTAssertEqual(
-                fallback(excluding: ["lapel"], among: inputs),
-                .bind(primary: continuity, alternate: usb)
-            )
-            XCTAssertEqual(
-                fallback(excluding: ["lapel"], among: [builtIn, continuity, lapel]),
-                .bind(primary: continuity, alternate: nil)
-            )
+            XCTAssertEqual(primary, continuity)
+            XCTAssertFalse(mayFollow)
+            XCTAssertEqual(alternateWithUSB, usb)
+            XCTAssertNil(alternateWithoutUSB)
         }
     }
 

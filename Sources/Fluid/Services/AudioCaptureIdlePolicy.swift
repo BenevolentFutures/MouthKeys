@@ -253,19 +253,33 @@ enum AudioCaptureIdlePolicy {
         /// unavailable. Binding AVAudioEngine to one of them anyway re-entered a Core Audio call
         /// stuck on that microphone and froze the main thread (2026-10-31), so the attempt fails.
         case none
-        /// Bind the microphone direct capture just failed on; if that bind fails, the alternate,
-        /// which is resolved with the same exclusions (never a quarantined or failed input, nor
-        /// the built-in microphone while the lid is closed).
-        case bind(primary: AudioDevice.Device, alternate: AudioDevice.Device?)
+        /// Bind the microphone direct capture just failed on. If that bind fails, an alternate
+        /// resolved with `alternateExclusions` (never the microphone just tried, a quarantined or
+        /// failed one, nor the built-in microphone while the lid is closed). If that fails too,
+        /// the engine may capture unbound, following macOS, only when `primary` is the macOS
+        /// default and usable: an aggregate or Bluetooth default can refuse an explicit bind
+        /// (-10851) and still capture.
+        case bind(
+            primary: AudioDevice.Device,
+            alternateExclusions: Set<String>,
+            mayFollowSystemDefault: Bool
+        )
     }
 
     static func audioEngineFallback(
         afterDirectFailureOn attemptedInput: AudioDevice.Device?,
         excluding excludedUIDs: Set<String>,
-        resolveAlternate: (Set<String>) -> AudioDevice.Device?
+        systemDefaultInputUID: String?,
+        clamshellClosed: Bool
     ) -> AudioEngineFallback {
         guard let attemptedInput else { return .none }
-        let alternate = resolveAlternate(excludedUIDs.union([attemptedInput.uid]))
-        return .bind(primary: attemptedInput, alternate: alternate)
+        let primaryIsUsableDefault =
+            attemptedInput.uid == systemDefaultInputUID &&
+            (clamshellClosed == false || attemptedInput.isUnavailableWhenClamshellClosed == false)
+        return .bind(
+            primary: attemptedInput,
+            alternateExclusions: excludedUIDs.union([attemptedInput.uid]),
+            mayFollowSystemDefault: primaryIsUsableDefault
+        )
     }
 }
