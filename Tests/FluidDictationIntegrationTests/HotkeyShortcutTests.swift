@@ -2500,6 +2500,104 @@ final class HotkeyShortcutTests: XCTestCase {
     }
 
     @MainActor
+    func testAudioEngineFallbackFailsWhenDirectCaptureChoseNoMicrophone() {
+        XCTAssertEqual(
+            AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: nil,
+                excluding: ["continuity"],
+                systemDefaultInputUID: "internal",
+                clamshellClosed: true
+            ),
+            .none
+        )
+    }
+
+    @MainActor
+    func testAudioEngineFallbackFollowsSystemDefaultOnlyForAUsableDefault() {
+        let builtIn = Self.device(
+            uid: "internal",
+            name: "MacBook Pro Microphone",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let aggregate = Self.device(uid: "lapel-aggregate", name: "Hollyland Lapel Mic")
+        func follows(_ input: AudioDevice.Device, defaultUID: String, lidClosed: Bool) -> Bool {
+            guard case let .bind(_, _, mayFollow) = AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: input,
+                excluding: [],
+                systemDefaultInputUID: defaultUID,
+                clamshellClosed: lidClosed
+            ) else {
+                XCTFail("expected a bind plan")
+                return false
+            }
+            return mayFollow
+        }
+
+        XCTAssertTrue(follows(aggregate, defaultUID: aggregate.uid, lidClosed: true))
+        XCTAssertFalse(follows(aggregate, defaultUID: builtIn.uid, lidClosed: false))
+        XCTAssertTrue(follows(builtIn, defaultUID: builtIn.uid, lidClosed: false))
+        XCTAssertFalse(follows(builtIn, defaultUID: builtIn.uid, lidClosed: true))
+    }
+
+    /// 2026-10-31: lid closed, the Continuity microphone stuck in Core Audio. The fallback must
+    /// bind the microphone direct capture tried, and its alternate must be neither that one, an
+    /// excluded one, nor the built-in microphone behind the closed lid.
+    @MainActor
+    func testAudioEngineFallbackAlternateSkipsAttemptedExcludedAndLidClosedInputs() throws {
+        try self.withRestoredDefaults(keys: [
+            self.microphoneSelectionModeKey,
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            let builtIn = Self.device(
+                uid: "internal",
+                name: "MacBook Pro Microphone",
+                transportType: kAudioDeviceTransportTypeBuiltIn
+            )
+            let continuity = Self.device(uid: "continuity", name: "Hoplite17 Microphone")
+            let lapel = Self.device(uid: "lapel", name: "Hollyland Lapel Mic")
+            let usb = Self.device(uid: "usb", name: "ATR4697-USB")
+            SettingsStore.shared.microphonePriority = [builtIn, continuity, lapel, usb].map {
+                .init(uid: $0.uid, name: $0.name)
+            }
+            SettingsStore.shared.microphoneSelectionMode = .manual
+            SettingsStore.shared.microphoneSelectionMigrationVersion = 4
+            let inputs = [builtIn, continuity, lapel, usb]
+            let devices = FakeAudioDeviceManager(
+                inputs: inputs,
+                defaultInputUID: builtIn.uid,
+                isClamshellClosed: true
+            )
+            let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
+            let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
+                afterDirectFailureOn: continuity,
+                excluding: ["lapel"],
+                systemDefaultInputUID: builtIn.uid,
+                clamshellClosed: true
+            )
+            guard case let .bind(primary, alternateExclusions, mayFollow) = fallback else {
+                return XCTFail("expected a bind plan")
+            }
+            let alternateWithUSB = coordinator.inputDeviceForCapture(
+                availableInputs: inputs,
+                defaultInputUID: builtIn.uid,
+                excluding: alternateExclusions
+            )
+            let alternateWithoutUSB = coordinator.inputDeviceForCapture(
+                availableInputs: [builtIn, continuity, lapel],
+                defaultInputUID: builtIn.uid,
+                excluding: alternateExclusions
+            )
+
+            XCTAssertEqual(primary, continuity)
+            XCTAssertFalse(mayFollow)
+            XCTAssertEqual(alternateWithUSB, usb)
+            XCTAssertNil(alternateWithoutUSB)
+        }
+    }
+
+    @MainActor
     func testClamshellKeepsBuiltInTransportExternalMicrophoneAvailable() throws {
         try self.withRestoredDefaults(keys: [
             self.microphoneSelectionModeKey,

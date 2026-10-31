@@ -246,4 +246,40 @@ enum AudioCaptureIdlePolicy {
         }
         return requiresIdlePrewarm
     }
+
+    /// Which microphones an AVAudioEngine fallback may bind after direct capture failed.
+    enum AudioEngineFallback: Equatable {
+        /// Direct capture chose no microphone: every input was quarantined, already failed, or
+        /// unavailable. Binding AVAudioEngine to one of them anyway re-entered a Core Audio call
+        /// stuck on that microphone and froze the main thread (2026-10-31), so the attempt fails.
+        case none
+        /// Bind the microphone direct capture just failed on. If that bind fails, an alternate
+        /// resolved with `alternateExclusions` (never the microphone just tried, a quarantined or
+        /// failed one, nor the built-in microphone while the lid is closed). If that fails too,
+        /// the engine may capture unbound, following macOS, only when `primary` is the macOS
+        /// default and usable: an aggregate or Bluetooth default can refuse an explicit bind
+        /// (-10851) and still capture.
+        case bind(
+            primary: AudioDevice.Device,
+            alternateExclusions: Set<String>,
+            mayFollowSystemDefault: Bool
+        )
+    }
+
+    static func audioEngineFallback(
+        afterDirectFailureOn attemptedInput: AudioDevice.Device?,
+        excluding excludedUIDs: Set<String>,
+        systemDefaultInputUID: String?,
+        clamshellClosed: Bool
+    ) -> AudioEngineFallback {
+        guard let attemptedInput else { return .none }
+        let primaryIsUsableDefault =
+            attemptedInput.uid == systemDefaultInputUID &&
+            (clamshellClosed == false || attemptedInput.isUnavailableWhenClamshellClosed == false)
+        return .bind(
+            primary: attemptedInput,
+            alternateExclusions: excludedUIDs.union([attemptedInput.uid]),
+            mayFollowSystemDefault: primaryIsUsableDefault
+        )
+    }
 }
