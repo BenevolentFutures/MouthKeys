@@ -426,7 +426,7 @@ private struct DatasheetPaletteFromScheme: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     /// Observes only this one key, so the overlay follows the setting live without observing the
     /// whole SettingsStore.
-    @AppStorage(SettingsStore.overlayOuterBorderEnabledKey) private var outerBorder = false
+    @AppStorage(SettingsStore.overlayOuterBorderEnabledKey) private var outerBorder = SettingsStore.overlayOuterBorderDefault
 
     func body(content: Content) -> some View {
         content

@@ -2325,10 +2325,11 @@ final class SettingsStore: ObservableObject {
     }
 
     /// A light 1 pt line around the overlay's surfaces (the pill and its cards), so the dark
-    /// surface stands out on a dark backdrop. Drawn in the dark appearance only. Default off.
+    /// surface stands out on a dark backdrop. Drawn in the dark appearance only. Default on (Atin,
+    /// 2026-11-01).
     /// The overlay reads it live through `@AppStorage(SettingsStore.overlayOuterBorderEnabledKey)`.
     var overlayOuterBorderEnabled: Bool {
-        get { self.defaults.bool(forKey: Keys.overlayOuterBorderEnabled) }
+        get { self.defaults.object(forKey: Keys.overlayOuterBorderEnabled) as? Bool ?? Self.overlayOuterBorderDefault }
         set {
             guard newValue != self.overlayOuterBorderEnabled else { return }
             objectWillChange.send()
@@ -2339,6 +2340,10 @@ final class SettingsStore: ObservableObject {
     static var overlayOuterBorderEnabledKey: String {
         Keys.overlayOuterBorderEnabled
     }
+
+    /// The outer border's value until the user sets it; `.datasheetPalette()`'s `@AppStorage`
+    /// uses the same default.
+    static let overlayOuterBorderDefault = true
 
     /// How many recent transcription characters show in overlays (default: 150)
     var transcriptionPreviewCharLimit: Int {
