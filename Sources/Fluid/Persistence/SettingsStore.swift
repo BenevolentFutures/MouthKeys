@@ -2236,6 +2236,22 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// A light 1 pt line around the overlay's surfaces (the pill and its cards), so the dark
+    /// surface stands out on a dark backdrop. Drawn in the dark appearance only. Default off.
+    /// The overlay reads it live through `@AppStorage(SettingsStore.overlayOuterBorderEnabledKey)`.
+    var overlayOuterBorderEnabled: Bool {
+        get { self.defaults.bool(forKey: Keys.overlayOuterBorderEnabled) }
+        set {
+            guard newValue != self.overlayOuterBorderEnabled else { return }
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.overlayOuterBorderEnabled)
+        }
+    }
+
+    static var overlayOuterBorderEnabledKey: String {
+        Keys.overlayOuterBorderEnabled
+    }
+
     /// How many recent transcription characters show in overlays (default: 150)
     var transcriptionPreviewCharLimit: Int {
         get {
@@ -3457,6 +3473,7 @@ final class SettingsStore: ObservableObject {
             overlayPosition: self.overlayPosition,
             overlayBottomOffset: self.overlayBottomOffset,
             overlaySize: self.overlaySize,
+            overlayOuterBorderEnabled: self.overlayOuterBorderEnabled,
             transcriptionPreviewCharLimit: self.transcriptionPreviewCharLimit,
             userTypingWPM: self.userTypingWPM,
             saveTranscriptionHistory: self.saveTranscriptionHistory,
@@ -3592,6 +3609,9 @@ final class SettingsStore: ObservableObject {
         self.overlayPosition = payload.overlayPosition
         self.overlayBottomOffset = payload.overlayBottomOffset
         self.overlaySize = payload.overlaySize
+        if let overlayOuterBorderEnabled = payload.overlayOuterBorderEnabled {
+            self.overlayOuterBorderEnabled = overlayOuterBorderEnabled
+        }
         self.transcriptionPreviewCharLimit = payload.transcriptionPreviewCharLimit
         self.userTypingWPM = payload.userTypingWPM
         self.saveTranscriptionHistory = payload.saveTranscriptionHistory
@@ -5599,6 +5619,7 @@ private extension SettingsStore {
         static let overlayBottomOffset = "OverlayBottomOffset"
         static let overlayBottomOffsetMigratedTo50 = "OverlayBottomOffsetMigratedTo50"
         static let overlaySize = "OverlaySize"
+        static let overlayOuterBorderEnabled = "OverlayOuterBorderEnabled"
         static let transcriptionPreviewCharLimit = "TranscriptionPreviewCharLimit"
 
         /// Media Playback Control

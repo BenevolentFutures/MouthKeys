@@ -75,6 +75,8 @@ struct SettingsBackupPayload: Codable, Equatable {
     let overlayPosition: SettingsStore.OverlayPosition
     let overlayBottomOffset: Double
     let overlaySize: SettingsStore.OverlaySize
+    // Optional so backups created before the outer border still decode.
+    let overlayOuterBorderEnabled: Bool?
     let transcriptionPreviewCharLimit: Int
     let userTypingWPM: Int
     let saveTranscriptionHistory: Bool
