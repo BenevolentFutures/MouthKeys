@@ -7850,15 +7850,16 @@ final class MainRunLoopStretchProbe {
 /// 40 %): a light line flush outside a Datasheet surface's edge, dark appearance only, off by default.
 @MainActor
 final class DatasheetOuterBorderTests: XCTestCase {
-    private var savedSetting = false
+    /// The Debug test host's own stored value (nil: never set), put back exactly in tearDown.
+    private var savedSetting: Any?
 
     override func setUp() {
         super.setUp()
-        self.savedSetting = SettingsStore.shared.overlayOuterBorderEnabled
+        self.savedSetting = UserDefaults.standard.object(forKey: SettingsStore.overlayOuterBorderEnabledKey)
     }
 
     override func tearDown() {
-        SettingsStore.shared.overlayOuterBorderEnabled = self.savedSetting
+        UserDefaults.standard.set(self.savedSetting, forKey: SettingsStore.overlayOuterBorderEnabledKey)
         DatasheetRenderStage.reset()
         super.tearDown()
     }
@@ -7926,13 +7927,24 @@ final class DatasheetOuterBorderTests: XCTestCase {
         }
     }
 
-    func testTheSettingIsBackedUp() async {
+    func testTheSettingIsBackedUpAndOlderBackupsLeaveItAlone() async throws {
         let settings = SettingsStore.shared
         settings.overlayOuterBorderEnabled = true
-        let document = await BackupService.shared.makeBackupDocument()
-        XCTAssertEqual(document.settings.overlayOuterBorderEnabled, true)
+        let encoded = try BackupService.shared.encode(await BackupService.shared.makeBackupDocument())
+        let decoded = try BackupService.shared.decode(encoded)
+        XCTAssertEqual(decoded.settings.overlayOuterBorderEnabled, true)
         settings.overlayOuterBorderEnabled = false
-        settings.restore(from: document.settings)
+        settings.restore(from: decoded.settings)
+        XCTAssertTrue(settings.overlayOuterBorderEnabled)
+
+        // A backup from before the setting decodes, and restoring it keeps the current value.
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var encodedSettings = try XCTUnwrap(root["settings"] as? [String: Any])
+        encodedSettings.removeValue(forKey: "overlayOuterBorderEnabled")
+        root["settings"] = encodedSettings
+        let legacy = try BackupService.shared.decode(JSONSerialization.data(withJSONObject: root))
+        XCTAssertNil(legacy.settings.overlayOuterBorderEnabled)
+        settings.restore(from: legacy.settings)
         XCTAssertTrue(settings.overlayOuterBorderEnabled)
     }
 }

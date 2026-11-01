@@ -2245,11 +2245,6 @@ private extension SettingsView {
                             )
                         }
                     )
-                    self.sheetToggleRow(
-                        "Outer Border",
-                        help: "A light line around the overlay, so it stands out on dark backgrounds. Dark appearance only.",
-                        isOn: self.$settings.overlayOuterBorderEnabled
-                    )
                 } else {
                     DatasheetRow(
                         label: "Notch Style",
@@ -2269,6 +2264,11 @@ private extension SettingsView {
                     )
                 }
 
+                self.sheetToggleRow(
+                    "Outer Border",
+                    help: "A light line around the overlay and its cards, so they stand out on dark backgrounds. Dark appearance only.",
+                    isOn: self.$settings.overlayOuterBorderEnabled
+                )
                 self.sheetToggleRow(
                     "Live Preview",
                     help: "Show transcription text in the overlay while you speak.",
