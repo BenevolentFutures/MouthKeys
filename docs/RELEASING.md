@@ -29,7 +29,7 @@ scripts/release.sh ship --notes notes.md
 
 it checks everything first (clean `origin/main`, the version not yet released, the Developer ID identity, the notary profile, main's CI, the build host), then builds that exact commit on the build host (`MOUTHKEYS_BUILD_HOST`, default `atlas`; `local` builds here), copies it back, signs, notarizes and staples it, drafts the GitHub release with the DMG under both names, and installs it here the safe way (`scripts/release.sh install`: signature match, verified backup with a `rollback.sh`, quit, swap, and the hotkey must arm). then it asks: dictate once, type `publish`, and the release goes public, the download's sha256 is checked against the DMG, and the README's link must serve it. run without a terminal (an agent), it stops before publishing and prints `scripts/release.sh publish <version>`.
 
-per-machine settings go in `scripts/release.local.sh` (git-ignored), for example `MOUTHKEYS_NOTARY_PROFILE=acetate-notary`.
+per-machine settings go in `scripts/release.local.sh` (git-ignored), for example `MOUTHKEYS_NOTARY_PROFILE=acetate-notary`. being git-ignored, it lives only in the checkout where it was made: a ship from a fresh worktree (the usual way when the main checkout has local changes) reads no settings and stops at the notary check, so copy the file in first.
 
 the steps below are what it does, one at a time.
 
