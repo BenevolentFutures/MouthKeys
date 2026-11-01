@@ -1961,11 +1961,16 @@ final class SettingsStore: ObservableObject {
             entries.append(MicrophonePriorityEntry(uid: preferredUID, name: name))
         }
 
-        entries = Self.oneRowPerUSBPortMic(entries, connected: devices.filter { suppressedUIDs.contains($0.uid) == false })
+        // Removing a port-identified USB mic removes it on every port.
+        let suppressedModels = Set(suppressedUIDs.compactMap { MicrophonePriorityEntry.usbModelKey(uid: $0) })
+        let isSuppressed = { (uid: String) -> Bool in
+            suppressedUIDs.contains(uid) || MicrophonePriorityEntry.usbModelKey(uid: uid).map(suppressedModels.contains) == true
+        }
+        entries = Self.oneRowPerUSBPortMic(entries, connected: devices.filter { isSuppressed($0.uid) == false })
 
         var knownUIDs = Set(entries.map(\.uid))
         let newEntries = devices.compactMap { device -> MicrophonePriorityEntry? in
-            guard suppressedUIDs.contains(device.uid) == false,
+            guard isSuppressed(device.uid) == false,
                   knownUIDs.insert(device.uid).inserted
             else { return nil }
             return MicrophonePriorityEntry(uid: device.uid, name: device.name, transportType: device.transportType)
@@ -2003,49 +2008,64 @@ final class SettingsStore: ObservableObject {
         self.microphonePriority = entries
     }
 
-    /// A USB mic identified by its port (`MicrophonePriorityEntry.usbModelKey`) keeps one row, at
-    /// the place and tier of its highest-ranked row: the port it is on now when connected (a port
-    /// never seen before included), else that row. Other ports' rows are dropped. Two identical
-    /// units connected together keep a row each, side by side. Runs before new microphones are
-    /// added, so a new port takes over the existing row rather than joining the end of a tier.
+    /// A USB mic identified by its port (`MicrophonePriorityEntry.usbModelKey`) keeps one row.
+    /// Connected on one port (a port never seen before included), that port takes the place and
+    /// tier of the mic's highest-ranked row; disconnected, that row stays. Other ports' rows are
+    /// dropped. Two identical units connected together keep their own rows where they are, a new
+    /// one joining right after the first. Runs before new microphones are added, so a new port
+    /// takes the row over rather than joining the end of a tier.
     static func oneRowPerUSBPortMic(
         _ entries: [MicrophonePriorityEntry],
         connected devices: [AudioDevice.Device]
     ) -> [MicrophonePriorityEntry] {
         let connectedUIDs = Set(devices.map(\.uid))
         let listedUIDs = Set(entries.map(\.uid))
-        var rowsByModel: [String: [MicrophonePriorityEntry]] = [:]
-        for entry in entries {
-            guard let model = MicrophonePriorityEntry.usbModelKey(uid: entry.uid) else { continue }
-            rowsByModel[model, default: []].append(entry)
-        }
-        var placed = Set<String>()
-        var result: [MicrophonePriorityEntry] = []
-        for entry in entries {
-            guard let model = MicrophonePriorityEntry.usbModelKey(uid: entry.uid) else {
-                result.append(entry)
-                continue
-            }
-            guard placed.insert(model).inserted else { continue }
-            let rows = rowsByModel[model] ?? [entry]
+        let models = entries.map { MicrophonePriorityEntry.usbModelKey(uid: $0.uid) }
+        // One slot per row, so indices stay valid while rows are dropped or joined.
+        var slots = entries.map { [$0] }
+        var handled = Set<String>()
+        for (index, model) in models.enumerated() {
+            guard let model, handled.insert(model).inserted else { continue }
+            let rowIndices = models.indices.filter { models[$0] == model }
+            let connectedIndices = rowIndices.filter { connectedUIDs.contains(entries[$0].uid) }
             let newPorts = devices
                 .filter { listedUIDs.contains($0.uid) == false && MicrophonePriorityEntry.usbModelKey(uid: $0.uid) == model }
-                .map { MicrophonePriorityEntry(uid: $0.uid, name: $0.name, tier: entry.tier, transportType: $0.transportType) }
-            let connected = rows.filter { connectedUIDs.contains($0.uid) } + newPorts
-            result += connected.isEmpty ? [entry] : connected.map { row in
-                var row = row
-                row.tier = entry.tier
-                return row
+                .map { MicrophonePriorityEntry(uid: $0.uid, name: $0.name, tier: nil, transportType: $0.transportType) }
+            guard rowIndices.count > 1 || newPorts.isEmpty == false else { continue }
+            let first = entries[index]
+            var kept: [String] = []
+            if connectedIndices.count + newPorts.count <= 1 {
+                // One mic: its current port (or the first row) at the first row's place and tier.
+                var row = connectedIndices.first.map { entries[$0] } ?? newPorts.first ?? first
+                row.tier = first.tier
+                for rowIndex in rowIndices { slots[rowIndex] = [] }
+                slots[index] = [row]
+                kept = [row.uid]
+            } else {
+                // Identical units together: connected rows stay as ranked; new ones follow the
+                // first connected row (or take the first row's place), in its tier.
+                for rowIndex in rowIndices where connectedIndices.contains(rowIndex) == false {
+                    slots[rowIndex] = []
+                }
+                let anchor = connectedIndices.first ?? index
+                let anchorTier = connectedIndices.first.map { entries[$0].tier } ?? first.tier
+                let joined = newPorts.map { port -> MicrophonePriorityEntry in
+                    var port = port
+                    port.tier = anchorTier
+                    return port
+                }
+                slots[anchor] += joined
+                kept = connectedIndices.map { entries[$0].uid } + joined.map(\.uid)
             }
-            let dropped = rows.filter { row in connected.isEmpty ? row.uid != entry.uid : connected.contains { $0.uid == row.uid } == false }
-            if dropped.isEmpty == false || newPorts.isEmpty == false {
+            let dropped = rowIndices.count + newPorts.count - kept.count
+            if dropped > 0 || newPorts.isEmpty == false {
                 DebugLogger.shared.info(
-                    "MIC_PRIORITY usb_port_rows name='\(entry.name)' kept=\(connected.isEmpty ? entry.uid : connected.map(\.uid).joined(separator: ",")) dropped=\(dropped.count)",
+                    "MIC_PRIORITY usb_port_rows name='\(first.name)' kept=\(kept.joined(separator: ",")) dropped=\(dropped)",
                     source: "SettingsStore"
                 )
             }
         }
-        return result
+        return slots.flatMap { $0 }
     }
 
     /// Removing a microphone always suppresses it, connected or not, so it stays out of the list

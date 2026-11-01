@@ -300,7 +300,10 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         // floating notice here would cover that flow and duplicate the picker.
         guard self.settings.shouldShowOnboarding == false else { return }
 
-        guard previousUID != nil, uid != previousUID else {
+        // The same port-identified USB mic on another port is not a change of microphone.
+        let samePortMovedMic = previousUID.flatMap { SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: $0) }
+            .map { $0 == uid.flatMap { SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: $0) } } == true
+        guard previousUID != nil, uid != previousUID, samePortMovedMic == false else {
             if self.startupNoticeEligibilityEnabled {
                 self.scheduleStartupNoticeAfterSelectionSettles()
             }
@@ -416,6 +419,21 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         defaultInputUID: String? = nil,
         excluding excludedUIDs: Set<String> = []
     ) -> AudioDevice.Device? {
+        // A port-identified USB mic on a port the list has not seen yet (plugged in just before
+        // this dictation, ahead of the device-change handler) takes its row over first, so it is
+        // ranked where the user put it. One cheap check; the reconcile runs only then.
+        let listedUIDs = Set(self.settings.microphonePriority.map(\.uid))
+        let suppressedModels = Set(self.settings.suppressedMicrophoneUIDs.compactMap {
+            SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: $0)
+        })
+        if availableInputs.contains(where: { device in
+            guard listedUIDs.contains(device.uid) == false,
+                  let model = SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: device.uid)
+            else { return false }
+            return suppressedModels.contains(model) == false
+        }) {
+            self.settings.reconcileMicrophonePriority(with: availableInputs)
+        }
         let clamshellClosed = self.devices.isClamshellClosed
         if let pickUID = self.sessionPickUID {
             if let picked = availableInputs.first(where: { $0.uid == pickUID }) {

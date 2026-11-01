@@ -2670,7 +2670,7 @@ final class HotkeyShortcutTests: XCTestCase {
     /// it is on now takes over its highest-ranked row's place and tier. Selection, the Bluetooth
     /// wait and hot-plug all read that one exact UID. A mic with a real serial number is left alone.
     @MainActor
-    func testAUSBMicKeepsOneRowAcrossPorts() throws {
+    func testUSBMicKeepsOneRowAcrossPorts() throws {
         try self.withRestoredDefaults(keys: [
             self.preferredInputDeviceUIDKey,
             self.microphonePriorityKey,
@@ -2705,6 +2705,9 @@ final class HotkeyShortcutTests: XCTestCase {
             XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: fifine.uid))
             XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: "AppleUSBAudioEngine:Focusrite:Scarlett Solo USB:Y7XA2V4492243A:1,2"))
             XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: builtIn.uid))
+            for (field, isLocation) in [("100000", true), ("2110000", true), ("12345600", true), ("10000", false), ("123456700", false), ("2110001", false), ("21100g0", false)] {
+                XCTAssertEqual(SettingsStore.MicrophonePriorityEntry.isUSBLocationID(Substring(field)), isLocation, field)
+            }
 
             // Atin's list: the ATR ranked first on one port, the dock's row at the bottom. On the
             // dock it takes the first row's place, and the other port's row goes.
@@ -2731,10 +2734,29 @@ final class HotkeyShortcutTests: XCTestCase {
             XCTAssertEqual(pick([dockPort, fifine]), fifine.uid)
             XCTAssertEqual(settings.microphonePriority.first { $0.uid == dockPort.uid }?.effectiveTier, .never)
 
-            // Two identical units at once keep a row each, side by side, in the model's tier.
+            // Plugged into a new port right before a dictation, ahead of the device-change
+            // handler: the choice itself lets the new port take the row over.
+            settings.microphonePriority = [entry(deskPort), entry(builtIn)]
+            XCTAssertEqual(coordinator.inputDeviceForCapture(availableInputs: [builtIn, dockPort], defaultInputUID: builtIn.uid)?.uid, dockPort.uid)
+            XCTAssertEqual(uids, [dockPort.uid, builtIn.uid])
+
+            // Two identical units at once keep a row each: a new one joins the first, and the
+            // user's own order between them and other mics holds across reconciles.
             settings.microphonePriority = [entry(deskPort, tier: .preferred), entry(builtIn)]
             settings.reconcileMicrophonePriority(with: [builtIn, deskPort, dockPort])
             XCTAssertEqual(uids, [deskPort.uid, dockPort.uid, builtIn.uid])
+            settings.moveMicrophonePriority(uid: dockPort.uid, by: 1)
+            settings.reconcileMicrophonePriority(with: [builtIn, deskPort, dockPort])
+            XCTAssertEqual(uids, [deskPort.uid, builtIn.uid, dockPort.uid])
+            // Alone, a unit cannot be told from the same mic on another port: it is the mic.
+            XCTAssertEqual(pick([builtIn, dockPort]), dockPort.uid)
+            XCTAssertEqual(uids, [dockPort.uid, builtIn.uid])
+
+            // Removed on one port, it stays removed on every port.
+            settings.microphonePriority = [entry(dockPort), entry(builtIn)]
+            settings.removeMicrophoneFromPriority(uid: dockPort.uid)
+            XCTAssertEqual(pick([builtIn, newPort]), builtIn.uid)
+            XCTAssertEqual(uids, [builtIn.uid])
         }
     }
 
