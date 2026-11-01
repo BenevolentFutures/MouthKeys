@@ -7845,3 +7845,94 @@ final class MainRunLoopStretchProbe {
         self.observers.removeAll()
     }
 }
+
+/// The optional outer border (Settings, Overlay, Outer Border; Atin 2026-11-01: hairline, 1 pt,
+/// 40 %): a light line flush outside a Datasheet surface's edge, dark appearance only, off by default.
+@MainActor
+final class DatasheetOuterBorderTests: XCTestCase {
+    private var savedSetting = false
+
+    override func setUp() {
+        super.setUp()
+        self.savedSetting = SettingsStore.shared.overlayOuterBorderEnabled
+    }
+
+    override func tearDown() {
+        SettingsStore.shared.overlayOuterBorderEnabled = self.savedSetting
+        DatasheetRenderStage.reset()
+        super.tearDown()
+    }
+
+    /// Renders a 40 x 24 surface with a 4 pt transparent margin at 2x, and returns the pixel
+    /// `points` outside its left edge (negative: inside), halfway down.
+    private func pixel(outside points: CGFloat, palette: DatasheetTheme.Palette, enabled: Bool) throws -> NSColor {
+        let view = Color.clear
+            .frame(width: 40, height: 24)
+            .datasheetSurface(drop: false)
+            .padding(4)
+            .environment(\.datasheetPalette, palette)
+            .environment(\.datasheetOuterBorder, enabled)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        let rep = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+        let x = Int(((4 - points) * 2).rounded(.down))
+        return try XCTUnwrap(rep.colorAt(x: x, y: 32))
+    }
+
+    func testTheBorderIsALightLineFlushOutsideTheEdgeInDarkOnly() throws {
+        // On, dark: white at 40 % in the 1 pt just outside the edge, and nothing beyond it.
+        let ring = try self.pixel(outside: 0.5, palette: .dark, enabled: true)
+        XCTAssertEqual(ring.alphaComponent, 0.40, accuracy: 0.03)
+        XCTAssertGreaterThan(ring.usingColorSpace(.sRGB)?.redComponent ?? 0, 0.9, "the line is white")
+        XCTAssertEqual(try self.pixel(outside: 1.5, palette: .dark, enabled: true).alphaComponent, 0, accuracy: 0.01, "1 pt wide")
+
+        // Off (the default), and in light: nothing outside the edge.
+        XCTAssertEqual(try self.pixel(outside: 0.5, palette: .dark, enabled: false).alphaComponent, 0, accuracy: 0.01)
+        XCTAssertEqual(try self.pixel(outside: 0.5, palette: .light, enabled: true).alphaComponent, 0, accuracy: 0.01)
+
+        // The surface's own edge is unchanged either way.
+        let edgeOn = try XCTUnwrap(self.pixel(outside: -0.5, palette: .dark, enabled: true).usingColorSpace(.sRGB))
+        let edgeOff = try XCTUnwrap(self.pixel(outside: -0.5, palette: .dark, enabled: false).usingColorSpace(.sRGB))
+        XCTAssertEqual(edgeOn.redComponent, edgeOff.redComponent, accuracy: 0.01)
+        XCTAssertEqual(edgeOn.alphaComponent, 1, accuracy: 0.01)
+    }
+
+    /// The real overlay, through the setting: `.datasheetPalette()` reads it, and the pill keeps its
+    /// size. The column 1 pt left of the pill is lit only while the setting is on.
+    func testTheOverlayFollowsTheSetting() throws {
+        UserDefaults.standard.removeObject(forKey: SettingsStore.overlayOuterBorderEnabledKey)
+        XCTAssertFalse(SettingsStore.shared.overlayOuterBorderEnabled, "off by default")
+
+        func render(_ enabled: Bool) throws -> NSBitmapImageRep {
+            SettingsStore.shared.overlayOuterBorderEnabled = enabled
+            DatasheetRenderStage.reset()
+            DatasheetRenderStage.listening()
+            let rep = try DatasheetRenderStage.render(BottomOverlayView(), appearance: .darkAqua)
+            XCTAssertEqual(rep.size.height, 130 + 14 + 2 * DatasheetRenderStage.backdropMargin)
+            return rep
+        }
+        // Backdrop margin 18 + bracket inset 6 + rail 30 + gap 6: the pill's left edge is at x 60,
+        // its top at y 24, over the dark half of the backdrop.
+        func ringColumn(_ rep: NSBitmapImageRep) -> CGFloat {
+            rep.colorAt(x: 59 * 2, y: (24 + 60) * 2)?.usingColorSpace(.sRGB)?.redComponent ?? -1
+        }
+        let on = try render(true)
+        let off = try render(false)
+        XCTAssertGreaterThan(ringColumn(on), 0.3, "a light line left of the pill")
+        XCTAssertLessThan(ringColumn(off), 0.12, "the dark backdrop")
+        if let folder = ProcessInfo.processInfo.environment["MOUTHKEYS_RENDER_DIR"].map({ URL(fileURLWithPath: $0, isDirectory: true) }) {
+            try DatasheetRenderStage.write(on, to: folder.appendingPathComponent("dark-01-listening-outer-border.png"))
+            try DatasheetRenderStage.write(off, to: folder.appendingPathComponent("dark-01-listening-no-border.png"))
+        }
+    }
+
+    func testTheSettingIsBackedUp() async {
+        let settings = SettingsStore.shared
+        settings.overlayOuterBorderEnabled = true
+        let document = await BackupService.shared.makeBackupDocument()
+        XCTAssertEqual(document.settings.overlayOuterBorderEnabled, true)
+        settings.overlayOuterBorderEnabled = false
+        settings.restore(from: document.settings)
+        XCTAssertTrue(settings.overlayOuterBorderEnabled)
+    }
+}

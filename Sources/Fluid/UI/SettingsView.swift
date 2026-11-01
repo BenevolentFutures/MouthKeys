@@ -2245,6 +2245,11 @@ private extension SettingsView {
                             )
                         }
                     )
+                    self.sheetToggleRow(
+                        "Outer Border",
+                        help: "A light line around the overlay, so it stands out on dark backgrounds. Dark appearance only.",
+                        isOn: self.$settings.overlayOuterBorderEnabled
+                    )
                 } else {
                     DatasheetRow(
                         label: "Notch Style",

@@ -86,11 +86,13 @@ private struct DatasheetHoverBracket: ViewModifier {
 }
 
 /// A Datasheet surface: an opaque fill, a 1 px edge drawn inside the frame, and the flat,
-/// unblurred 2 pt drop rule under it.
+/// unblurred 2 pt drop rule under it. With the outer border on (and a palette that has one), a
+/// light 1 pt line runs flush outside the edge, over the drop rule.
 private struct DatasheetSurface: ViewModifier {
     let hasEdge: Bool
     let hasDrop: Bool
     @Environment(\.datasheetPalette) private var palette
+    @Environment(\.datasheetOuterBorder) private var outerBorderEnabled
 
     func body(content: Content) -> some View {
         content.background {
@@ -103,6 +105,14 @@ private struct DatasheetSurface: ViewModifier {
                 Rectangle().fill(self.palette.surface)
                 if self.hasEdge {
                     Rectangle().strokeBorder(self.palette.edge, lineWidth: DatasheetTheme.Metrics.edgeWidth)
+                }
+                if self.hasEdge, self.outerBorderEnabled, let outerBorder = self.palette.outerBorder {
+                    // Outside the frame: no layout change, and the content is never covered.
+                    let width = DatasheetTheme.Metrics.outerBorderWidth
+                    Rectangle()
+                        .strokeBorder(outerBorder, lineWidth: width)
+                        .padding(-width)
+                        .allowsHitTesting(false)
                 }
             }
         }

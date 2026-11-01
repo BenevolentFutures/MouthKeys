@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MouthKeys · Outer border prototype</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%23000000'/%3E%3Cg fill='%23e8e8e8' transform='translate(34.96 387.08) scale(0.35913 -0.35913)'%3E%3Cpath transform='translate(0)' d='M89 0V90H284V641L88 495V607L254 730H383V90H543V0Z'/%3E%3Cpath transform='translate(600)' d='M89 0V90H284V641L88 495V607L254 730H383V90H543V0Z'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+/* =====================================================================================
+   OUTER BORDER: an optional light line around the overlay so the dark pill reads on a dark
+   backdrop. Palette and geometry are copied from DatasheetTheme.swift (round 6: 340 x 130 pill,
+   1 px edge #2C2E33 on #111214, 2 pt drop rule, hover brackets gap 3 / stroke 1.5).
+
+   Native mapping (one ViewModifier in DatasheetSurface, drawn only when the setting is on):
+   - Hairline: Rectangle().stroke(ring, lineWidth: w) in .padding(-w/2): flush outside the 1 px edge.
+   - Mat:      the same stroke at .padding(-(gap + w/2)): a sliver of backdrop, then the line.
+   - Bright edge: no new geometry, the existing 1 px edge drawn in the ring colour.
+   Brackets and Metrics.windowInsets grow by the ring's extent (gap + w) so nothing is clipped.
+   ===================================================================================== */
+:root {
+  --font: -apple-system, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --accent: #FF4F1F;
+
+  /* page chrome: Datasheet Mono, dark */
+  --pg: #0C0D0F; --pg-surface: #111214; --pg-rule: #2C2E33; --pg-soft: #1F2024;
+  --pg-text: rgba(255,255,255,0.92); --pg-text2: rgba(255,255,255,0.58); --pg-chip: #1A1B1F;
+
+  /* ring controls (set from JS) */
+  --ring-w: 1px;
+  --ring-gap: 0px;
+  --ring-a: 0.40;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--pg); color: var(--pg-text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+body { padding: 28px 32px 64px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.label { font: 500 10px/12px var(--mono); letter-spacing: 0.6px; text-transform: uppercase; color: var(--pg-text2); }
+
+header { display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid var(--pg-rule); padding-bottom: 12px; }
+header h1 { font: 600 13px/16px var(--mono); letter-spacing: 0.8px; text-transform: uppercase; margin: 0; }
+header h1 b { color: var(--accent); font-weight: 600; }
+header p { margin: 0; font-size: 12.5px; color: var(--pg-text2); }
+
+/* ---------- controls ---------- */
+.controls { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: end; padding: 16px 0 18px; border-bottom: 1px solid var(--pg-rule); }
+.ctl { display: flex; flex-direction: column; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--pg-rule); }
+.seg button {
+  font: 500 10.5px/26px var(--mono); letter-spacing: 0.63px; text-transform: uppercase;
+  min-width: 62px; padding: 0 10px; white-space: nowrap; height: 28px; border: 0; border-right: 1px solid var(--pg-rule);
+  background: var(--pg-surface); color: var(--pg-text2); cursor: pointer;
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { color: var(--pg-text); }
+.seg button[aria-pressed="true"] { background: #fff; color: #111214; }
+.seg button:disabled { opacity: 0.3; cursor: default; }
+.hint { flex-basis: 100%; margin: 0; font-size: 12.5px; line-height: 17px; color: var(--pg-text2); min-height: 17px; }
+.hint b { color: var(--pg-text); font-weight: 600; }
+
+/* ---------- stage grid ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 18px; margin-top: 20px; }
+.tile { position: relative; height: 260px; overflow: hidden; border: 1px solid var(--pg-rule); display: flex; align-items: flex-end; justify-content: center; }
+.tile .cap { position: absolute; top: 8px; left: 10px; z-index: 3; font: 500 10px/12px var(--mono); letter-spacing: 0.6px; text-transform: uppercase; padding: 3px 6px; background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.8); }
+.tile.light-bd .cap { background: rgba(255,255,255,0.75); color: #111214; }
+
+/* backdrops */
+.bd-black   { background: #000; }
+.bd-ghostty { background: #111214; }       /* same value as the pill surface: the worst case */
+.bd-c11     { background: #1C1D21; }
+.bd-wall    { background:
+                radial-gradient(60% 80% at 20% 30%, #1d2440 0%, transparent 70%),
+                radial-gradient(50% 70% at 80% 70%, #2a1a33 0%, transparent 70%),
+                #0a0b10; }
+.bd-code    { background: #15161a; }
+.bd-light   { background: #F4F4F6; }
+.code { position: absolute; inset: 30px 14px 0; margin: 0; font: 12px/17px var(--mono); color: #7d8590; white-space: pre; pointer-events: none; }
+.code .k { color: #c678dd; } .code .s { color: #98c379; } .code .f { color: #61afef; } .code .c { color: #4b5160; }
+.term { position: absolute; inset: 30px 14px 0; margin: 0; font: 12px/17px var(--mono); color: #b8bcc4; white-space: pre; pointer-events: none; }
+.term .p { color: #FF4F1F; }
+
+/* ---------- the overlay (pill palette per appearance) ---------- */
+.sg {
+  --surface: #111214; --edge: #2C2E33; --drop: rgba(0,0,0,0.35);
+  --ink: #fff; --midline: #2C2E33; --text: rgba(255,255,255,0.92); --text2: rgba(255,255,255,0.58);
+  --grat: rgba(255,255,255,0.20); --bracket: rgba(255,255,255,0.78);
+  --float: 0 9px 36px rgba(0,0,0,0.55);
+  --ring: rgba(255,255,255,var(--ring-a));
+  position: relative; margin-bottom: 34px; transform: scale(var(--scale, 1)); transform-origin: 50% 100%;
+}
+.sg.light {
+  --surface: #fff; --edge: #111214; --drop: #111214;
+  --ink: #111214; --midline: #D3D4D8; --text: #111214; --text2: #111214;
+  --grat: rgba(17,18,20,0.30); --bracket: #111214;
+  --float: 0 5px 24px rgba(0,0,0,0.16);
+  --ring: rgba(17,18,20,var(--ring-a));
+}
+.pill {
+  position: relative; width: 340px; height: 130px; padding: 10px 12px 8px;
+  background: var(--surface); border: 1px solid var(--edge);
+  box-shadow: 0 2px 0 var(--drop), var(--float);
+  font-family: var(--font); font-variant-numeric: tabular-nums; cursor: default;
+}
+/* Bright edge: the existing edge in the ring colour (composited over the surface). */
+.sg[data-style="edge"] .pill { border-color: color-mix(in srgb, var(--ring) 100%, var(--surface)); }
+.sg.light[data-style="edge"] .pill { border-color: var(--edge); }
+
+/* The outer ring: outside the edge, never inside the content. */
+.ring { position: absolute; pointer-events: none; display: none; border: var(--ring-w) solid var(--ring);
+  inset: calc(-1 * (var(--ring-gap) + var(--ring-w) + 1px)); }
+.sg[data-style="hairline"] .ring, .sg[data-style="mat"] .ring { display: block; }
+.sg.light.ring-dark-only .ring { display: none; }
+.sg.light.ring-dark-only[data-style="edge"] .pill { border-color: var(--edge); }
+
+.preview { height: 48px; overflow: hidden; display: flex; align-items: flex-end; font: 500 12.5px/16px var(--font); color: var(--text); }
+.preview p { margin: 0; }
+.trace-row { margin-top: 6px; height: 38px; display: flex; align-items: flex-start; gap: 12px; }
+.trace { position: relative; flex: 1; height: 38px; }
+.trace canvas { display: block; }
+.readout { display: flex; align-items: center; gap: 4px; height: 34px; }
+.rec { width: 6px; height: 6px; background: var(--accent); }
+.timer { font: 600 14px/18px var(--mono); color: var(--text); width: 5ch; text-align: right; }
+.foot { margin-top: 4px; height: 16px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; font: 500 10px/16px var(--mono); letter-spacing: 0.6px; text-transform: uppercase; color: var(--text2); }
+.foot .mid { display: flex; align-items: center; gap: 7px; }
+.foot .app { width: 16px; height: 16px; background: #222; border: 1px solid #444; display: grid; place-items: center; font: 700 7px/1 var(--mono); color: var(--accent); }
+.sg.light .foot .app { background: #111214; border-color: #111214; }
+.foot .placard { justify-self: end; font: 600 10.5px/14px var(--mono); letter-spacing: 0.63px; color: var(--text2); }
+
+/* hover brackets: pushed out past the ring so they never collide with it */
+.tk { position: absolute; pointer-events: none; opacity: 0; transition: opacity 60ms linear; color: var(--bracket);
+  --o: calc(3px + 1.5px + 1px + var(--ring-extent, 0px));
+  inset: calc(-1 * var(--o)); bottom: calc(-1 * (var(--o) + 2px)); }
+.sg:hover .tk, .sg.force-tk .tk { opacity: 1; }
+.tk i { position: absolute; width: 10px; height: 10px; border: 0 solid currentColor; }
+.tk i:nth-child(1) { top: 0; left: 0; border-top-width: 1.5px; border-left-width: 1.5px; }
+.tk i:nth-child(2) { top: 0; right: 0; border-top-width: 1.5px; border-right-width: 1.5px; }
+.tk i:nth-child(3) { bottom: 0; left: 0; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.tk i:nth-child(4) { bottom: 0; right: 0; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+/* ---------- comparison strip and settings mock ---------- */
+h2 { font: 600 11px/14px var(--mono); letter-spacing: 0.7px; text-transform: uppercase; margin: 36px 0 10px; color: var(--pg-text2); }
+.compare { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 1px; background: var(--pg-rule); border: 1px solid var(--pg-rule); }
+.compare .tile { border: 0; height: 260px; }
+
+.settings { max-width: 720px; background: var(--pg-surface); border: 1px solid var(--pg-rule); }
+.settings .sec { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--pg-rule); }
+.settings .sec b { font: 600 10px/12px var(--mono); color: var(--accent); }
+.settings .sec span { font: 600 13px/16px var(--font); }
+.settings .row { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 12px 16px; border-bottom: 1px solid var(--pg-soft); }
+.settings .row:last-child { border-bottom: 0; }
+.settings .row .l { font: 500 13px/16px var(--font); }
+.settings .row .h { font-size: 12px; color: var(--pg-text2); margin-top: 3px; }
+.settings .row.ghost { opacity: 0.4; }
+.settings .row.new { box-shadow: inset 2px 0 0 var(--accent); }
+
+.notes { margin-top: 30px; max-width: 900px; font-size: 13px; line-height: 19px; color: var(--pg-text2); }
+.notes ol { padding-left: 20px; } .notes li { margin: 4px 0; } .notes b { color: var(--pg-text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MouthKeys <b>·</b> Outer border</h1>
+  <p>An optional light line around the overlay so the dark pill stands out on dark backgrounds. Hover a pill to see its brackets.</p>
+</header>
+
+<section class="controls" aria-label="Controls">
+  <div class="ctl"><span class="label">Style</span>
+    <div class="seg" data-ctl="style">
+      <button data-v="off">Off</button><button data-v="hairline">Hairline</button><button data-v="mat">Mat</button><button data-v="edge">Bright edge</button>
+    </div></div>
+  <div class="ctl"><span class="label">Strength</span>
+    <div class="seg" data-ctl="strength">
+      <button data-v="0.25">25%</button><button data-v="0.40">40%</button><button data-v="0.60">60%</button><button data-v="0.85">85%</button>
+    </div></div>
+  <div class="ctl"><span class="label">Width</span>
+    <div class="seg" data-ctl="width">
+      <button data-v="1">1 pt</button><button data-v="1.5">1.5</button><button data-v="2">2 pt</button>
+    </div></div>
+  <div class="ctl"><span class="label">Appearance</span>
+    <div class="seg" data-ctl="appearance">
+      <button data-v="dark">Dark</button><button data-v="light">Light</button>
+    </div></div>
+  <div class="ctl"><span class="label">Size</span>
+    <div class="seg" data-ctl="scale">
+      <button data-v="1">1×</button><button data-v="1.25">1.25×</button>
+    </div></div>
+  <p class="hint" id="hint"></p>
+</section>
+
+<div class="grid" id="grid"></div>
+
+<h2>Side by side on the worst backdrop (#111214, the pill's own colour)</h2>
+<div class="compare" id="compare"></div>
+
+<h2>Proposed setting · Settings › Overlay</h2>
+<div class="settings">
+  <div class="sec"><b>G</b><span>Overlay</span></div>
+  <div class="row ghost"><div><div class="l">Overlay Position</div><div class="h">Where the recording indicator appears on screen.</div></div><div class="seg"><button aria-pressed="false">Top</button><button aria-pressed="true">Bottom</button></div></div>
+  <div class="row ghost"><div><div class="l">Overlay Size</div><div class="h">How large the recording indicator appears.</div></div><div class="seg"><button aria-pressed="false">Small</button><button aria-pressed="true">Medium</button><button aria-pressed="false">Large</button></div></div>
+  <div class="row new"><div><div class="l">Outer Border</div><div class="h">A light line around the overlay, so it stands out on dark backgrounds.</div></div>
+    <div class="seg" data-ctl="setting"><button data-v="off">Off</button><button data-v="subtle">Subtle</button><button data-v="bright">Bright</button></div></div>
+  <div class="row ghost"><div><div class="l">Live Preview</div><div class="h">Show transcription text in the overlay while you speak.</div></div><div class="seg"><button aria-pressed="false">Off</button><button aria-pressed="true">On</button></div></div>
+</div>
+
+<div class="notes">
+  <ol>
+    <li><b>Hairline</b>: a light line flush outside the existing 1 pt edge. The pill keeps its exact size and look; the outline only adds contrast against the backdrop.</li>
+    <li><b>Mat</b>: the same line set 2 pt out, with a sliver of backdrop between. Reads like the hover brackets' drafting language, but is busier.</li>
+    <li><b>Bright edge</b>: no new line; the existing edge turns light. Smallest change in code, but it changes the pill's own look rather than adding something outside it.</li>
+    <li>The setting row above is a mock: <b>Off / Subtle / Bright</b> maps to Off, Hairline at 40%, Hairline at 85%. Default Off, so nothing changes for anyone who doesn't turn it on.</li>
+    <li>The light appearance (white pill, ink edge) already stands out on dark backgrounds, so the border could apply in dark only. Switch Appearance to Light to judge.</li>
+    <li>The border applies to every floating surface that uses the pill's frame: the pill, the microphone card and the history card. The small buttons beside the pill would not get it.</li>
+  </ol>
+</div>
+
+<script>
+const BACKDROPS = [
+  { cls: "bd-ghostty", cap: "Terminal · #111214 (same as pill)", extra: "term" },
+  { cls: "bd-black",   cap: "Pure black · #000000" },
+  { cls: "bd-c11",     cap: "c11 dark chrome · #1C1D21" },
+  { cls: "bd-code",    cap: "Editor with code", extra: "code" },
+  { cls: "bd-wall",    cap: "Dark wallpaper" },
+  { cls: "bd-light",   cap: "Light page · #F4F4F6", light: true },
+];
+const TERM = `<span class="p">❯</span> claude
+  ✻ Reading Sources/Fluid/Views/Datasheet/DatasheetPill.swift
+  ✻ Reading Sources/Fluid/Theme/DatasheetTheme.swift
+  ⎿ 425 lines
+
+<span class="p">❯</span> git status --short
+ M CLAUDE.md
+?? design/visual-language/prototypes/datasheet/outer-border.html`;
+const CODE = `<span class="k">struct</span> <span class="f">DatasheetPill</span>&lt;Top: View&gt;: View {
+    <span class="k">let</span> geometry: DatasheetOverlayGeometry
+    <span class="k">let</span> topHeight: CGFloat
+    <span class="c">// The top area's height: the preview area.</span>
+    <span class="k">var</span> body: <span class="k">some</span> View {
+        VStack(spacing: <span class="s">0</span>) {
+            <span class="k">self</span>.top.<span class="f">frame</span>(width: geometry.innerWidth)
+            <span class="k">self</span>.traceRow
+        }
+        .<span class="f">datasheetSurface</span>()
+    }`;
+const PREVIEW = "so whenever I'm displaying mouth keys on top of a dark border it can be hard to see when this thing pops up";
+
+function pillHTML() {
+  return `<div class="sg">
+    <div class="pill">
+      <div class="ring"></div>
+      <div class="tk"><i></i><i></i><i></i><i></i></div>
+      <div class="preview"><p>${PREVIEW}</p></div>
+      <div class="trace-row">
+        <div class="trace"><canvas width="0" height="38"></canvas></div>
+        <div class="readout"><span class="rec"></span><span class="timer">0:38</span></div>
+      </div>
+      <div class="foot"><span>21 words</span><span class="mid"><span class="app">c11</span>MacBook Pro Mic</span><span class="placard">SEND</span></div>
+    </div>
+  </div>`;
+}
+function tileHTML(b) {
+  const extra = b.extra === "term" ? `<pre class="term">${TERM}</pre>` : b.extra === "code" ? `<pre class="code">${CODE}</pre>` : "";
+  return `<div class="tile ${b.cls} ${b.light ? "light-bd" : ""}"><span class="cap">${b.cap}</span>${extra}${pillHTML()}</div>`;
+}
+document.getElementById("grid").innerHTML = BACKDROPS.map(tileHTML).join("");
+const COMPARE = [
+  { style: "off", cap: "Off · today" },
+  { style: "hairline", cap: "Hairline" },
+  { style: "mat", cap: "Mat" },
+  { style: "edge", cap: "Bright edge" },
+];
+document.getElementById("compare").innerHTML = COMPARE.map(c =>
+  `<div class="tile bd-ghostty" data-fixed-style="${c.style}"><span class="cap">${c.cap}</span><pre class="term">${TERM}</pre>${pillHTML()}</div>`).join("");
+
+/* ---------- state ---------- */
+const S = { style: "hairline", strength: "0.40", width: "1", appearance: "dark", scale: "1" };
+const SETTING_MAP = { off: { style: "off" }, subtle: { style: "hairline", strength: "0.40" }, bright: { style: "hairline", strength: "0.85" } };
+
+function render() {
+  const root = document.documentElement.style;
+  root.setProperty("--ring-a", S.strength);
+  root.setProperty("--ring-w", S.width + "px");
+  const gap = S.style === "mat" ? 2 : 0;
+  root.setProperty("--ring-gap", gap + "px");
+  document.querySelectorAll(".tile").forEach(tile => {
+    const sg = tile.querySelector(".sg");
+    const style = tile.dataset.fixedStyle || S.style;
+    sg.dataset.style = style;
+    sg.classList.toggle("light", S.appearance === "light");
+    sg.style.setProperty("--scale", S.scale);
+    const ext = (style === "hairline" || style === "mat") ? gap + Number(S.width) : 0;
+    sg.style.setProperty("--ring-extent", ext + "px");
+    if (tile.dataset.fixedStyle) sg.style.setProperty("--ring-gap", (style === "mat" ? 2 : 0) + "px");
+  });
+  document.querySelectorAll(".seg[data-ctl]").forEach(seg => {
+    const k = seg.dataset.ctl;
+    seg.querySelectorAll("button").forEach(b => {
+      let on;
+      if (k === "setting") {
+        const cur = S.style === "off" ? "off" : (S.style === "hairline" && S.strength === "0.40") ? "subtle" : (S.style === "hairline" && S.strength === "0.85") ? "bright" : null;
+        on = b.dataset.v === cur;
+      } else on = b.dataset.v === S[k];
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      if (k === "width" || k === "strength") b.disabled = S.style === "off";
+    });
+  });
+  const hints = {
+    off: "<b>Off</b>: today's overlay. On the terminal backdrop the pill's edge (#2C2E33) is the only thing separating it.",
+    hairline: "<b>Hairline</b>: one light line flush outside the existing edge. The pill itself is unchanged.",
+    mat: "<b>Mat</b>: the line set 2 pt out with backdrop showing between. Brackets move out to clear it.",
+    edge: "<b>Bright edge</b>: the existing 1 pt edge drawn light. Width is fixed at 1 pt in this style.",
+  };
+  document.getElementById("hint").innerHTML = hints[S.style];
+}
+document.querySelectorAll(".seg[data-ctl]").forEach(seg => seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b || b.disabled) return;
+  const k = seg.dataset.ctl;
+  if (k === "setting") Object.assign(S, SETTING_MAP[b.dataset.v]); else S[k] = b.dataset.v;
+  render();
+}));
+
+/* ---------- a live voice trace (12 samples/s, 2 pt bars on a 4 pt pitch) ---------- */
+const canvases = [...document.querySelectorAll(".trace canvas")];
+const samples = [];
+for (let i = 0; i < 80; i++) samples.push(Math.random());
+let t = 0;
+function sizeCanvases() {
+  const dpr = window.devicePixelRatio || 1;
+  canvases.forEach(c => {
+    const w = c.parentElement.clientWidth;
+    c.width = w * dpr; c.height = 38 * dpr; c.style.width = w + "px"; c.style.height = "38px";
+    c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+  });
+}
+function draw() {
+  t++;
+  const voiced = (Math.sin(t / 9) + Math.sin(t / 3.7)) > -0.4;
+  samples.push(voiced ? 0.2 + Math.random() * 0.8 : 0.03); samples.shift();
+  canvases.forEach(c => {
+    const ctx = c.getContext("2d");
+    const w = c.parentElement.clientWidth;
+    const css = getComputedStyle(c.closest(".sg"));
+    const ink = css.getPropertyValue("--ink"), mid = css.getPropertyValue("--midline"), grat = css.getPropertyValue("--grat");
+    ctx.clearRect(0, 0, w, 38);
+    ctx.fillStyle = mid; ctx.fillRect(0, 17, w, 1);
+    const n = Math.floor(w / 4);
+    for (let i = 0; i < n; i++) {
+      const s = samples[samples.length - n + i] ?? 0.03;
+      const h = Math.max(2, Math.round(s * 30 / 2) * 2);
+      const head = i >= n - 6;
+      ctx.fillStyle = head ? "#FF4F1F" : ink;
+      ctx.fillRect(i * 4, 17 - h / 2 + 0.5, 2, h);
+      ctx.fillStyle = grat;
+      ctx.fillRect(i * 4, 34, 1, (n - i) % 12 === 0 ? 3 : 2);
+    }
+  });
+}
+sizeCanvases(); render(); draw();
+setInterval(draw, 1000 / 12);
+window.addEventListener("resize", sizeCanvases);
+</script>
+</body>
+</html>

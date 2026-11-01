@@ -24,6 +24,10 @@ enum DatasheetTheme {
         let surface: Color
         /// 1 px pill and card edge.
         let edge: Color
+        /// The optional outer border (Settings, Overlay, Outer Border): a 1 pt line flush outside the
+        /// edge, so a dark surface stands out on a dark backdrop (Atin, 2026-11-01: hairline, 1 pt,
+        /// 40 %). Nil where the surface already stands out: light is a white sheet with an ink edge.
+        let outerBorder: Color?
         /// Chip fill (no edge at rest).
         let chip: Color
         /// The flat, unblurred 2 pt drop rule under the pill and cards.
@@ -70,6 +74,7 @@ enum DatasheetTheme {
             onAccent: DatasheetTheme.rgb(0x111214),
             surface: DatasheetTheme.rgb(0x111214),
             edge: DatasheetTheme.rgb(0x2C2E33),
+            outerBorder: Color.white.opacity(0.40),
             chip: DatasheetTheme.rgb(0x1A1B1F),
             drop: Color.black.opacity(0.35),
             floatShadow: Color.black.opacity(0.55),
@@ -98,6 +103,7 @@ enum DatasheetTheme {
             onAccent: DatasheetTheme.rgb(0x111214),
             surface: .white,
             edge: DatasheetTheme.rgb(0x111214),
+            outerBorder: nil,
             chip: DatasheetTheme.rgb(0xF2F2F4),
             drop: DatasheetTheme.rgb(0x111214),
             floatShadow: Color.black.opacity(0.16),
@@ -232,6 +238,9 @@ enum DatasheetTheme {
         static let pillPaddingBottom: CGFloat = 8
         static let pillPaddingHorizontal: CGFloat = 12
         static let edgeWidth: CGFloat = 1
+        /// The optional outer border, flush outside the edge. It stays inside every window's
+        /// `windowInsets` and clear of the brackets' knockout halo (which starts 2 pt out).
+        static let outerBorderWidth: CGFloat = 1
         static let dropRule: CGFloat = 2
         /// The margin the floating shadow's click-through panel keeps around the surface's panel,
         /// so the blur is never clipped (DESIGN.md §6). The radius and offset are per appearance
@@ -400,17 +409,35 @@ extension EnvironmentValues {
     }
 }
 
+private struct DatasheetOuterBorderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Whether Datasheet surfaces draw the optional outer border (Settings, Overlay, Outer Border).
+    /// Set by `.datasheetPalette()`; drawn only where the palette has an `outerBorder` colour.
+    var datasheetOuterBorder: Bool {
+        get { self[DatasheetOuterBorderKey.self] }
+        set { self[DatasheetOuterBorderKey.self] = newValue }
+    }
+}
+
 private struct DatasheetPaletteFromScheme: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    /// Observes only this one key, so the overlay follows the setting live without observing the
+    /// whole SettingsStore.
+    @AppStorage(SettingsStore.overlayOuterBorderEnabledKey) private var outerBorder = false
 
     func body(content: Content) -> some View {
-        content.environment(\.datasheetPalette, DatasheetTheme.Palette.forScheme(self.colorScheme))
+        content
+            .environment(\.datasheetPalette, DatasheetTheme.Palette.forScheme(self.colorScheme))
+            .environment(\.datasheetOuterBorder, self.outerBorder)
     }
 }
 
 extension View {
     /// Resolves the Datasheet palette from the current colour scheme (dark default, light when the
-    /// system appearance is light).
+    /// system appearance is light), and the outer border setting.
     func datasheetPalette() -> some View {
         self.modifier(DatasheetPaletteFromScheme())
     }
