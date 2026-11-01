@@ -191,6 +191,27 @@ final class SettingsStore: ObservableObject {
         var effectiveTier: MicrophoneTier {
             self.tier ?? MicrophoneTier.automatic(transportType: self.transportType)
         }
+
+        /// A USB microphone without a serial number takes its UID from the port it is plugged
+        /// into (`AppleUSBAudioEngine:<maker>:<product>:<location ID>:<interfaces>`), so the same
+        /// mic on another port or dock reads as a new device (Atin's ATR4697-USB had five rows,
+        /// the newest at the bottom, below the MacBook mic). The model key drops the location ID;
+        /// nil for a USB mic with a real serial number and for any other kind of UID.
+        static func usbModelKey(uid: String) -> String? {
+            let fields = uid.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 5, fields[0] == "AppleUSBAudioEngine",
+                  Self.isUSBLocationID(fields[3])
+            else { return nil }
+            return [fields[0], fields[1], fields[2], fields[4]].joined(separator: ":")
+        }
+
+        /// A USB location ID as CoreAudio prints it (`%x`, e.g. `100000`, `2110000`): a bus byte,
+        /// then one nibble per hub port, zero-filled. A serial in that field (`20190808`,
+        /// `Y7XA2V4492243A`) is not one; the trailing `00` is the heuristic, true up to four hubs
+        /// deep.
+        static func isUSBLocationID(_ field: Substring) -> Bool {
+            (6...8).contains(field.count) && field.hasSuffix("00") && field.allSatisfy(\.isHexDigit)
+        }
     }
 
     enum DictationPromptSelection: Equatable {
@@ -1940,6 +1961,8 @@ final class SettingsStore: ObservableObject {
             entries.append(MicrophonePriorityEntry(uid: preferredUID, name: name))
         }
 
+        entries = Self.oneRowPerUSBPortMic(entries, connected: devices.filter { suppressedUIDs.contains($0.uid) == false })
+
         var knownUIDs = Set(entries.map(\.uid))
         let newEntries = devices.compactMap { device -> MicrophonePriorityEntry? in
             guard suppressedUIDs.contains(device.uid) == false,
@@ -1978,6 +2001,51 @@ final class SettingsStore: ObservableObject {
             return entry
         }
         self.microphonePriority = entries
+    }
+
+    /// A USB mic identified by its port (`MicrophonePriorityEntry.usbModelKey`) keeps one row, at
+    /// the place and tier of its highest-ranked row: the port it is on now when connected (a port
+    /// never seen before included), else that row. Other ports' rows are dropped. Two identical
+    /// units connected together keep a row each, side by side. Runs before new microphones are
+    /// added, so a new port takes over the existing row rather than joining the end of a tier.
+    static func oneRowPerUSBPortMic(
+        _ entries: [MicrophonePriorityEntry],
+        connected devices: [AudioDevice.Device]
+    ) -> [MicrophonePriorityEntry] {
+        let connectedUIDs = Set(devices.map(\.uid))
+        let listedUIDs = Set(entries.map(\.uid))
+        var rowsByModel: [String: [MicrophonePriorityEntry]] = [:]
+        for entry in entries {
+            guard let model = MicrophonePriorityEntry.usbModelKey(uid: entry.uid) else { continue }
+            rowsByModel[model, default: []].append(entry)
+        }
+        var placed = Set<String>()
+        var result: [MicrophonePriorityEntry] = []
+        for entry in entries {
+            guard let model = MicrophonePriorityEntry.usbModelKey(uid: entry.uid) else {
+                result.append(entry)
+                continue
+            }
+            guard placed.insert(model).inserted else { continue }
+            let rows = rowsByModel[model] ?? [entry]
+            let newPorts = devices
+                .filter { listedUIDs.contains($0.uid) == false && MicrophonePriorityEntry.usbModelKey(uid: $0.uid) == model }
+                .map { MicrophonePriorityEntry(uid: $0.uid, name: $0.name, tier: entry.tier, transportType: $0.transportType) }
+            let connected = rows.filter { connectedUIDs.contains($0.uid) } + newPorts
+            result += connected.isEmpty ? [entry] : connected.map { row in
+                var row = row
+                row.tier = entry.tier
+                return row
+            }
+            let dropped = rows.filter { row in connected.isEmpty ? row.uid != entry.uid : connected.contains { $0.uid == row.uid } == false }
+            if dropped.isEmpty == false || newPorts.isEmpty == false {
+                DebugLogger.shared.info(
+                    "MIC_PRIORITY usb_port_rows name='\(entry.name)' kept=\(connected.isEmpty ? entry.uid : connected.map(\.uid).joined(separator: ",")) dropped=\(dropped.count)",
+                    source: "SettingsStore"
+                )
+            }
+        }
+        return result
     }
 
     /// Removing a microphone always suppresses it, connected or not, so it stays out of the list

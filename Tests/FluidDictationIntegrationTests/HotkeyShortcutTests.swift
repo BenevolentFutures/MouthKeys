@@ -2665,6 +2665,79 @@ final class HotkeyShortcutTests: XCTestCase {
         }
     }
 
+    /// A USB mic without a serial number gets a new UID on every port or dock (Atin's ATR4697-USB
+    /// had five rows, the newest at the bottom, below the MacBook mic). It keeps one row: the port
+    /// it is on now takes over its highest-ranked row's place and tier. Selection, the Bluetooth
+    /// wait and hot-plug all read that one exact UID. A mic with a real serial number is left alone.
+    @MainActor
+    func testAUSBMicKeepsOneRowAcrossPorts() throws {
+        try self.withRestoredDefaults(keys: [
+            self.preferredInputDeviceUIDKey,
+            self.microphonePriorityKey,
+            self.suppressedMicrophoneUIDsKey,
+            self.microphoneSelectionMigrationVersionKey,
+        ]) {
+            func atr(_ location: String) -> AudioDevice.Device {
+                Self.device(uid: "AppleUSBAudioEngine:Conference USB microphone:ATR4697-USB:\(location):2", name: "ATR4697-USB", transportType: kAudioDeviceTransportTypeUSB)
+            }
+            func entry(_ device: AudioDevice.Device, tier: SettingsStore.MicrophoneTier? = nil) -> SettingsStore.MicrophonePriorityEntry {
+                .init(uid: device.uid, name: device.name, tier: tier, transportType: device.transportType)
+            }
+            let deskPort = atr("100000")
+            let dockPort = atr("2110000")
+            let newPort = atr("1110000")
+            let builtIn = Self.device(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", transportType: kAudioDeviceTransportTypeBuiltIn)
+            let fifine = Self.device(uid: "AppleUSBAudioEngine:MV-SILICON:fifine Microphone:20190808:2,1", name: "fifine Microphone", transportType: kAudioDeviceTransportTypeUSB)
+            let fifine2 = Self.device(uid: "AppleUSBAudioEngine:MV-SILICON:fifine Microphone:20200101:2,1", name: "fifine Microphone", transportType: kAudioDeviceTransportTypeUSB)
+            let settings = SettingsStore.shared
+            settings.suppressedMicrophoneUIDs = []
+            settings.microphoneSelectionMigrationVersion = SettingsStore.microphonePriorityMigrationVersion
+            let devices = FakeAudioDeviceManager(inputs: [], defaultInputUID: builtIn.uid)
+            let coordinator = MicrophonePreferenceCoordinator(settings: .shared, devices: devices)
+            /// What a recording start does: reconcile the list with what is connected, then choose.
+            @MainActor func pick(_ connected: [AudioDevice.Device]) -> String? {
+                coordinator.reconcileMicrophoneSelection(availableInputs: connected, defaultInputUID: builtIn.uid)?.uid
+            }
+            var uids: [String] { settings.microphonePriority.map(\.uid) }
+
+            // Location IDs identify a port; serial numbers and other UIDs identify a device.
+            XCTAssertNotNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: dockPort.uid))
+            XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: fifine.uid))
+            XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: "AppleUSBAudioEngine:Focusrite:Scarlett Solo USB:Y7XA2V4492243A:1,2"))
+            XCTAssertNil(SettingsStore.MicrophonePriorityEntry.usbModelKey(uid: builtIn.uid))
+
+            // Atin's list: the ATR ranked first on one port, the dock's row at the bottom. On the
+            // dock it takes the first row's place, and the other port's row goes.
+            settings.microphonePriority = [entry(deskPort), entry(builtIn), entry(fifine), entry(dockPort), entry(fifine2)]
+            XCTAssertEqual(pick([builtIn, fifine, dockPort]), dockPort.uid)
+            XCTAssertEqual(uids, [dockPort.uid, builtIn.uid, fifine.uid, fifine2.uid], "two fifines with serials keep their own rows")
+            XCTAssertEqual(coordinator.rankedUsableInputUIDs(allDevices: [builtIn, dockPort]).first, dockPort.uid, "the Bluetooth wait reads the same order")
+
+            // Unplugged, it keeps its row and place; the order below is unchanged.
+            XCTAssertEqual(pick([builtIn, fifine]), builtIn.uid)
+            XCTAssertEqual(uids, [dockPort.uid, builtIn.uid, fifine.uid, fifine2.uid])
+
+            // A port never seen before takes the row over, too.
+            XCTAssertEqual(pick([builtIn, newPort]), newPort.uid)
+            XCTAssertEqual(uids, [newPort.uid, builtIn.uid, fifine.uid, fifine2.uid])
+
+            // One row, so ordinary moves work: below the MacBook mic it stays below on any port.
+            settings.moveMicrophonePriority(uid: builtIn.uid, by: -1)
+            XCTAssertEqual(pick([builtIn, deskPort]), builtIn.uid)
+            XCTAssertEqual(uids, [builtIn.uid, deskPort.uid, fifine.uid, fifine2.uid])
+
+            // Its tier goes with it: ranked Never, it is never chosen on another port.
+            settings.setMicrophoneTier(uid: deskPort.uid, to: .never)
+            XCTAssertEqual(pick([dockPort, fifine]), fifine.uid)
+            XCTAssertEqual(settings.microphonePriority.first { $0.uid == dockPort.uid }?.effectiveTier, .never)
+
+            // Two identical units at once keep a row each, side by side, in the model's tier.
+            settings.microphonePriority = [entry(deskPort, tier: .preferred), entry(builtIn)]
+            settings.reconcileMicrophonePriority(with: [builtIn, deskPort, dockPort])
+            XCTAssertEqual(uids, [deskPort.uid, dockPort.uid, builtIn.uid])
+        }
+    }
+
     @MainActor
     func testMicrophoneTiersPickPreferredThenLastResortAndNeverAVirtualDevice() throws {
         try self.withRestoredDefaults(keys: [
