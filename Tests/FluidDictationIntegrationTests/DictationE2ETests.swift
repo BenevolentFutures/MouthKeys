@@ -7847,7 +7847,7 @@ final class MainRunLoopStretchProbe {
 }
 
 /// The optional outer border (Settings, Overlay, Outer Border; Atin 2026-11-01: hairline, 1 pt,
-/// 40 %): a light line flush outside a Datasheet surface's edge, dark appearance only, off by default.
+/// 40 %): a light line flush outside a Datasheet surface's edge, dark appearance only, on by default.
 @MainActor
 final class DatasheetOuterBorderTests: XCTestCase {
     /// The Debug test host's own stored value (nil: never set), put back exactly in tearDown.
@@ -7902,7 +7902,11 @@ final class DatasheetOuterBorderTests: XCTestCase {
     /// size. The column 1 pt left of the pill is lit only while the setting is on.
     func testTheOverlayFollowsTheSetting() throws {
         UserDefaults.standard.removeObject(forKey: SettingsStore.overlayOuterBorderEnabledKey)
-        XCTAssertFalse(SettingsStore.shared.overlayOuterBorderEnabled, "off by default")
+        XCTAssertTrue(SettingsStore.shared.overlayOuterBorderEnabled, "on by default")
+        DatasheetRenderStage.reset()
+        DatasheetRenderStage.listening()
+        let byDefault = try DatasheetRenderStage.render(BottomOverlayView(), appearance: .darkAqua)
+        XCTAssertGreaterThan(byDefault.colorAt(x: 59 * 2, y: (24 + 60) * 2)?.usingColorSpace(.sRGB)?.redComponent ?? -1, 0.3, "drawn by default")
 
         func render(_ enabled: Bool) throws -> NSBitmapImageRep {
             SettingsStore.shared.overlayOuterBorderEnabled = enabled
