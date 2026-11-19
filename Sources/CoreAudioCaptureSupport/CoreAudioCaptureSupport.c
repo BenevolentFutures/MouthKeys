@@ -1,5 +1,6 @@
 #include "include/CoreAudioCaptureSupport.h"
 
+#include <Block.h>
 #include <dispatch/dispatch.h>
 #include <limits.h>
 #include <mach/mach_time.h>
@@ -635,4 +636,77 @@ uint64_t fv_core_audio_capture_dropped_packet_count(FVCoreAudioCaptureRef captur
     return capture == NULL
         ? 0u
         : atomic_load_explicit(&capture->droppedPackets, memory_order_relaxed);
+}
+
+typedef struct {
+    AudioObjectID objectID;
+    AudioObjectPropertyAddress address;
+    dispatch_queue_t queue;
+    AudioObjectPropertyListenerBlock block;
+} FVListener;
+
+static void fv_listener_free(FVListener *entry) {
+    Block_release(entry->block);
+    if (entry->queue != NULL) {
+        dispatch_release(entry->queue);
+    }
+    free(entry);
+}
+
+int32_t fv_core_audio_listener_add(
+    AudioObjectID objectID,
+    const AudioObjectPropertyAddress *address,
+    dispatch_queue_t queue,
+    AudioObjectPropertyListenerBlock listener,
+    FVCoreAudioListenerRef *outListener
+) {
+    if (address == NULL || listener == NULL || outListener == NULL) {
+        return kAudio_ParamError;
+    }
+    *outListener = NULL;
+    FVListener *entry = calloc(1, sizeof(FVListener));
+    if (entry == NULL) {
+        return kAudio_MemFullError;
+    }
+    entry->objectID = objectID;
+    entry->address = *address;
+    entry->block = Block_copy(listener);
+    if (queue != NULL) {
+        dispatch_retain(queue);
+        entry->queue = queue;
+    }
+    OSStatus status = AudioObjectAddPropertyListenerBlock(
+        entry->objectID,
+        &entry->address,
+        entry->queue,
+        entry->block
+    );
+    if (status != noErr) {
+        fv_listener_free(entry);
+        return status;
+    }
+    *outListener = entry;
+    return noErr;
+}
+
+int32_t fv_core_audio_listener_remove(FVCoreAudioListenerRef listener) {
+    if (listener == NULL) {
+        return noErr;
+    }
+    FVListener *entry = listener;
+    OSStatus status = AudioObjectRemovePropertyListenerBlock(
+        entry->objectID,
+        &entry->address,
+        entry->queue,
+        entry->block
+    );
+    fv_listener_free(entry);
+    return status;
+}
+
+void fv_core_audio_listener_discard(FVCoreAudioListenerRef listener) {
+    if (listener == NULL) {
+        return;
+    }
+    fv_listener_free(listener);
 }

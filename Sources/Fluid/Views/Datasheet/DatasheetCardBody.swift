@@ -10,6 +10,9 @@ struct DatasheetCardContent: Equatable {
         case reprocess
         case openSystemSettings
         case download
+        /// macOS audio input is stuck: the first click asks, `confirmRestartMicHelper` acts.
+        case restartMicHelper
+        case confirmRestartMicHelper
         case none
 
         var title: String {
@@ -18,6 +21,8 @@ struct DatasheetCardContent: Equatable {
             case .reprocess: "Reprocess"
             case .openSystemSettings: "Open System Settings"
             case .download: "Download"
+            case .restartMicHelper: "Restart iPhone mic helper"
+            case .confirmRestartMicHelper: "Restart it"
             case .none: ""
             }
         }
@@ -28,6 +33,7 @@ struct DatasheetCardContent: Equatable {
             case .reprocess: "arrow.clockwise"
             case .openSystemSettings: "gearshape"
             case .download: "arrow.down.circle"
+            case .restartMicHelper, .confirmRestartMicHelper: "arrow.triangle.2.circlepath"
             case .none: ""
             }
         }
@@ -151,6 +157,8 @@ struct DatasheetCardBody: View {
         case .reprocess: "Transcribe the kept audio again"
         case .openSystemSettings: self.content.isMicrophoneOff ? "Privacy & Security › Microphone" : "Privacy & Security › Accessibility"
         case .download: "Download the voice model in the background"
+        case .restartMicHelper: "Restart ContinuityCaptureAgent, macOS\u{2019}s helper for an iPhone microphone"
+        case .confirmRestartMicHelper: "Stop ContinuityCaptureAgent now; macOS starts it again"
         case .none: ""
         }
     }

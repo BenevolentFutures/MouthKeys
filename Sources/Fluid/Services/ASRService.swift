@@ -265,6 +265,13 @@ final class ASRService: ObservableObject {
     /// the uptime the quarantine began. Excluded from capture selection until
     /// the blocked call returns or the ceiling passes.
     private var wedgedDirectInputs: [String: TimeInterval] = [:]
+    /// See `AudioCaptureIdlePolicy.StalledInputTracker`: two microphones stalled in a row mean
+    /// macOS's audio input is stuck, and the start stops instead of trying every microphone.
+    private var stalledInputs = AudioCaptureIdlePolicy.StalledInputTracker()
+    /// Input devices in the last off-main snapshot a capture start took. It bounds the start
+    /// loops; listing devices on the main thread instead waited ~11 s on a stuck Core Audio
+    /// (2026-11-19), long enough for macOS to time out the hotkey's event tap.
+    private var lastStartSnapshotInputCount = 0
     /// Identifies the current direct lifecycle controller. A controller wedged
     /// inside Core Audio is replaced; its late callbacks carry an older token.
     private var directAudioLifecycleControllerToken: UInt64 = 0
@@ -821,6 +828,14 @@ final class ASRService: ObservableObject {
         }
     }
 
+    /// Two different microphones in a row stalled inside Core Audio: the start stops here.
+    private struct MacAudioInputStuck: LocalizedError {
+        let stalledInputCount: Int
+        var errorDescription: String? {
+            "macOS audio input is stuck: \(self.stalledInputCount) microphones in a row stalled inside Core Audio."
+        }
+    }
+
     /// Quarantines the input whose start is stuck inside Core Audio and
     /// replaces the lifecycle controller, whose serial queue stays blocked until
     /// the HAL returns (up to minutes). The old controller tears its abandoned
@@ -830,17 +845,26 @@ final class ASRService: ObservableObject {
         wedgedController.abandonPendingStart(reason: "recording_start_deadline")
         if let inputUID {
             self.wedgedDirectInputs[inputUID] = ProcessInfo.processInfo.systemUptime
+            self.stalledInputs.recordStall(uid: inputUID)
         }
         self.directAudioLifecycleController = self.makeDirectAudioLifecycleController()
         self.benchmarkLog(
             "direct_input_quarantined uid=\(inputUID ?? "nil") name='\(inputName ?? "nil")' " +
-                "controllerToken=\(self.directAudioLifecycleControllerToken)"
+                "controllerToken=\(self.directAudioLifecycleControllerToken) " +
+                "stalledSinceCapture=\(self.stalledInputs.stalledInputUIDs.count)"
         )
         DebugLogger.shared.warning(
             "Microphone '\(inputName ?? "unknown")' is stuck inside Core Audio; quarantined " +
                 "until its blocked start returns. Using a fresh audio controller.",
             source: "ASRService"
         )
+    }
+
+    /// Audio arrived, so macOS's audio input works: forget the stalls before it.
+    private func noteCaptureWorked(reason: String) {
+        if self.stalledInputs.captureWorked() {
+            self.benchmarkLog("audio_input_stalls_cleared reason=\(reason)")
+        }
     }
 
     private func releaseWedgedDirectInput(uid: String, reason: String) {
@@ -1113,6 +1137,7 @@ final class ASRService: ObservableObject {
                 }.value
                 let allDevices = deviceSnapshot.allDevices
                 let availableInputs = allDevices.filter(\.hasInput)
+                self.lastStartSnapshotInputCount = availableInputs.count
                 let wedgedInputUIDs = self.currentlyWedgedDirectInputUIDs()
                 selectionExclusions = excludedInputUIDs.union(wedgedInputUIDs)
                 snapshotInputs = availableInputs
@@ -1469,6 +1494,144 @@ final class ASRService: ObservableObject {
     /// tests replace it.
     static var speechModelNoticeHandler: @MainActor (SpeechModelNotice) -> Void = { notice in
         DeliveryFailureOverlayController.shared.showSpeechModelNotice(notice)
+    }
+
+    /// Where "macOS audio input is stuck" is announced (the overlay card; tests replace it).
+    static var audioInputStuckHandler: @MainActor () -> Void = {
+        DeliveryFailureOverlayController.shared.showAudioInputStuck()
+    }
+
+    enum MicHelperRestartOutcome: Equatable {
+        case fixed(microphone: String)
+        case stillStuck
+    }
+
+    /// The stuck card's Restart, after its confirm: stops ContinuityCaptureAgent by PID (launchd
+    /// starts it again; no sudo, coreaudiod untouched), forgets the stalls and quarantines it may
+    /// have caused, then tries the top microphone once on a throwaway controller. Every step is
+    /// logged as MIC_HELPER_RESTART.
+    func restartMicHelperAndRetryMicrophone() async -> MicHelperRestartOutcome {
+        DebugLogger.shared.info("MIC_HELPER_RESTART step=begin", source: "ASRService")
+        let report = await Task.detached(priority: .userInitiated) {
+            ContinuityCaptureHelper.restart()
+        }.value
+        DebugLogger.shared.info("MIC_HELPER_RESTART step=agent \(report.logDescription)", source: "ASRService")
+        let stalledBefore = self.stalledInputs
+        for uid in Array(self.wedgedDirectInputs.keys) {
+            self.releaseWedgedDirectInput(uid: uid, reason: "mic_helper_restart")
+        }
+        self.stalledInputs = AudioCaptureIdlePolicy.StalledInputTracker()
+        if self.isRunning {
+            // A dictation started meanwhile and has audio: the microphone already answered.
+            let name = self.audioStartAttemptInputName ?? "The microphone"
+            DebugLogger.shared.info("MIC_HELPER_RESTART result=fixed mic='\(name)' reason=recording", source: "ASRService")
+            return .fixed(microphone: name)
+        }
+        // Give Core Audio a moment to notice the agent is gone.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        switch await self.probeMicrophoneOnce() {
+        case let .answered(uid, name, firstAudioMilliseconds):
+            self.benchmarkLog("mic_helper_probe result=answered uid=\(uid) firstAudioMs=\(firstAudioMilliseconds)")
+            DebugLogger.shared.info(
+                "MIC_HELPER_RESTART result=fixed mic='\(name)' firstAudioMs=\(firstAudioMilliseconds)",
+                source: "ASRService"
+            )
+            return .fixed(microphone: name)
+        case let .failed(uid, name, reason):
+            // Still stuck: the next press makes one try and shows the card again.
+            self.stalledInputs = stalledBefore
+            if let uid { self.stalledInputs.recordStall(uid: uid) }
+            DebugLogger.shared.error(
+                "MIC_HELPER_RESTART result=still_stuck mic='\(name ?? "none")' reason=\(reason)",
+                source: "ASRService"
+            )
+            return .stillStuck
+        }
+    }
+
+    private enum MicrophoneProbeResult {
+        case answered(uid: String, name: String, firstAudioMilliseconds: Int)
+        case failed(uid: String?, name: String?, reason: String)
+    }
+
+    /// First audio from the probe's input, set on the capture's consumer queue.
+    private final nonisolated class MicrophoneProbeSignal: @unchecked Sendable {
+        private let lock = NSLock()
+        private var firstAudioAt: TimeInterval?
+
+        func mark() {
+            self.lock.lock()
+            if self.firstAudioAt == nil { self.firstAudioAt = ProcessInfo.processInfo.systemUptime }
+            self.lock.unlock()
+        }
+
+        var firstAudioUptime: TimeInterval? {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            return self.firstAudioAt
+        }
+    }
+
+    /// Starts the microphone MouthKeys would use on its own lifecycle controller (no listeners,
+    /// nothing reaches the recording pipeline), waits up to 2 s for audio, and stops it. Every
+    /// Core Audio call is off the main thread and under a deadline.
+    private func probeMicrophoneOnce() async -> MicrophoneProbeResult {
+        let deadline: UInt64 = 3_000_000_000
+        let snapshot: (inputs: [AudioDevice.Device], defaultInputUID: String?)
+        do {
+            snapshot = try await DeadlineRace.run(deadlineNanoseconds: deadline) {
+                await Task.detached(priority: .userInitiated) {
+                    let allDevices = AudioDevice.listAllDevices()
+                    return (
+                        inputs: allDevices.filter(\.hasInput),
+                        defaultInputUID: AudioDevice.getDefaultInputDevice(from: allDevices)?.uid
+                    )
+                }.value
+            }
+        } catch {
+            return .failed(uid: nil, name: nil, reason: "device_list_timeout")
+        }
+        guard let device = self.resolvedInputDeviceForCapture(
+            availableInputs: snapshot.inputs,
+            defaultInputUID: snapshot.defaultInputUID,
+            excluding: []
+        ) else {
+            return .failed(uid: nil, name: nil, reason: "no_microphone")
+        }
+        let signal = MicrophoneProbeSignal()
+        let probe = DirectCoreAudioLifecycleController(
+            packetHandler: { _, frameCount, _, _, _ in
+                if frameCount > 0 { signal.mark() }
+            },
+            installsHardwareListeners: false,
+            onFormatInvalidated: { _ in }
+        )
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await DeadlineRace.run(deadlineNanoseconds: deadline) {
+                try await probe.start(deviceID: device.id, deviceName: device.name, reason: "mic_helper_probe")
+            }
+        } catch is DeadlineRace.TimedOut {
+            // Its queue stays blocked inside Core Audio; the late return tears it down.
+            probe.abandonPendingStart(reason: "mic_helper_probe_deadline")
+            return .failed(uid: device.uid, name: device.name, reason: "start_timeout")
+        } catch {
+            await probe.shutdown(reason: "mic_helper_probe_failed")
+            return .failed(uid: device.uid, name: device.name, reason: "start_failed:\(error.localizedDescription)")
+        }
+        let audioDeadline = ProcessInfo.processInfo.systemUptime + 2
+        while signal.firstAudioUptime == nil, ProcessInfo.processInfo.systemUptime < audioDeadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        await probe.shutdown(reason: "mic_helper_probe_done")
+        guard let firstAudioAt = signal.firstAudioUptime else {
+            return .failed(uid: device.uid, name: device.name, reason: "no_audio")
+        }
+        return .answered(
+            uid: device.uid,
+            name: device.name,
+            firstAudioMilliseconds: Int(((firstAudioAt - startedAt) * 1000).rounded())
+        )
     }
 
     /// Whether dictation has a model to transcribe with: loaded, or on disk to load. Loaded is
@@ -2443,10 +2606,11 @@ final class ASRService: ObservableObject {
         self.isDictionaryTrainingCaptureActive = false
 
         do {
-            let maximumStartAttempts =
-                SettingsStore.shared.experimentalDirectAudioCaptureEnabled
-                    ? max(AudioDevice.listInputDevices().count, 1) + 1
-                    : 1
+            let directCaptureEnabled = SettingsStore.shared.experimentalDirectAudioCaptureEnabled
+            // Read only after an attempt, whose off-main snapshot counted the inputs.
+            var maximumStartAttempts: Int {
+                directCaptureEnabled ? max(self.lastStartSnapshotInputCount, 1) + 1 : 1
+            }
             var startAttempt = 1
             var fallbackAttempt = 1
             var failedInputUIDs = Set<String>()
@@ -2467,6 +2631,14 @@ final class ASRService: ObservableObject {
                     // input would only re-enter the stuck HAL call.
                     if let wedgedUID = wedged.inputUID {
                         failedInputUIDs.insert(wedgedUID)
+                    }
+                    if self.stalledInputs.isMacInputStuck {
+                        let stalledCount = self.stalledInputs.stalledInputUIDs.count
+                        self.benchmarkLog(
+                            "audio_input_stuck stalledSinceCapture=\(stalledCount) " +
+                                "attempt=\(startAttempt) action=stop_retrying"
+                        )
+                        throw MacAudioInputStuck(stalledInputCount: stalledCount)
                     }
                     forcedInputUID = nil
                     fallbackAttempt += 1
@@ -2570,6 +2742,7 @@ final class ASRService: ObservableObject {
                         uid: self.audioStartAttemptInputUID,
                         name: self.audioStartAttemptInputName
                     )
+                    self.noteCaptureWorked(reason: "first_pcm")
                     self.benchmarkLog(
                         "first_pcm_wait_end result=ready attempt=\(startAttempt) " +
                             "attemptID=\(readinessAttemptID) " +
@@ -2725,6 +2898,26 @@ final class ASRService: ObservableObject {
 
             // Provide user-friendly error feedback
             let nsError = error as NSError
+            let macAudioInputStuck = error is MacAudioInputStuck || (
+                self.stalledInputs.isMacInputStuck && (
+                    error is DirectCaptureInputWedged ||
+                        (nsError.domain == "ASRService" && nsError.code == -5)
+                )
+            )
+            if macAudioInputStuck {
+                // Not this microphone: macOS's audio input. The card offers the helper's restart.
+                self.benchmarkLog(
+                    "audio_input_stuck card=shown " +
+                        "stalledSinceCapture=\(self.stalledInputs.stalledInputUIDs.count)"
+                )
+                Self.audioInputStuckHandler()
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ASRServiceStartFailed"),
+                    object: nil,
+                    userInfo: ["errorMessage": "macOS audio input is stuck"]
+                )
+                return .failed
+            }
             let noUsableMicrophone = nsError.domain == "ASRService" && nsError.code == -4
             let microphoneNotResponding =
                 error is DirectCaptureInputWedged ||
@@ -4294,9 +4487,12 @@ final class ASRService: ObservableObject {
         guard request.generation == self.audioRouteRecoveryGeneration, Task.isCancelled == false else { return }
 
         do {
-            let maximumAttempts = SettingsStore.shared.experimentalDirectAudioCaptureEnabled
-                ? max(AudioDevice.listInputDevices().count, 1) + 1
-                : 1
+            let directCaptureEnabled = SettingsStore.shared.experimentalDirectAudioCaptureEnabled
+            // The last off-main snapshot's count: listing devices here, on the main thread, waits
+            // on a stuck Core Audio. Each attempt takes a new snapshot before this is read again.
+            var maximumAttempts: Int {
+                directCaptureEnabled ? max(self.lastStartSnapshotInputCount, 1) + 1 : 1
+            }
             var failedInputUIDs = Set<String>()
             var immediatelyRetriedInputUID: String?
             var completedAttempts = 0
@@ -4319,6 +4515,14 @@ final class ASRService: ObservableObject {
                 do {
                     try await self.startConfiguredAudioCapture(excluding: failedInputUIDs)
                 } catch {
+                    if error is DirectCaptureInputWedged, self.stalledInputs.isMacInputStuck {
+                        let stalledCount = self.stalledInputs.stalledInputUIDs.count
+                        self.benchmarkLog(
+                            "audio_input_stuck stalledSinceCapture=\(stalledCount) " +
+                                "routeRecovery=\(request.generation) action=stop_retrying"
+                        )
+                        throw MacAudioInputStuck(stalledInputCount: stalledCount)
+                    }
                     if let failedUID = self.audioStartAttemptInputUID {
                         let retrySameInput = immediatelyRetriedInputUID == nil
                         if retrySameInput {
@@ -4367,6 +4571,7 @@ final class ASRService: ObservableObject {
                         uid: self.audioStartAttemptInputUID,
                         name: self.audioStartAttemptInputName
                     )
+                    self.noteCaptureWorked(reason: "route_recovery_first_pcm")
                     self.benchmarkLog(
                         "route_recovery_first_pcm generation=\(request.generation) " +
                             "attempt=\(completedAttempts) attemptID=\(readinessAttemptID) " +
@@ -4432,6 +4637,10 @@ final class ASRService: ObservableObject {
             // that is currently executing this catch block.
             self.audioRouteRecoveryTask = nil
             await self.stopWithoutTranscription()
+            if error is MacAudioInputStuck {
+                self.benchmarkLog("audio_input_stuck card=shown routeRecovery=\(request.generation)")
+                Self.audioInputStuckHandler()
+            }
             NotificationCenter.default.post(
                 name: NSNotification.Name("ASRServiceDeviceDisconnected"),
                 object: nil,
@@ -4553,8 +4762,8 @@ final class ASRService: ObservableObject {
     }
 
     private var defaultInputListenerInstalled = false
-    private var defaultInputListenerToken: AudioObjectPropertyListenerBlock?
-    private var defaultOutputListenerToken: AudioObjectPropertyListenerBlock?
+    private var defaultInputListenerToken: CoreAudioPropertyListener?
+    private var defaultOutputListenerToken: CoreAudioPropertyListener?
 
     private func reestablishAudioHardwareListenersAfterServiceReset() {
         // The reset invalidates these registrations in HAL; do not attempt to
@@ -4595,12 +4804,12 @@ final class ASRService: ObservableObject {
 
     private func registerDefaultDeviceChangeListener() {
         guard self.defaultInputListenerInstalled == false || self.defaultOutputListenerToken == nil else { return }
-        var inputAddress = AudioObjectPropertyAddress(
+        let inputAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var outputAddress = AudioObjectPropertyAddress(
+        let outputAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -4613,16 +4822,16 @@ final class ASRService: ObservableObject {
                 // would deadlock waiting for the same lock.
                 DispatchQueue.main.async { self?.handleDefaultInputChanged() }
             }
-            let inputStatus = AudioObjectAddPropertyListenerBlock(
-                AudioObjectID(kAudioObjectSystemObject),
-                &inputAddress,
-                DispatchQueue.main,
-                inputToken
+            let (inputListener, inputStatus) = CoreAudioPropertyListener.add(
+                objectID: AudioObjectID(kAudioObjectSystemObject),
+                address: inputAddress,
+                queue: DispatchQueue.main,
+                block: inputToken
             )
 
-            if inputStatus == noErr {
+            if let inputListener {
                 self.defaultInputListenerInstalled = true
-                self.defaultInputListenerToken = inputToken
+                self.defaultInputListenerToken = inputListener
             } else {
                 self.defaultInputListenerToken = nil
                 DebugLogger.shared.error("Failed to register default input listener: \(inputStatus)", source: "ASRService")
@@ -4633,15 +4842,15 @@ final class ASRService: ObservableObject {
             let outputToken: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 DispatchQueue.main.async { self?.handleDefaultOutputChanged() }
             }
-            let outputStatus = AudioObjectAddPropertyListenerBlock(
-                AudioObjectID(kAudioObjectSystemObject),
-                &outputAddress,
-                DispatchQueue.main,
-                outputToken
+            let (outputListener, outputStatus) = CoreAudioPropertyListener.add(
+                objectID: AudioObjectID(kAudioObjectSystemObject),
+                address: outputAddress,
+                queue: DispatchQueue.main,
+                block: outputToken
             )
 
-            if outputStatus == noErr {
-                self.defaultOutputListenerToken = outputToken
+            if let outputListener {
+                self.defaultOutputListenerToken = outputListener
             } else {
                 self.defaultOutputListenerToken = nil
                 DebugLogger.shared.warning("Failed to register default output listener: \(outputStatus)", source: "ASRService")
@@ -4652,16 +4861,16 @@ final class ASRService: ObservableObject {
     // MARK: - Device Monitoring (Bluetooth Auto-Switch & Disconnect Handling)
 
     private var deviceListListenerInstalled = false
-    private var deviceListListenerToken: AudioObjectPropertyListenerBlock?
+    private var deviceListListenerToken: CoreAudioPropertyListener?
     private var monitoredDeviceID: AudioObjectID?
-    private var monitoredDeviceIsAliveListenerToken: AudioObjectPropertyListenerBlock?
+    private var monitoredDeviceIsAliveListenerToken: CoreAudioPropertyListener?
 
     /// Registers a listener for device list changes (additions/removals)
     /// This enables auto-switching to newly connected devices (especially Bluetooth)
     private func registerDeviceListChangeListener() {
         guard self.deviceListListenerInstalled == false else { return }
 
-        var address = AudioObjectPropertyAddress(
+        let address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -4673,16 +4882,16 @@ final class ASRService: ObservableObject {
             // would deadlock waiting for the same lock.
             DispatchQueue.main.async { self?.handleDeviceListChanged() }
         }
-        let status = AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            DispatchQueue.main,
-            token
+        let (listener, status) = CoreAudioPropertyListener.add(
+            objectID: AudioObjectID(kAudioObjectSystemObject),
+            address: address,
+            queue: DispatchQueue.main,
+            block: token
         )
 
-        if status == noErr {
+        if let listener {
             self.deviceListListenerInstalled = true
-            self.deviceListListenerToken = token
+            self.deviceListListenerToken = listener
             DebugLogger.shared.debug("Device list change listener registered", source: "ASRService")
         } else {
             self.deviceListListenerToken = nil
@@ -4696,7 +4905,7 @@ final class ASRService: ObservableObject {
         // Unregister previous device if any
         self.stopMonitoringDevice()
 
-        var address = AudioObjectPropertyAddress(
+        let address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceIsAlive,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -4705,16 +4914,16 @@ final class ASRService: ObservableObject {
         let token: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { self?.handleDeviceAvailabilityChanged(deviceID: deviceID) }
         }
-        let status = AudioObjectAddPropertyListenerBlock(
-            deviceID,
-            &address,
-            DispatchQueue.main,
-            token
+        let (listener, status) = CoreAudioPropertyListener.add(
+            objectID: deviceID,
+            address: address,
+            queue: DispatchQueue.main,
+            block: token
         )
 
-        if status == noErr {
+        if let listener {
             self.monitoredDeviceID = deviceID
-            self.monitoredDeviceIsAliveListenerToken = token
+            self.monitoredDeviceIsAliveListenerToken = listener
             DebugLogger.shared.debug("Started monitoring device ID: \(deviceID)", source: "ASRService")
         } else {
             self.monitoredDeviceID = nil
@@ -4727,15 +4936,7 @@ final class ASRService: ObservableObject {
     private func stopMonitoringDevice() {
         guard let deviceID = self.monitoredDeviceID else { return }
 
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        if let token = self.monitoredDeviceIsAliveListenerToken {
-            _ = AudioObjectRemovePropertyListenerBlock(deviceID, &address, DispatchQueue.main, token)
-        }
+        self.monitoredDeviceIsAliveListenerToken?.remove()
         self.monitoredDeviceID = nil
         self.monitoredDeviceIsAliveListenerToken = nil
         DebugLogger.shared.debug("Stopped monitoring device ID: \(deviceID)", source: "ASRService")

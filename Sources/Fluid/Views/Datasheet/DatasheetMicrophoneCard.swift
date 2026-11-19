@@ -53,7 +53,7 @@ final class MicrophonePickerModel: ObservableObject {
     private var refreshGeneration = 0
     /// Every caller waiting for a fresh list; the refresh that wins runs them all.
     private var refreshCompletions: [() -> Void] = []
-    private var deviceListListener: AudioObjectPropertyListenerBlock?
+    private var deviceListListener: CoreAudioPropertyListener?
     private var cancellables: Set<AnyCancellable> = []
     /// Lives for the app, card open or not, so a pick confirmed (or replaced by a fallback)
     /// while the card is closed never leaves a stale "switching" mark.
@@ -179,7 +179,7 @@ final class MicrophonePickerModel: ObservableObject {
     }
 
     private func addDeviceListListener() {
-        var address = AudioObjectPropertyAddress(
+        let address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -189,22 +189,14 @@ final class MicrophonePickerModel: ObservableObject {
                 MainActor.assumeIsolated { MicrophonePickerModel.shared.refresh() }
             }
         }
-        let status = AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
-        )
-        if status == noErr { self.deviceListListener = listener }
+        self.deviceListListener = CoreAudioPropertyListener.add(
+            objectID: AudioObjectID(kAudioObjectSystemObject), address: address, queue: DispatchQueue.main, block: listener
+        ).listener
     }
 
     private func removeDeviceListListener() {
         guard let listener = self.deviceListListener else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        _ = AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
-        )
+        listener.remove()
         self.deviceListListener = nil
     }
 }

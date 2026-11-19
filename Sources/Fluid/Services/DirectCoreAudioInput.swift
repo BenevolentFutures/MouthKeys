@@ -647,11 +647,6 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
     typealias FingerprintReader = (_ deviceID: AudioObjectID) throws
         -> DirectCoreAudioFormatFingerprint
 
-    private struct ListenerRegistration {
-        let objectID: AudioObjectID
-        var address: AudioObjectPropertyAddress
-        let block: AudioObjectPropertyListenerBlock
-    }
 
     private enum ListenerPolicy: Equatable {
         case optional
@@ -704,7 +699,7 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
     // lifecycleQueue-confined state
     private var input: (any DirectCoreAudioInputControlling)?
     private var packetGate: DirectCoreAudioPacketGate?
-    private var listenerRegistrations: [ListenerRegistration] = []
+    private var listenerRegistrations: [CoreAudioPropertyListener] = []
     private var generation: UInt64 = 0
     private var isShutDown = false
     private var isPoisoned = false
@@ -736,7 +731,7 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
         let generation = self.generation
         self.lifecycleQueue.async {
             gate?.retire()
-            Self.removeListeners(registrations, queue: listenerQueue)
+            Self.removeListeners(registrations)
             if registrations.isEmpty == false {
                 listenerQueue.sync {}
                 Self.log(
@@ -1224,7 +1219,7 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
         self.packetGate?.retire()
         self.packetGate = nil
         let listenerCount = self.listenerRegistrations.count
-        Self.removeListeners(self.listenerRegistrations, queue: self.listenerQueue)
+        Self.removeListeners(self.listenerRegistrations)
         self.listenerRegistrations.removeAll(keepingCapacity: false)
         if listenerCount > 0 {
             let listenerDrainStartedAt = ProcessInfo.processInfo.systemUptime
@@ -1402,13 +1397,13 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
                 )
             }
         }
-        let status = AudioObjectAddPropertyListenerBlock(
-            objectID,
-            &address,
-            self.listenerQueue,
-            block
+        let (listener, status) = CoreAudioPropertyListener.add(
+            objectID: objectID,
+            address: address,
+            queue: self.listenerQueue,
+            block: block
         )
-        guard status == noErr else {
+        guard let listener else {
             if policy != .optional {
                 throw Self.error(
                     "Failed to register required Core Audio listener \(name) " +
@@ -1422,9 +1417,7 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
             )
             return
         }
-        self.listenerRegistrations.append(
-            ListenerRegistration(objectID: objectID, address: address, block: block)
-        )
+        self.listenerRegistrations.append(listener)
     }
 
     private func handleFormatInvalidationLocked(generation: UInt64, reason: String) {
@@ -1533,22 +1526,13 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
         self.snapshotLock.unlock()
     }
 
-    private static func removeListeners(
-        _ registrations: [ListenerRegistration],
-        queue: DispatchQueue
-    ) {
+    private static func removeListeners(_ registrations: [CoreAudioPropertyListener]) {
         for registration in registrations {
-            var address = registration.address
-            let status = AudioObjectRemovePropertyListenerBlock(
-                registration.objectID,
-                &address,
-                queue,
-                registration.block
-            )
+            let status = registration.remove()
             if status != noErr, status != kAudioHardwareBadObjectError {
                 Self.log(
                     "Direct capture listener removal failed object=\(registration.objectID) " +
-                        "selector=\(address.mSelector) status=\(status)",
+                        "selector=\(registration.address.mSelector) status=\(status)",
                     level: .warning
                 )
             }

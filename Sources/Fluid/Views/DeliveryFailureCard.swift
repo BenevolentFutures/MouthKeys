@@ -34,6 +34,7 @@ final class DeliveryFailureOverlayController {
     private(set) var presentedTimeout: TranscriptionTimeoutNotice?
     private(set) var presentedMicrophoneAccessNeeded = false
     private(set) var presentedSpeechModelNotice: SpeechModelNotice?
+    private(set) var presentedAudioInputStuck: AudioInputStuckNotice?
     /// Transcripts whose paste failed this session, for the history card's NOT PASTED marker.
     private(set) var notPastedTranscripts: Set<String> = []
 
@@ -187,9 +188,100 @@ final class DeliveryFailureOverlayController {
         DebugLogger.shared.info("Microphone access card shown", source: "DeliveryFailureCard")
     }
 
+    /// The macOS-audio-input-stuck card, one state at a time.
+    enum AudioInputStuckNotice: Equatable {
+        /// Two microphones in a row stalled inside Core Audio.
+        case stuck
+        /// Restart was clicked once; the second click acts.
+        case confirmRestart
+        case restarting
+        case fixed(microphone: String)
+        case stillStuck
+    }
+
+    /// Two microphones in a row stalled inside Core Audio, so the start stopped: this is macOS's
+    /// audio input, not one microphone (2026-11-19: ContinuityCaptureAgent, the helper behind an
+    /// iPhone microphone, blocked input for every app until it was restarted). The way out is
+    /// that restart, behind one confirm, and then one try of the microphone.
+    func showAudioInputStuck(_ notice: AudioInputStuckNotice = .stuck) {
+        let content = Self.audioInputStuckCardContent(notice)
+        let displayDuration: TimeInterval = switch notice {
+        case .stuck, .confirmRestart, .stillStuck: 20
+        // The outcome replaces it; this is only a ceiling.
+        case .restarting: 60
+        case .fixed: Self.displayDuration
+        }
+        self.present(content, displayDuration: displayDuration, yieldOverlay: {
+            // The refused start's pill becomes the card; later states replace the card itself.
+            notice == .stuck ? BottomOverlayWindowController.shared.yieldToNoticeCard(refusedStart: true) : false
+        }) { [weak self] in
+            switch notice {
+            case .stuck:
+                self?.showAudioInputStuck(.confirmRestart)
+            case .confirmRestart:
+                self?.showAudioInputStuck(.restarting)
+                Task { @MainActor [weak self] in
+                    let outcome = await AppServices.shared.asr.restartMicHelperAndRetryMicrophone()
+                    switch outcome {
+                    case let .fixed(microphone): self?.showAudioInputStuck(.fixed(microphone: microphone))
+                    case .stillStuck: self?.showAudioInputStuck(.stillStuck)
+                    }
+                }
+            case .restarting, .fixed, .stillStuck:
+                break
+            }
+        }
+        self.presentedAudioInputStuck = notice
+        DebugLogger.shared.info("Audio input stuck card shown notice=\(notice)", source: "DeliveryFailureCard")
+    }
+
+    static func audioInputStuckCardContent(_ notice: AudioInputStuckNotice) -> DatasheetCardContent {
+        switch notice {
+        case .stuck:
+            DatasheetCardContent(
+                headline: "macOS audio input is stuck",
+                reason: "No microphone is answering. The iPhone mic helper can cause this",
+                primary: .restartMicHelper,
+                isMicrophoneOff: true
+            )
+        case .confirmRestart:
+            DatasheetCardContent(
+                headline: "Restart the iPhone mic helper?",
+                reason: "Stops ContinuityCaptureAgent (macOS starts it again), then tries the microphone once",
+                primary: .confirmRestartMicHelper,
+                isMicrophoneOff: true
+            )
+        case .restarting:
+            DatasheetCardContent(
+                headline: "Restarting the iPhone mic helper",
+                reason: "Then trying the microphone once",
+                primary: .none,
+                isMicrophoneOff: true
+            )
+        case let .fixed(microphone):
+            DatasheetCardContent(
+                headline: "Microphone is working again",
+                reason: "\(microphone) answered. Press your shortcut to dictate",
+                primary: .none
+            )
+        case .stillStuck:
+            DatasheetCardContent(
+                headline: "macOS audio input is still stuck",
+                reason: "Restart Core Audio: sudo killall coreaudiod in Terminal, or restart the Mac",
+                primary: .none,
+                isMicrophoneOff: true
+            )
+        }
+    }
+
     /// `yieldOverlay`: asks the overlay to give way (a cut) when the card is about the dictation it
     /// is holding, so the card reads as the pill growing upward; otherwise the card sits above it.
-    private func present(_ content: DatasheetCardContent, yieldOverlay: () -> Bool, primary: @escaping () -> Void) {
+    private func present(
+        _ content: DatasheetCardContent,
+        displayDuration: TimeInterval = DeliveryFailureOverlayController.displayDuration,
+        yieldOverlay: () -> Bool,
+        primary: @escaping () -> Void
+    ) {
         let overlayYielded = yieldOverlay()
         let model = DatasheetOverlayModel.shared
         let view = DeliveryFailureCardView(
@@ -203,10 +295,10 @@ final class DeliveryFailureOverlayController {
             onHoverChanged: { [weak self] hovering in self?.hoverChanged(hovering) },
             floatShadow: self.floatShadow.state
         )
-        self.present(view, avoidingOverlay: !overlayYielded)
+        self.present(view, avoidingOverlay: !overlayYielded, displayDuration: displayDuration)
     }
 
-    private func present(_ rootView: DeliveryFailureCardView, avoidingOverlay: Bool) {
+    private func present(_ rootView: DeliveryFailureCardView, avoidingOverlay: Bool, displayDuration: TimeInterval) {
         self.generation &+= 1
         self.dismissTask?.cancel()
         self.isClosing = false
@@ -215,6 +307,7 @@ final class DeliveryFailureOverlayController {
         self.presentedTimeout = nil
         self.presentedMicrophoneAccessNeeded = false
         self.presentedSpeechModelNotice = nil
+        self.presentedAudioInputStuck = nil
         // A fresh hosting view per card: the view's own state (Copied, hover) must never carry
         // over from the previous card.
         if self.panel == nil {
@@ -236,7 +329,7 @@ final class DeliveryFailureOverlayController {
         }
         self.positionPanel(avoidingOverlay: avoidingOverlay)
         panel.orderFrontRegardless()
-        self.scheduleDismiss(after: Self.displayDuration)
+        self.scheduleDismiss(after: displayDuration)
     }
 
     func hide(after delay: TimeInterval = 0) {
@@ -264,6 +357,7 @@ final class DeliveryFailureOverlayController {
         self.presentedTimeout = nil
         self.presentedMicrophoneAccessNeeded = false
         self.presentedSpeechModelNotice = nil
+        self.presentedAudioInputStuck = nil
         guard let panel = self.panel, panel.isVisible, !DatasheetTheme.Motion.isReduced else {
             self.panel?.orderOut(nil)
             return
