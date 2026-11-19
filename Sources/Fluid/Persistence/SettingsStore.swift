@@ -168,18 +168,22 @@ final class SettingsStore: ObservableObject {
         /// phone has to wake to answer, and on 2026-11-19 MouthKeys reached for Atin's after
         /// every other mic stalled inside Core Audio (Atin: never connect to the phone mic unless
         /// I pick it). Placed by hand under Preferred or Last resort, it is used. The name check
-        /// catches a phone whose transport is not known yet. Aggregates stay preferred: a lapel
-        /// set up as an aggregate device is a real microphone.
+        /// catches a phone whose transport is not known yet, and only then: it runs on the
+        /// dictation start path, and a USB or Bluetooth mic is never the phone. Aggregates stay
+        /// preferred: a lapel set up as an aggregate device is a real microphone.
         static func automatic(transportType: UInt32?, name: String? = nil) -> MicrophoneTier {
             switch transportType {
             case kAudioDeviceTransportTypeVirtual,
                  kAudioDeviceTransportTypeContinuityCaptureWired,
                  kAudioDeviceTransportTypeContinuityCaptureWireless:
                 return .never
-            default:
-                if let name, name.range(of: "iPhone", options: .caseInsensitive) != nil {
+            case nil, kAudioDeviceTransportTypeUnknown:
+                // NSString's search, not String's: about 20x faster case-insensitively.
+                if let name, (name as NSString).range(of: "iPhone", options: .caseInsensitive).location != NSNotFound {
                     return .never
                 }
+                return .preferred
+            default:
                 return .preferred
             }
         }
