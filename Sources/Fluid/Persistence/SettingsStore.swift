@@ -164,15 +164,27 @@ final class SettingsStore: ObservableObject {
         }
 
         /// Until the user places a microphone: virtual devices (BlackHole, Loopback, a meeting
-        /// app's audio) are never a microphone, and an iPhone's Continuity mic only shows up
-        /// when the phone is near, so it comes last. Aggregates stay preferred: a lapel set up
-        /// as an aggregate device is a real microphone.
-        static func automatic(transportType: UInt32?) -> MicrophoneTier {
+        /// app's audio) are never a microphone, and neither is an iPhone's Continuity mic. The
+        /// phone has to wake to answer, and on 2026-11-19 MouthKeys reached for Atin's after
+        /// every other mic stalled inside Core Audio (Atin: never connect to the phone mic unless
+        /// I pick it). Placed by hand under Preferred or Last resort, it is used. The name check
+        /// catches a phone whose transport is not known yet, and only then: it runs on the
+        /// dictation start path, and a USB or Bluetooth mic is never the phone. Aggregates stay
+        /// preferred: a lapel set up as an aggregate device is a real microphone.
+        static func automatic(transportType: UInt32?, name: String? = nil) -> MicrophoneTier {
             switch transportType {
-            case kAudioDeviceTransportTypeVirtual: .never
-            case kAudioDeviceTransportTypeContinuityCaptureWired,
-                 kAudioDeviceTransportTypeContinuityCaptureWireless: .lastResort
-            default: .preferred
+            case kAudioDeviceTransportTypeVirtual,
+                 kAudioDeviceTransportTypeContinuityCaptureWired,
+                 kAudioDeviceTransportTypeContinuityCaptureWireless:
+                return .never
+            case nil, kAudioDeviceTransportTypeUnknown:
+                // NSString's search, not String's: about 20x faster case-insensitively.
+                if let name, (name as NSString).range(of: "iPhone", options: .caseInsensitive).location != NSNotFound {
+                    return .never
+                }
+                return .preferred
+            default:
+                return .preferred
             }
         }
     }
@@ -189,7 +201,7 @@ final class SettingsStore: ObservableObject {
         var id: String { self.uid }
 
         var effectiveTier: MicrophoneTier {
-            self.tier ?? MicrophoneTier.automatic(transportType: self.transportType)
+            self.tier ?? MicrophoneTier.automatic(transportType: self.transportType, name: self.name)
         }
 
         /// A USB microphone without a serial number takes its UID from the port it is plugged
@@ -2126,7 +2138,7 @@ final class SettingsStore: ObservableObject {
         // The live device's transport, not only the one saved: an entry ranked before groups
         // existed has none until a reconcile records it.
         self.microphonePriority.first { $0.uid == device.uid }?.tier
-            ?? MicrophoneTier.automatic(transportType: device.transportType)
+            ?? MicrophoneTier.automatic(transportType: device.transportType, name: device.name)
     }
 
     struct MicrophoneTierGroup: Identifiable {

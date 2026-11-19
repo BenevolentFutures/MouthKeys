@@ -86,3 +86,14 @@ mouthkeys.com is `site/` (one static page in light Datasheet Mono, the app's vis
 1. Before the first launch of a build with a new signature, delete other copies of `com.stage11.mouthkeys` signed by someone else and empty the Trash. `./build.sh install` lists them after installing (read-only).
 2. Diagnose from the log first: `grep -E 'HOTKEY_TAP|ACCESSIBILITY|PERMISSION_DIAG|PERMISSION_HINT' ~/Library/Logs/MouthKeys/Fluid.log`, and tccd's view with `log show --last 10m --predicate 'process == "tccd"' | grep mouthkeys`.
 3. Agents never touch TCC (`tccutil`) or delete Atin's copies. Hand him the paths and the steps.
+
+### Every microphone stalls inside Core Audio: restart ContinuityCaptureAgent first
+
+**The incident (2026-11-19, 11:43 to 12:02):** every input (built-in, ATR USB, EMEET, iPhone) stalled for every process, not only MouthKeys. `coreaudiod` logged `HALS_IOContext_Legacy_Impl::StartIOThread: got an error from starting the IO thread, Error: 0x3C` every 14 s, MouthKeys quarantined one mic after another and its hotkey tap timed out. Output still played. Relaunching MouthKeys did not help, and neither did `sudo killall coreaudiod`. Restarting `ContinuityCaptureAgent` (the iPhone Continuity agent, which runs as Atin and survives a `coreaudiod` restart) cleared it at once. The same `0x3C` signature appears in the 2026-09-11 and 2026-09-14 notes in `ASRService` (`directCaptureStartDeadlineNanoseconds`); whether the agent caused those is unproven.
+
+**The cure, in order:**
+1. Prove it is system-wide, without touching the installed app: `/usr/bin/log show --last 15m --predicate 'process == "coreaudiod" AND eventMessage CONTAINS "StartIOThread"'`, then a mic probe in your own process, `perl -e 'alarm 20; exec @ARGV' /opt/homebrew/bin/rec -q -n stat trim 0 1` (healthy: a `Length` line within about a second; wedged: it hangs until the alarm). `play -q -n synth 0.3 sine 440 vol 0` checks output silently.
+2. Restart the agent, user-level, no sudo: `kill <pid>` with the PID from `pgrep -x ContinuityCaptureAgent`; launchd starts it again. Re-run the probe.
+3. Only if input still hangs, Atin restarts `coreaudiod` himself (`sudo killall coreaudiod`).
+
+Since 0.1.8 MouthKeys never picks an iPhone mic on its own (`MicrophoneTier.automatic`), but the agent can stall input with the phone mic unused.
