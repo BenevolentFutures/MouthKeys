@@ -1180,7 +1180,7 @@ private extension SettingsView {
             .background(self.datasheetPalette.surface)
             .overlay { Rectangle().strokeBorder(self.datasheetPalette.edge, lineWidth: 1) }
 
-            Text("MouthKeys uses the first connected microphone under Preferred, then under Last resort. Microphones under Never are never used and stay out of the overlay's microphone card. Drag to reorder or to move one between groups. A newly connected microphone joins the end of its group: virtual devices start under Never, an iPhone under Last resort. Picking one in the overlay uses it until it disconnects. This order does not change the macOS input.")
+            Text("MouthKeys uses the first connected microphone under Preferred, then under Last resort. Microphones under Never are never used and stay out of the overlay's microphone card. Drag to reorder or to move one between groups. A newly connected microphone joins the end of its group: virtual devices and an iPhone start under Never. Picking one in the overlay uses it until it disconnects. This order does not change the macOS input.")
                 .font(.system(size: 13))
                 .lineSpacing(2)
                 .foregroundStyle(self.datasheetPalette.text2)

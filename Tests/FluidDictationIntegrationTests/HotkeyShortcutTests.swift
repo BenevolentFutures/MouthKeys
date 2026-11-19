@@ -2782,8 +2782,8 @@ final class HotkeyShortcutTests: XCTestCase {
                 .init(uid: lapel.uid, name: lapel.name, transportType: lapel.transportType),
                 .init(uid: builtIn.uid, name: builtIn.name, transportType: builtIn.transportType),
             ]
-            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "phone", "bh"], "Grouped by tier")
-            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "bh", "phone"], "Grouped by tier")
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .never, .never])
             XCTAssertEqual(settings.preferredInputDeviceUID, "lapel", "The first preferred, never a virtual device")
 
             let devices = FakeAudioDeviceManager(inputs: [], defaultInputUID: blackHole.uid)
@@ -2793,14 +2793,18 @@ final class HotkeyShortcutTests: XCTestCase {
             }
             XCTAssertEqual(pick([blackHole, phone, builtIn, lapel]), "lapel")
             XCTAssertEqual(pick([blackHole, phone, builtIn]), "internal")
-            XCTAssertEqual(pick([blackHole, phone]), "phone", "Last resort only when nothing preferred is connected")
+            XCTAssertNil(pick([blackHole, phone]), "An iPhone is never reached for on its own (Atin, 2026-11-19)")
             XCTAssertNil(pick([blackHole]), "Never is never chosen, even as the macOS default")
 
             // A device MouthKeys has not ranked yet follows its automatic tier too.
             let loopback = Self.device(uid: "loop", name: "Loopback Audio", transportType: kAudioDeviceTransportTypeVirtual)
             XCTAssertNil(coordinator.inputDeviceForCapture(availableInputs: [loopback], defaultInputUID: loopback.uid))
 
-            // The user's placement wins over the automatic one.
+            // The user's placement wins over the automatic one: placed by hand, the phone is used.
+            settings.setMicrophoneTier(uid: phone.uid, to: .lastResort)
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "phone", "bh"])
+            XCTAssertEqual(pick([blackHole, phone]), "phone", "Last resort only when nothing preferred is connected")
+            XCTAssertEqual(pick([blackHole, phone, builtIn]), "internal")
             settings.setMicrophoneTier(uid: phone.uid, to: .preferred)
             XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "internal", "phone", "bh"])
             XCTAssertEqual(pick([phone, builtIn]), "internal")
@@ -2836,9 +2840,10 @@ final class HotkeyShortcutTests: XCTestCase {
             )
             XCTAssertEqual(
                 coordinator.inputDeviceForCapture(availableInputs: [blackHole, phone, builtIn])?.uid, "internal",
-                "Before any reconcile, BlackHole is Never and the phone Last resort by what they are"
+                "Before any reconcile, BlackHole and the phone are Never by what they are"
             )
-            XCTAssertEqual(coordinator.rankedUsableInputUIDs(allDevices: [blackHole, phone, builtIn]), ["internal", "phone"])
+            XCTAssertEqual(coordinator.rankedUsableInputUIDs(allDevices: [blackHole, phone, builtIn]), ["internal"])
+            XCTAssertNil(coordinator.inputDeviceForCapture(availableInputs: [blackHole, phone]))
 
             settings.microphonePriority = [.init(uid: blackHole.uid, name: blackHole.name, tier: .never)]
             XCTAssertNil(settings.preferredInputDeviceUID, "The first-choice readout never names a Never microphone")
@@ -2861,12 +2866,18 @@ final class HotkeyShortcutTests: XCTestCase {
             settings.microphonePriority = [.init(uid: lapel.uid, name: lapel.name, tier: .preferred)]
 
             settings.reconcileMicrophonePriority(with: [blackHole, phone, lapel, usb])
-            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "usb", "phone", "bh"])
-            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+            XCTAssertEqual(settings.microphonePriority.map(\.uid), ["lapel", "usb", "bh", "phone"])
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .never, .never])
             XCTAssertEqual(settings.microphonePriority.first { $0.uid == "bh" }?.transportType, kAudioDeviceTransportTypeVirtual,
                            "The transport is kept, so the group holds while the device is away")
             settings.reconcileMicrophonePriority(with: [lapel])
-            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .lastResort, .never])
+            XCTAssertEqual(settings.microphonePriority.map(\.effectiveTier), [.preferred, .preferred, .never, .never])
+
+            // A phone whose transport is not known yet is caught by its name.
+            let namedPhone = Self.device(uid: "named", name: "Atin's iPhone Microphone", transportType: kAudioDeviceTransportTypeUnknown)
+            settings.reconcileMicrophonePriority(with: [lapel, namedPhone])
+            XCTAssertEqual(settings.microphonePriority.first { $0.uid == "named" }?.effectiveTier, .never)
+            XCTAssertEqual(settings.microphoneTier(for: namedPhone), .never)
         }
     }
 

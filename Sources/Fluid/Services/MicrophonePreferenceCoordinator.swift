@@ -191,10 +191,10 @@ final class MicrophonePreferenceCoordinator: ObservableObject {
         // Never rank a virtual device or an iPhone first on its own: the first real microphone
         // takes the place, or none.
         if let chosen = selectedInput,
-           SettingsStore.MicrophoneTier.automatic(transportType: chosen.transportType) != .preferred
+           SettingsStore.MicrophoneTier.automatic(transportType: chosen.transportType, name: chosen.name) != .preferred
         {
             selectedInput = usableInputs.first {
-                SettingsStore.MicrophoneTier.automatic(transportType: $0.transportType) == .preferred
+                SettingsStore.MicrophoneTier.automatic(transportType: $0.transportType, name: $0.name) == .preferred
             }
         }
         guard let selectedInput else {
