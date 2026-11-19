@@ -2,6 +2,7 @@
 #define CORE_AUDIO_CAPTURE_SUPPORT_H
 
 #include <CoreAudio/CoreAudio.h>
+#include <dispatch/dispatch.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -64,6 +65,28 @@ bool fv_core_audio_capture_copy_stream_format(
 double fv_core_audio_capture_sample_rate(FVCoreAudioCaptureRef capture);
 uint32_t fv_core_audio_capture_buffer_frame_size(FVCoreAudioCaptureRef capture);
 uint64_t fv_core_audio_capture_dropped_packet_count(FVCoreAudioCaptureRef capture);
+
+typedef void *FVCoreAudioListenerRef;
+
+/// Registers `listener` for one property and keeps the exact block Core Audio was given, so
+/// fv_core_audio_listener_remove can take it off again. Swift cannot do this itself: it imports
+/// AudioObjectPropertyListenerBlock as a Swift closure and bridges it to a new block on every
+/// call, so AudioObjectRemovePropertyListenerBlock called from Swift never matches what was
+/// added. It returns noErr and the listener keeps firing (found 2026-11-19).
+int32_t fv_core_audio_listener_add(
+    AudioObjectID objectID,
+    const AudioObjectPropertyAddress *address,
+    dispatch_queue_t queue,
+    AudioObjectPropertyListenerBlock listener,
+    FVCoreAudioListenerRef *outListener
+);
+
+/// Removes the listener and frees the handle, which must not be used again.
+int32_t fv_core_audio_listener_remove(FVCoreAudioListenerRef listener);
+
+/// Frees the handle and leaves the registration alone: for a listener Core Audio already
+/// dropped (its service restarted), or one that should outlive its owner.
+void fv_core_audio_listener_discard(FVCoreAudioListenerRef listener);
 
 #ifdef __cplusplus
 }

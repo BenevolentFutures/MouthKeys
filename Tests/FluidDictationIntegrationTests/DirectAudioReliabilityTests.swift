@@ -4,6 +4,66 @@ import Foundation
 import XCTest
 
 final class DirectAudioReliabilityTests: XCTestCase {
+    /// 2026-11-19: `AudioObjectRemovePropertyListenerBlock` called from Swift never removed
+    /// anything (Swift hands Core Audio a new block on every call), so every capture left its
+    /// listeners behind. Toggles this process's own input mute: silent, and no other app sees it.
+    func testCoreAudioPropertyListenerRemovalStopsDelivery() throws {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessInputMute,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(system, &address) else {
+            throw XCTSkip("Process input mute is unavailable on this macOS")
+        }
+        let queue = DispatchQueue(label: "test.listener-removal")
+        let lock = NSLock()
+        var calls: [String] = []
+        func listen(_ name: String) throws -> CoreAudioPropertyListener {
+            try XCTUnwrap(CoreAudioPropertyListener.add(objectID: system, address: address, queue: queue) { _, _ in
+                lock.withLock { calls.append(name) }
+            }.listener)
+        }
+        let removed = try listen("removed")
+        let kept = try listen("kept")
+        XCTAssertEqual(removed.remove(), noErr)
+        XCTAssertFalse(removed.isRegistered)
+        XCTAssertEqual(removed.remove(), noErr, "a second remove does nothing")
+
+        func setMute(_ value: UInt32) {
+            var value = value
+            _ = AudioObjectSetPropertyData(system, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+        }
+        setMute(1)
+        setMute(0)
+        let deadline = Date().addingTimeInterval(3)
+        while lock.withLock({ calls.filter { $0 == "kept" }.count }) < 2, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        queue.sync {}
+        kept.remove()
+        let delivered = lock.withLock { calls }
+        XCTAssertEqual(delivered.filter { $0 == "kept" }.count, 2, "the listener left on hears both changes")
+        XCTAssertFalse(delivered.contains("removed"), "a removed listener never fires: \(delivered)")
+    }
+
+    /// One microphone stalling is that microphone; two different ones in a row are macOS's audio
+    /// input, and audio arriving forgets them.
+    func testTwoDifferentStalledMicrophonesMeanMacInputIsStuck() {
+        var tracker = AudioCaptureIdlePolicy.StalledInputTracker()
+        tracker.recordStall(uid: "atr")
+        XCTAssertFalse(tracker.isMacInputStuck)
+        tracker.recordStall(uid: "atr")
+        XCTAssertFalse(tracker.isMacInputStuck, "the same microphone twice is still one microphone")
+        tracker.recordStall(uid: "builtin")
+        XCTAssertTrue(tracker.isMacInputStuck)
+        XCTAssertEqual(tracker.stalledInputUIDs, ["atr", "builtin"])
+        XCTAssertTrue(tracker.captureWorked())
+        XCTAssertFalse(tracker.isMacInputStuck)
+        XCTAssertFalse(tracker.captureWorked(), "nothing left to forget")
+    }
+
     func testReadinessGatePreservesFirstPCMThatArrivesBeforeWait() async {
         let gate = AudioCaptureReadinessGate()
         gate.arm(sessionID: 41, attemptID: 1)

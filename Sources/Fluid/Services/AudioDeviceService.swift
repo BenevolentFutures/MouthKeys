@@ -437,10 +437,10 @@ final class AudioHardwareObserver: ObservableObject {
     @Published private(set) var inputAvailabilityTick: UInt64 = 0
 
     private var installed: Bool = false
-    private var devicesListenerToken: AudioObjectPropertyListenerBlock?
-    private var defaultInputListenerToken: AudioObjectPropertyListenerBlock?
-    private var defaultOutputListenerToken: AudioObjectPropertyListenerBlock?
-    private var inputAvailabilityListenerTokens: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
+    private var devicesListenerToken: CoreAudioPropertyListener?
+    private var defaultInputListenerToken: CoreAudioPropertyListener?
+    private var defaultOutputListenerToken: CoreAudioPropertyListener?
+    private var inputAvailabilityListenerTokens: [AudioObjectID: CoreAudioPropertyListener] = [:]
     private var inputAvailabilityRefreshGeneration: UInt64 = 0
     private var clamshellRootDomain: io_service_t = IO_OBJECT_NULL
     private var clamshellNotificationPort: IONotificationPortRef?
@@ -466,11 +466,15 @@ final class AudioHardwareObserver: ObservableObject {
     }
 
     func restartObservingAfterAudioServiceReset() {
-        // Core Audio discards every previously registered listener when its
-        // service resets, so the old tokens must not be removed or reused.
+        // The old registrations are never reused. Removing them is harmless if the reset
+        // already dropped them, and keeps duplicate listeners out if it did not.
+        self.devicesListenerToken?.remove()
         self.devicesListenerToken = nil
+        self.defaultInputListenerToken?.remove()
         self.defaultInputListenerToken = nil
+        self.defaultOutputListenerToken?.remove()
         self.defaultOutputListenerToken = nil
+        self.inputAvailabilityListenerTokens.values.forEach { $0.remove() }
         self.inputAvailabilityListenerTokens.removeAll()
         self.inputAvailabilityRefreshGeneration &+= 1
         self.installed = false
@@ -495,17 +499,17 @@ final class AudioHardwareObserver: ObservableObject {
 
     private func register() {
         guard self.installed == false else { return }
-        var addrDevices = AudioObjectPropertyAddress(
+        let addrDevices = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var addrDefaultIn = AudioObjectPropertyAddress(
+        let addrDefaultIn = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var addrDefaultOut = AudioObjectPropertyAddress(
+        let addrDefaultOut = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -525,21 +529,18 @@ final class AudioHardwareObserver: ObservableObject {
             self?.changeTick &+= 1
         }
 
-        let devicesStatus = AudioObjectAddPropertyListenerBlock(sys, &addrDevices, queue, devicesToken)
-        let defaultInStatus = AudioObjectAddPropertyListenerBlock(sys, &addrDefaultIn, queue, defaultInToken)
-        let defaultOutStatus = AudioObjectAddPropertyListenerBlock(sys, &addrDefaultOut, queue, defaultOutToken)
+        let devices = CoreAudioPropertyListener.add(objectID: sys, address: addrDevices, queue: queue, block: devicesToken)
+        let defaultIn = CoreAudioPropertyListener.add(objectID: sys, address: addrDefaultIn, queue: queue, block: defaultInToken)
+        let defaultOut = CoreAudioPropertyListener.add(objectID: sys, address: addrDefaultOut, queue: queue, block: defaultOutToken)
 
-        guard devicesStatus == noErr, defaultInStatus == noErr, defaultOutStatus == noErr else {
+        guard let devicesListener = devices.listener,
+              let defaultInListener = defaultIn.listener,
+              let defaultOutListener = defaultOut.listener
+        else {
             // Best-effort cleanup for any partial installs.
-            if devicesStatus == noErr {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDevices, queue, devicesToken)
-            }
-            if defaultInStatus == noErr {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDefaultIn, queue, defaultInToken)
-            }
-            if defaultOutStatus == noErr {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDefaultOut, queue, defaultOutToken)
-            }
+            devices.listener?.remove()
+            defaultIn.listener?.remove()
+            defaultOut.listener?.remove()
             self.devicesListenerToken = nil
             self.defaultInputListenerToken = nil
             self.defaultOutputListenerToken = nil
@@ -547,44 +548,19 @@ final class AudioHardwareObserver: ObservableObject {
             return
         }
 
-        self.devicesListenerToken = devicesToken
-        self.defaultInputListenerToken = defaultInToken
-        self.defaultOutputListenerToken = defaultOutToken
+        self.devicesListenerToken = devicesListener
+        self.defaultInputListenerToken = defaultInListener
+        self.defaultOutputListenerToken = defaultOutListener
         self.installed = true
         self.refreshInputAvailabilityListeners()
         self.registerClamshellStateListener()
     }
 
     private func unregister() {
-        var addrDevices = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var addrDefaultIn = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var addrDefaultOut = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        let queue = DispatchQueue.main
-        let sys = AudioObjectID(kAudioObjectSystemObject)
-
         if self.installed {
-            if let token = self.devicesListenerToken {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDevices, queue, token)
-            }
-            if let token = self.defaultInputListenerToken {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDefaultIn, queue, token)
-            }
-            if let token = self.defaultOutputListenerToken {
-                _ = AudioObjectRemovePropertyListenerBlock(sys, &addrDefaultOut, queue, token)
-            }
+            self.devicesListenerToken?.remove()
+            self.defaultInputListenerToken?.remove()
+            self.defaultOutputListenerToken?.remove()
             self.removeInputAvailabilityListeners()
         }
 
@@ -614,14 +590,12 @@ final class AudioHardwareObserver: ObservableObject {
         guard self.installed else { return }
         let currentIDs = Set(devices.map(\.id))
         for (deviceID, token) in self.inputAvailabilityListenerTokens where currentIDs.contains(deviceID) == false {
-            var address = Self.inputAvailabilityAddress
-            _ = AudioObjectRemovePropertyListenerBlock(deviceID, &address, DispatchQueue.main, token)
+            token.remove()
             self.inputAvailabilityListenerTokens.removeValue(forKey: deviceID)
         }
 
         for device in devices where self.inputAvailabilityListenerTokens[device.id] == nil {
             let deviceID = device.id
-            var address = Self.inputAvailabilityAddress
             let token: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 // Never query Core Audio synchronously from its property callback.
                 // Refresh the cached snapshot off-main before observers resolve priority.
@@ -638,22 +612,20 @@ final class AudioHardwareObserver: ObservableObject {
                     }
                 }
             }
-            let status = AudioObjectAddPropertyListenerBlock(
-                deviceID,
-                &address,
-                DispatchQueue.main,
-                token
-            )
-            if status == noErr {
-                self.inputAvailabilityListenerTokens[deviceID] = token
+            if let listener = CoreAudioPropertyListener.add(
+                objectID: deviceID,
+                address: Self.inputAvailabilityAddress,
+                queue: DispatchQueue.main,
+                block: token
+            ).listener {
+                self.inputAvailabilityListenerTokens[deviceID] = listener
             }
         }
     }
 
     private func removeInputAvailabilityListeners() {
-        for (deviceID, token) in self.inputAvailabilityListenerTokens {
-            var address = Self.inputAvailabilityAddress
-            _ = AudioObjectRemovePropertyListenerBlock(deviceID, &address, DispatchQueue.main, token)
+        for token in self.inputAvailabilityListenerTokens.values {
+            token.remove()
         }
         self.inputAvailabilityListenerTokens.removeAll()
     }

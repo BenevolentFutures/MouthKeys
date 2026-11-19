@@ -93,7 +93,13 @@ mouthkeys.com is `site/` (one static page in light Datasheet Mono, the app's vis
 
 **The cure, in order:**
 1. Prove it is system-wide, without touching the installed app: `/usr/bin/log show --last 15m --predicate 'process == "coreaudiod" AND eventMessage CONTAINS "StartIOThread"'`, then a mic probe in your own process, `perl -e 'alarm 20; exec @ARGV' /opt/homebrew/bin/rec -q -n stat trim 0 1` (healthy: a `Length` line within about a second; wedged: it hangs until the alarm). `play -q -n synth 0.3 sine 440 vol 0` checks output silently.
-2. Restart the agent, user-level, no sudo: `kill <pid>` with the PID from `pgrep -x ContinuityCaptureAgent`; launchd starts it again. Re-run the probe.
+2. Restart the agent, user-level, no sudo: `kill <pid>` with the PID from `pgrep -x ContinuityCaptureAgent`; launchd starts it again. Re-run the probe. Since 0.1.9 Atin can do this himself: two microphones stalling in a row stop the start with a "macOS audio input is stuck" card, and its Restart iPhone mic helper button (one confirm) stops the agent by PID and tries the microphone once. `grep -E 'audio_input_stuck|MIC_HELPER_RESTART' ~/Library/Logs/MouthKeys/Fluid.log` shows what happened.
 3. Only if input still hangs, Atin restarts `coreaudiod` himself (`sudo killall coreaudiod`).
 
 Since 0.1.8 MouthKeys never picks an iPhone mic on its own (`MicrophoneTier.automatic`), but the agent can stall input with the phone mic unused.
+
+To rehearse it without a real stall, use a Debug build (never the installed app): `defaults write com.stage11.mouthkeys.dev DirectCaptureDebugStartDelaySeconds -float 4` makes every direct start block past its 1.5 s deadline, so the second microphone brings up the card. The helper's probe obeys the same delay: delete the key before clicking Restart it for the "working again" path, keep it for "still stuck".
+
+### Never add or remove a Core Audio listener block from Swift directly
+
+`AudioObjectRemovePropertyListenerBlock` called from Swift returns noErr and removes nothing: Swift imports `AudioObjectPropertyListenerBlock` as a Swift closure and bridges it to a new block on every call, so Remove never matches the block Add was given (proven 2026-11-19 against the same calls in Objective-C, which work). Until 0.1.9 every direct capture left its 11 listeners registered, and one `io_stopped_abnormally` ran 87 old generations' blocks at once. Use `CoreAudioPropertyListener.add(...)` and `remove()`: the C side (`fv_core_audio_listener_add`) keeps the one block Core Audio holds. `DirectAudioReliabilityTests.testCoreAudioPropertyListenerRemovalStopsDelivery` guards it.

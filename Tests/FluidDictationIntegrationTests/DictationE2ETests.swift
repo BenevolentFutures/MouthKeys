@@ -3114,6 +3114,10 @@ final class DatasheetOverlayRenderTests: XCTestCase {
             ("17-failed-clipboardkept", DatasheetCardContent(headline: "Couldn\u{2019}t paste into c11", reason: DeliveryFailureOverlayController.reasonText(failure: .pasteNotLanded, clipboard: .newerClipboardCopy, inHistory: true), transcript: transcript, primary: .copy, meta: "118 words"), 226),
             ("18-timedout", DatasheetCardContent(headline: "Transcription timed out", reason: "Your audio is kept", primary: .reprocess), 156),
             ("20-micoff", DatasheetCardContent(headline: "Microphone access is off", reason: "Allow MouthKeys in Privacy & Security", primary: .openSystemSettings, isMicrophoneOff: true), 156),
+            ("21-inputstuck", DeliveryFailureOverlayController.audioInputStuckCardContent(.stuck), 172),
+            ("22-inputstuck-confirm", DeliveryFailureOverlayController.audioInputStuckCardContent(.confirmRestart), 172),
+            ("23-inputstuck-fixed", DeliveryFailureOverlayController.audioInputStuckCardContent(.fixed(microphone: "MacBook Pro Microphone")), 172),
+            ("24-inputstuck-still", DeliveryFailureOverlayController.audioInputStuckCardContent(.stillStuck), 172),
         ]
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let theme = appearance == .darkAqua ? "dark" : "light"

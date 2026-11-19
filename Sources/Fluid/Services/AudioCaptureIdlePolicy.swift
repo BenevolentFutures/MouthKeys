@@ -68,6 +68,34 @@ enum AudioCaptureIdlePolicy {
         }
     }
 
+    /// Microphones whose start stalled inside Core Audio since capture last worked. One stalled
+    /// microphone is that microphone; two different ones in a row are macOS's audio input itself
+    /// (2026-11-19: ContinuityCaptureAgent blocked every input on the Mac, and MouthKeys worked
+    /// through all four microphones at up to 14 s each, the hotkey dead between). From the second,
+    /// the start stops and says so, and every start after it makes one try until one works.
+    struct StalledInputTracker: Equatable {
+        static let stalledInputsMeaningMacInputStuck = 2
+
+        private(set) var stalledInputUIDs: [String] = []
+
+        var isMacInputStuck: Bool {
+            self.stalledInputUIDs.count >= Self.stalledInputsMeaningMacInputStuck
+        }
+
+        mutating func recordStall(uid: String) {
+            guard self.stalledInputUIDs.contains(uid) == false else { return }
+            self.stalledInputUIDs.append(uid)
+        }
+
+        /// Audio arrived. Returns whether there was anything to forget.
+        @discardableResult
+        mutating func captureWorked() -> Bool {
+            guard self.stalledInputUIDs.isEmpty == false else { return false }
+            self.stalledInputUIDs.removeAll()
+            return true
+        }
+    }
+
     struct SilentPCMRecoveryWatchdog {
         static let requiredSilentWindows = 3
         static let maximumSilentRMS: Float = 0.00_001
