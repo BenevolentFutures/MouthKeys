@@ -222,9 +222,13 @@ final class DeliveryFailureOverlayController {
                 self?.showAudioInputStuck(.restarting)
                 Task { @MainActor [weak self] in
                     let outcome = await AppServices.shared.asr.restartMicHelperAndRetryMicrophone()
+                    // The outcome takes only its own card's place: if Restarting was dismissed or
+                    // another card took over, the log has it.
+                    guard let self, self.isVisible, self.presentedAudioInputStuck == .restarting else { return }
                     switch outcome {
-                    case let .fixed(microphone): self?.showAudioInputStuck(.fixed(microphone: microphone))
-                    case .stillStuck: self?.showAudioInputStuck(.stillStuck)
+                    case let .fixed(microphone): self.showAudioInputStuck(.fixed(microphone: microphone))
+                    case .stillStuck: self.showAudioInputStuck(.stillStuck)
+                    case .skipped: self.hide()
                     }
                 }
             case .restarting, .fixed, .stillStuck:
@@ -233,6 +237,14 @@ final class DeliveryFailureOverlayController {
         }
         self.presentedAudioInputStuck = notice
         DebugLogger.shared.info("Audio input stuck card shown notice=\(notice)", source: "DeliveryFailureCard")
+    }
+
+    /// Audio flows again: a stuck card still asking (stuck, or the confirm) goes away. The
+    /// restart's own states stay; they report what the button did.
+    func hideAudioInputStuckIfAsking() {
+        guard self.isVisible, self.presentedAudioInputStuck == .stuck || self.presentedAudioInputStuck == .confirmRestart else { return }
+        DebugLogger.shared.info("Audio input stuck card withdrawn: audio is flowing again", source: "DeliveryFailureCard")
+        self.hide()
     }
 
     static func audioInputStuckCardContent(_ notice: AudioInputStuckNotice) -> DatasheetCardContent {
@@ -384,7 +396,8 @@ final class DeliveryFailureOverlayController {
         if hovering {
             self.dismissTask?.cancel()
             self.dismissTask = nil
-        } else if self.isVisible {
+        } else if self.isVisible, self.presentedAudioInputStuck != .restarting {
+            // Restarting stays until its outcome replaces it (its own 60 s ceiling aside).
             self.scheduleDismiss(after: 4)
         }
     }

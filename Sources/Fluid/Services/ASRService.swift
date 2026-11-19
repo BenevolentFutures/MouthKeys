@@ -268,6 +268,10 @@ final class ASRService: ObservableObject {
     /// See `AudioCaptureIdlePolicy.StalledInputTracker`: two microphones stalled in a row mean
     /// macOS's audio input is stuck, and the start stops instead of trying every microphone.
     private var stalledInputs = AudioCaptureIdlePolicy.StalledInputTracker()
+    /// Bumped whenever audio arrives, so a helper restart that failed does not bring back
+    /// stalls a capture during its probe already disproved.
+    private var captureWorkedGeneration: UInt64 = 0
+    private var isMicHelperRestartInFlight = false
     /// Input devices in the last off-main snapshot a capture start took. It bounds the start
     /// loops; listing devices on the main thread instead waited ~11 s on a stuck Core Audio
     /// (2026-11-19), long enough for macOS to time out the hotkey's event tap.
@@ -862,8 +866,11 @@ final class ASRService: ObservableObject {
 
     /// Audio arrived, so macOS's audio input works: forget the stalls before it.
     private func noteCaptureWorked(reason: String) {
+        self.captureWorkedGeneration &+= 1
         if self.stalledInputs.captureWorked() {
             self.benchmarkLog("audio_input_stalls_cleared reason=\(reason)")
+            // A stuck card still asking to restart the helper is moot now.
+            Self.audioInputRecoveredHandler()
         }
     }
 
@@ -1268,6 +1275,15 @@ final class ASRService: ObservableObject {
                     )
                 }
                 await self.directAudioLifecycleController.invalidate(reason: "recording_start_failed")
+                if self.stalledInputs.isMacInputStuck {
+                    // The engine fallback blocked the main thread for 12 s on a stuck Core
+                    // Audio (2026-09-11), and the hotkey's event tap with it.
+                    self.benchmarkLog(
+                        "audio_backend_fallback_skipped reason=mac_input_stuck " +
+                            "error=\(error.localizedDescription)"
+                    )
+                    throw error
+                }
                 let inputs = snapshotInputs
                 let defaultInputUID = snapshotDefaultInputUID
                 let fallback = AudioCaptureIdlePolicy.audioEngineFallback(
@@ -1501,9 +1517,17 @@ final class ASRService: ObservableObject {
         DeliveryFailureOverlayController.shared.showAudioInputStuck()
     }
 
+    /// Audio flows again: a stuck card that is still asking goes away (tests replace it).
+    static var audioInputRecoveredHandler: @MainActor () -> Void = {
+        DeliveryFailureOverlayController.shared.hideAudioInputStuckIfAsking()
+    }
+
     enum MicHelperRestartOutcome: Equatable {
         case fixed(microphone: String)
         case stillStuck
+        /// Not restarted: a dictation is recording or starting (killing the helper could cut
+        /// it off), or another restart is under way.
+        case skipped
     }
 
     /// The stuck card's Restart, after its confirm: stops ContinuityCaptureAgent by PID (launchd
@@ -1511,22 +1535,29 @@ final class ASRService: ObservableObject {
     /// have caused, then tries the top microphone once on a throwaway controller. Every step is
     /// logged as MIC_HELPER_RESTART.
     func restartMicHelperAndRetryMicrophone() async -> MicHelperRestartOutcome {
+        guard self.isRunningOrStarting == false, self.isMicHelperRestartInFlight == false else {
+            // Never stop the helper under a live or starting dictation: a hand-picked iPhone mic
+            // would vanish mid-recording.
+            DebugLogger.shared.info(
+                "MIC_HELPER_RESTART result=skipped recording=\(self.isRunningOrStarting) " +
+                    "restartInFlight=\(self.isMicHelperRestartInFlight)",
+                source: "ASRService"
+            )
+            return .skipped
+        }
+        self.isMicHelperRestartInFlight = true
+        defer { self.isMicHelperRestartInFlight = false }
         DebugLogger.shared.info("MIC_HELPER_RESTART step=begin", source: "ASRService")
         let report = await Task.detached(priority: .userInitiated) {
             ContinuityCaptureHelper.restart()
         }.value
         DebugLogger.shared.info("MIC_HELPER_RESTART step=agent \(report.logDescription)", source: "ASRService")
         let stalledBefore = self.stalledInputs
+        let captureGeneration = self.captureWorkedGeneration
         for uid in Array(self.wedgedDirectInputs.keys) {
             self.releaseWedgedDirectInput(uid: uid, reason: "mic_helper_restart")
         }
         self.stalledInputs = AudioCaptureIdlePolicy.StalledInputTracker()
-        if self.isRunning {
-            // A dictation started meanwhile and has audio: the microphone already answered.
-            let name = self.audioStartAttemptInputName ?? "The microphone"
-            DebugLogger.shared.info("MIC_HELPER_RESTART result=fixed mic='\(name)' reason=recording", source: "ASRService")
-            return .fixed(microphone: name)
-        }
         // Give Core Audio a moment to notice the agent is gone.
         try? await Task.sleep(nanoseconds: 300_000_000)
         switch await self.probeMicrophoneOnce() {
@@ -1538,9 +1569,14 @@ final class ASRService: ObservableObject {
             )
             return .fixed(microphone: name)
         case let .failed(uid, name, reason):
-            // Still stuck: the next press makes one try and shows the card again.
-            self.stalledInputs = stalledBefore
-            if let uid { self.stalledInputs.recordStall(uid: uid) }
+            // Still stuck: the next press makes one try and shows the card again. Unless audio
+            // arrived meanwhile, which proved otherwise.
+            if self.captureWorkedGeneration == captureGeneration {
+                for stalledUID in stalledBefore.stalledInputUIDs {
+                    self.stalledInputs.recordStall(uid: stalledUID)
+                }
+                if let uid { self.stalledInputs.recordStall(uid: uid) }
+            }
             DebugLogger.shared.error(
                 "MIC_HELPER_RESTART result=still_stuck mic='\(name ?? "none")' reason=\(reason)",
                 source: "ASRService"
@@ -1574,7 +1610,8 @@ final class ASRService: ObservableObject {
 
     /// Starts the microphone MouthKeys would use on its own lifecycle controller (no listeners,
     /// nothing reaches the recording pipeline), waits up to 2 s for audio, and stops it. Every
-    /// Core Audio call is off the main thread and under a deadline.
+    /// Core Audio step is off the main thread, and the device list, start and stop each wait at
+    /// most 3 s.
     private func probeMicrophoneOnce() async -> MicrophoneProbeResult {
         let deadline: UInt64 = 3_000_000_000
         let snapshot: (inputs: [AudioDevice.Device], defaultInputUID: String?)
@@ -1616,16 +1653,22 @@ final class ASRService: ObservableObject {
             probe.abandonPendingStart(reason: "mic_helper_probe_deadline")
             return .failed(uid: device.uid, name: device.name, reason: "start_timeout")
         } catch {
-            await probe.shutdown(reason: "mic_helper_probe_failed")
+            _ = try? await DeadlineRace.run(deadlineNanoseconds: deadline) {
+                await probe.shutdown(reason: "mic_helper_probe_failed")
+            }
             return .failed(uid: device.uid, name: device.name, reason: "start_failed:\(error.localizedDescription)")
         }
         let audioDeadline = ProcessInfo.processInfo.systemUptime + 2
         while signal.firstAudioUptime == nil, ProcessInfo.processInfo.systemUptime < audioDeadline {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        await probe.shutdown(reason: "mic_helper_probe_done")
+        // A stuck stop can block as long as a stuck start; the controller finishes on its own
+        // queue if this gives up.
+        let stopped: Void? = try? await DeadlineRace.run(deadlineNanoseconds: deadline) {
+            await probe.shutdown(reason: "mic_helper_probe_done")
+        }
         guard let firstAudioAt = signal.firstAudioUptime else {
-            return .failed(uid: device.uid, name: device.name, reason: "no_audio")
+            return .failed(uid: device.uid, name: device.name, reason: stopped == nil ? "no_audio_stop_timeout" : "no_audio")
         }
         return .answered(
             uid: device.uid,
@@ -2898,12 +2941,14 @@ final class ASRService: ObservableObject {
 
             // Provide user-friendly error feedback
             let nsError = error as NSError
-            let macAudioInputStuck = error is MacAudioInputStuck || (
-                self.stalledInputs.isMacInputStuck && (
-                    error is DirectCaptureInputWedged ||
-                        (nsError.domain == "ASRService" && nsError.code == -5)
-                )
-            )
+            // Stuck: two microphones stalled; or, while stuck, this start failed too; or every
+            // microphone MouthKeys may use is quarantined after a stall (-5), which on a Mac with
+            // one usable microphone is the only way the stall can show.
+            let everyUsableMicrophoneStalled = nsError.domain == "ASRService" && nsError.code == -5 &&
+                self.stalledInputs.stalledInputUIDs.isEmpty == false
+            let macAudioInputStuck = error is MacAudioInputStuck ||
+                self.stalledInputs.isMacInputStuck ||
+                everyUsableMicrophoneStalled
             if macAudioInputStuck {
                 // Not this microphone: macOS's audio input. The card offers the helper's restart.
                 self.benchmarkLog(
@@ -4768,12 +4813,18 @@ final class ASRService: ObservableObject {
     private func reestablishAudioHardwareListenersAfterServiceReset() {
         // The reset invalidates these registrations in HAL; do not attempt to
         // remove the stale tokens before installing replacements.
+        // Removing is harmless if the reset already dropped them, and keeps duplicates out if it
+        // did not (before CoreAudioPropertyListener, removal from Swift never worked anyway).
         self.defaultInputListenerInstalled = false
+        self.defaultInputListenerToken?.remove()
         self.defaultInputListenerToken = nil
+        self.defaultOutputListenerToken?.remove()
         self.defaultOutputListenerToken = nil
         self.deviceListListenerInstalled = false
+        self.deviceListListenerToken?.remove()
         self.deviceListListenerToken = nil
         self.monitoredDeviceID = nil
+        self.monitoredDeviceIsAliveListenerToken?.remove()
         self.monitoredDeviceIsAliveListenerToken = nil
         self.registerDefaultDeviceChangeListener()
         self.registerDeviceListChangeListener()

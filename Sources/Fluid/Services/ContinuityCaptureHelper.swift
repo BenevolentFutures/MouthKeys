@@ -88,7 +88,13 @@ nonisolated enum ContinuityCaptureHelper {
         pending = Self.wait(for: pending, upTo: gracePeriod)
         let stillRunning = pending
         report.exited += signalled.filter { !stillRunning.contains($0) }
+        let uid = getuid()
         for pid in pending {
+            // Still the agent? A PID freed and reused within the grace period is not ours to kill.
+            guard Self.isAgent(pid: pid, ownedBy: uid) else {
+                report.exited.append(pid)
+                continue
+            }
             if kill(pid, SIGKILL) == 0 || errno == ESRCH {
                 report.forced.append(pid)
             } else {

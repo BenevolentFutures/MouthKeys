@@ -466,11 +466,15 @@ final class AudioHardwareObserver: ObservableObject {
     }
 
     func restartObservingAfterAudioServiceReset() {
-        // Core Audio discards every previously registered listener when its
-        // service resets, so the old tokens must not be removed or reused.
+        // The old registrations are never reused. Removing them is harmless if the reset
+        // already dropped them, and keeps duplicate listeners out if it did not.
+        self.devicesListenerToken?.remove()
         self.devicesListenerToken = nil
+        self.defaultInputListenerToken?.remove()
         self.defaultInputListenerToken = nil
+        self.defaultOutputListenerToken?.remove()
         self.defaultOutputListenerToken = nil
+        self.inputAvailabilityListenerTokens.values.forEach { $0.remove() }
         self.inputAvailabilityListenerTokens.removeAll()
         self.inputAvailabilityRefreshGeneration &+= 1
         self.installed = false
