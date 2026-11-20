@@ -115,6 +115,16 @@ final class MicrophonePickerModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &self.cancellables)
+        // The listener belonged to the dead server: register again and re-read the devices.
+        NotificationCenter.default.publisher(for: .coreAudioServiceDidRestart)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.isWatching else { return }
+                self.removeDeviceListListener()
+                self.addDeviceListListener()
+                self.refresh()
+            }
+            .store(in: &self.cancellables)
         self.addDeviceListListener()
         self.refresh(then: ready)
     }
@@ -155,7 +165,7 @@ final class MicrophonePickerModel: ObservableObject {
         if let completion { self.refreshCompletions.append(completion) }
         self.refreshGeneration &+= 1
         let generation = self.refreshGeneration
-        DispatchQueue.global(qos: .userInitiated).async {
+        CoreAudioHAL.background("mic_picker_refresh") {
             let devices = AudioDevice.listInputDevicesRefreshingLiveness()
             let clamshellClosed = ClamshellState.isClosed
             DispatchQueue.main.async { [weak self] in
