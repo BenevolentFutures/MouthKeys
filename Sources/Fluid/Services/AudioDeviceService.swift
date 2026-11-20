@@ -95,7 +95,40 @@ nonisolated enum AudioDevice {
 
     private static let inputLivenessCache = InputLivenessCache()
 
+    /// What Core Audio last answered, for a main-thread read that gave up waiting on it.
+    private final class LastKnownHardware: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedDevices: [Device] = []
+        private var storedDefaultDeviceIDs: [AudioObjectPropertySelector: AudioObjectID] = [:]
+
+        var devices: [Device] {
+            self.lock.withLock { self.storedDevices }
+        }
+
+        func store(devices: [Device]) {
+            self.lock.withLock { self.storedDevices = devices }
+        }
+
+        func defaultDeviceID(_ selector: AudioObjectPropertySelector) -> AudioObjectID? {
+            self.lock.withLock { self.storedDefaultDeviceIDs[selector] }
+        }
+
+        func store(defaultDeviceID: AudioObjectID, for selector: AudioObjectPropertySelector) {
+            self.lock.withLock { self.storedDefaultDeviceIDs[selector] = defaultDeviceID }
+        }
+    }
+
+    private static let lastKnownHardware = LastKnownHardware()
+
+    /// Every device. On the main thread Core Audio gets `CoreAudioHAL.mainThreadDeadline`, then
+    /// the last list it gave is returned (`CoreAudioHAL.read`).
     static func listAllDevices() -> [Device] {
+        CoreAudioHAL.read("list_devices", fallback: self.lastKnownHardware.devices) {
+            self.listAllDevicesFromHAL()
+        }
+    }
+
+    private static func listAllDevicesFromHAL() -> [Device] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -170,7 +203,9 @@ nonisolated enum AudioDevice {
             )
         }
 
-        return devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let sorted = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        self.lastKnownHardware.store(devices: sorted)
+        return sorted
     }
 
     static func listInputDevices() -> [Device] {
@@ -262,6 +297,12 @@ nonisolated enum AudioDevice {
     /// Core Audio may continue enumerating an input after it has stopped being usable.
     /// Fail open when HAL cannot answer so unusual and virtual devices still work.
     private static func queryInputDeviceLiveness(_ deviceID: AudioObjectID) -> Bool {
+        CoreAudioHAL.read("device_is_alive device=\(deviceID)", fallback: true) {
+            self.queryInputDeviceLivenessFromHAL(deviceID)
+        }
+    }
+
+    private static func queryInputDeviceLivenessFromHAL(_ deviceID: AudioObjectID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceIsAlive,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -299,6 +340,19 @@ nonisolated enum AudioDevice {
     }
 
     private static func getDefaultDeviceId(selector: AudioObjectPropertySelector) -> AudioObjectID? {
+        CoreAudioHAL.read(
+            "default_device selector=\(CoreAudioPropertyListener.fourCC(selector))",
+            fallback: self.lastKnownHardware.defaultDeviceID(selector)
+        ) {
+            let deviceID = self.getDefaultDeviceIdFromHAL(selector: selector)
+            if let deviceID {
+                self.lastKnownHardware.store(defaultDeviceID: deviceID, for: selector)
+            }
+            return deviceID
+        }
+    }
+
+    private static func getDefaultDeviceIdFromHAL(selector: AudioObjectPropertySelector) -> AudioObjectID? {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -317,7 +371,18 @@ nonisolated enum AudioDevice {
         return status == noErr ? devId : nil
     }
 
+    /// On the main thread a set Core Audio has not answered by the deadline returns false (it
+    /// still applies when Core Audio answers); while Core Audio is stuck it is not attempted.
     private static func setDefaultDeviceId(_ devId: AudioObjectID, selector: AudioObjectPropertySelector) -> Bool {
+        CoreAudioHAL.read(
+            "set_default_device selector=\(CoreAudioPropertyListener.fourCC(selector)) device=\(devId)",
+            fallback: false
+        ) {
+            self.setDefaultDeviceIdInHAL(devId, selector: selector)
+        }
+    }
+
+    private static func setDefaultDeviceIdInHAL(_ devId: AudioObjectID, selector: AudioObjectPropertySelector) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -442,6 +507,10 @@ final class AudioHardwareObserver: ObservableObject {
     private var defaultOutputListenerToken: CoreAudioPropertyListener?
     private var inputAvailabilityListenerTokens: [AudioObjectID: CoreAudioPropertyListener] = [:]
     private var inputAvailabilityRefreshGeneration: UInt64 = 0
+    /// Lives as long as the observer and survives a restart: Core Audio delivers
+    /// ServiceRestarted to listeners on the system object, which is in-process.
+    private var serviceRestartListenerToken: CoreAudioPropertyListener?
+    private var lastServiceRestartUptime: TimeInterval?
     private var clamshellRootDomain: io_service_t = IO_OBJECT_NULL
     private var clamshellNotificationPort: IONotificationPortRef?
     private var clamshellNotification: io_object_t = IO_OBJECT_NULL
@@ -458,6 +527,62 @@ final class AudioHardwareObserver: ObservableObject {
     /// This must be called from onAppear or later, never during init.
     func startObserving() {
         self.register()
+        self.registerServiceRestartListener()
+    }
+
+    /// One `coreaudiod` restart can reach MouthKeys more than once (this observer's listener and
+    /// a prepared direct capture's); a second report inside this window is the same restart.
+    static let serviceRestartDedupeWindow: TimeInterval = 5
+
+    /// `coreaudiod` restarted: the device objects, their IDs and every listener on them belong
+    /// to the dead server. Re-registers this observer's listeners and posts
+    /// `.coreAudioServiceDidRestart` once per restart, so the rest of the app does the same.
+    func noteCoreAudioServiceRestarted(source: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let last = self.lastServiceRestartUptime, now - last < Self.serviceRestartDedupeWindow {
+            DebugLogger.shared.info(
+                "CORE_AUDIO_SERVICE_RESTART source=\(source) action=already_handled " +
+                    "sinceMs=\(Int(((now - last) * 1000).rounded()))",
+                source: "AudioHardwareObserver"
+            )
+            return
+        }
+        self.lastServiceRestartUptime = now
+        DebugLogger.shared.warning(
+            "CORE_AUDIO_SERVICE_RESTART source=\(source) action=reregister halStuck=\(CoreAudioHAL.isStuck)",
+            source: "AudioHardwareObserver"
+        )
+        self.restartObservingAfterAudioServiceReset()
+        NotificationCenter.default.post(
+            name: .coreAudioServiceDidRestart,
+            object: self,
+            userInfo: ["source": source]
+        )
+    }
+
+    private func registerServiceRestartListener() {
+        guard self.serviceRestartListenerToken == nil else { return }
+        let address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyServiceRestarted,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let (listener, status) = CoreAudioPropertyListener.add(
+            objectID: AudioObjectID(kAudioObjectSystemObject),
+            address: address,
+            queue: DispatchQueue.main
+        ) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                self?.noteCoreAudioServiceRestarted(source: "hardware_observer")
+            }
+        }
+        self.serviceRestartListenerToken = listener
+        if listener == nil {
+            DebugLogger.shared.error(
+                "Failed to register the Core Audio service restart listener: \(status)",
+                source: "AudioHardwareObserver"
+            )
+        }
     }
 
     @MainActor
@@ -465,8 +590,9 @@ final class AudioHardwareObserver: ObservableObject {
         self.inputAvailabilityTick &+= 1
     }
 
-    func restartObservingAfterAudioServiceReset() {
-        // The old registrations are never reused. Removing them is harmless if the reset
+    private func restartObservingAfterAudioServiceReset() {
+        // The old registrations are never reused: device IDs from the dead server may now name
+        // other devices. Removing returns at once (the lane does it), is harmless if the reset
         // already dropped them, and keeps duplicate listeners out if it did not.
         self.devicesListenerToken?.remove()
         self.devicesListenerToken = nil
@@ -569,6 +695,8 @@ final class AudioHardwareObserver: ObservableObject {
         self.defaultOutputListenerToken = nil
         self.installed = false
         self.inputAvailabilityRefreshGeneration &+= 1
+        self.serviceRestartListenerToken?.remove()
+        self.serviceRestartListenerToken = nil
         self.unregisterClamshellStateListener()
     }
 

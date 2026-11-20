@@ -27,9 +27,10 @@ final class DirectAudioReliabilityTests: XCTestCase {
         }
         let removed = try listen("removed")
         let kept = try listen("kept")
-        XCTAssertEqual(removed.remove(), noErr)
+        removed.remove()
+        removed.remove() // a second remove does nothing
+        CoreAudioHAL.listenerLane.drainForTesting()
         XCTAssertFalse(removed.isRegistered)
-        XCTAssertEqual(removed.remove(), noErr, "a second remove does nothing")
 
         func setMute(_ value: UInt32) {
             var value = value
@@ -46,6 +47,145 @@ final class DirectAudioReliabilityTests: XCTestCase {
         let delivered = lock.withLock { calls }
         XCTAssertEqual(delivered.filter { $0 == "kept" }.count, 2, "the listener left on hears both changes")
         XCTAssertFalse(delivered.contains("removed"), "a removed listener never fires: \(delivered)")
+        XCTAssertEqual(removed.coreAudioDeliveryCount, 0, "Core Audio itself dropped the removed block")
+    }
+
+    /// 2026-11-19 17:58:20, after a `coreaudiod` restart: the HAL's notification thread, tearing
+    /// a dead device down, delivered its listener with `dispatch_sync` onto the listener's queue
+    /// (main), while main was removing that listener, which waits for any delivery in flight.
+    /// MouthKeys stayed alive with its main thread blocked forever. The fake HAL here does the
+    /// same two things: delivery is a `sync` onto the registered queue, and remove waits for it.
+    func testListenerRemovalDuringASynchronousDeliveryNeverBlocksMain() throws {
+        let hal = FakeListenerHAL()
+        let lane = CoreAudioHAL.Lane(label: "test.listener-lane", watchdog: CoreAudioHAL.Watchdog(stuckAfter: 5))
+        let calls = LockedCounter()
+        let listener = try XCTUnwrap(CoreAudioPropertyListener.add(
+            objectID: 42,
+            address: FakeListenerHAL.address,
+            queue: .main,
+            backend: hal.backend,
+            lane: lane
+        ) { _, _ in calls.increment() }.listener)
+        XCTAssertFalse(hal.registeredQueues.contains { $0 === DispatchQueue.main }, "Core Audio never delivers to main")
+
+        let deliveryStarted = DispatchSemaphore(value: 0)
+        let removeCalled = DispatchSemaphore(value: 0)
+        let deliveryDone = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            hal.deliverSynchronously(onceInFlight: {
+                deliveryStarted.signal()
+                _ = removeCalled.wait(timeout: .now() + 5)
+            })
+            deliveryDone.signal()
+        }
+        XCTAssertEqual(deliveryStarted.wait(timeout: .now() + 2), .success)
+
+        let removeStartedAt = ProcessInfo.processInfo.systemUptime
+        listener.remove()
+        let removeMs = (ProcessInfo.processInfo.systemUptime - removeStartedAt) * 1000
+        removeCalled.signal()
+        XCTAssertLessThan(removeMs, 50, "remove() returns at once on main")
+
+        // Main keeps serving its queue while the HAL's delivery and removal finish.
+        let deadline = Date().addingTimeInterval(3)
+        while deliveryDone.wait(timeout: .now()) != .success, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        lane.drainForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(hal.removeTimedOut, "the removal waited for a delivery that could never finish")
+        XCTAssertFalse(listener.isRegistered)
+        XCTAssertEqual(hal.liveRegistrations, 0)
+        XCTAssertEqual(calls.value, 0, "a delivery that arrives after remove() never reaches the caller")
+    }
+
+    /// A removal stuck inside Core Audio leaves main free, and the watchdog says so.
+    func testStuckListenerRemovalLeavesMainResponsiveAndIsReported() throws {
+        let hal = FakeListenerHAL()
+        hal.blockRemoval()
+        let watchdog = CoreAudioHAL.Watchdog(stuckAfter: 0.2)
+        let lane = CoreAudioHAL.Lane(label: "test.stuck-lane", watchdog: watchdog)
+        let stuckPosts = LockedCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .coreAudioHALStuckStateDidChange, object: watchdog, queue: nil
+        ) { _ in stuckPosts.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let listener = try XCTUnwrap(CoreAudioPropertyListener.add(
+            objectID: 42, address: FakeListenerHAL.address, queue: .main, backend: hal.backend, lane: lane
+        ) { _, _ in }.listener)
+
+        let removeStartedAt = ProcessInfo.processInfo.systemUptime
+        listener.remove()
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - removeStartedAt) * 1000, 50)
+
+        var mainServed = false
+        DispatchQueue.main.async { mainServed = true }
+        let deadline = Date().addingTimeInterval(2)
+        while mainServed == false || watchdog.isStuck == false ||
+            lane.isBusy(longerThan: CoreAudioHAL.mainThreadDeadline) == false,
+            Date() < deadline
+        {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(mainServed)
+        XCTAssertTrue(watchdog.isStuck, "a call past stuckAfter is reported")
+
+        // Another add from main while the lane is stuck does not wait for it.
+        let addStartedAt = ProcessInfo.processInfo.systemUptime
+        let pending = CoreAudioPropertyListener.add(
+            objectID: 43, address: FakeListenerHAL.address, queue: .main, backend: hal.backend, lane: lane
+        ) { _, _ in }
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - addStartedAt) * 1000, 50)
+        XCTAssertEqual(pending.status, CoreAudioPropertyListener.registrationPendingStatus)
+        XCTAssertNotNil(pending.listener)
+
+        hal.unblockRemoval()
+        lane.drainForTesting()
+        XCTAssertFalse(watchdog.isStuck)
+        XCTAssertTrue(pending.listener?.isRegistered == true, "the queued add ran once the lane was free")
+        pending.listener?.remove()
+        lane.drainForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(stuckPosts.value, 2, "stuck, then recovered")
+    }
+
+    /// A read on main gets the deadline, then the fallback; while the lane is still stuck the
+    /// next one does not wait at all.
+    func testMainThreadReadFallsBackAtItsDeadline() {
+        let lane = CoreAudioHAL.Lane(label: "test.read-lane", watchdog: CoreAudioHAL.Watchdog(stuckAfter: 5))
+        let release = DispatchSemaphore(value: 0)
+        let firstStartedAt = ProcessInfo.processInfo.systemUptime
+        let first = CoreAudioHAL.read("test_stuck_read", deadline: 0.1, lane: lane, fallback: -1) {
+            _ = release.wait(timeout: .now() + 5)
+            return 1
+        }
+        let firstMs = (ProcessInfo.processInfo.systemUptime - firstStartedAt) * 1000
+        XCTAssertEqual(first, -1)
+        XCTAssertLessThan(firstMs, 300)
+
+        let secondStartedAt = ProcessInfo.processInfo.systemUptime
+        let second = CoreAudioHAL.read("test_read_behind_stuck", deadline: 0.1, lane: lane, fallback: -2) { 2 }
+        XCTAssertEqual(second, -2)
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - secondStartedAt) * 1000, 20, "no wait behind a stuck call")
+
+        release.signal()
+        lane.drainForTesting()
+        XCTAssertEqual(CoreAudioHAL.read("test_read", deadline: 0.1, lane: lane, fallback: -3) { 3 }, 3)
+    }
+
+    /// One `coreaudiod` restart reaches MouthKeys from more than one listener; the app
+    /// re-registers once.
+    @MainActor
+    func testCoreAudioServiceRestartIsHandledOncePerRestart() {
+        let observer = AudioHardwareObserver()
+        let posts = LockedCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .coreAudioServiceDidRestart, object: observer, queue: nil
+        ) { _ in posts.increment() }
+        defer { NotificationCenter.default.removeObserver(token) }
+        observer.noteCoreAudioServiceRestarted(source: "hardware_observer")
+        observer.noteCoreAudioServiceRestarted(source: "direct_capture")
+        XCTAssertEqual(posts.value, 1)
     }
 
     /// One microphone stalling is that microphone; two different ones in a row are macOS's audio
@@ -814,5 +954,105 @@ private final nonisolated class DirectAudioEventRecorder: @unchecked Sendable {
         self.lock.withLock {
             self.operationCount -= 1
         }
+    }
+}
+
+private final nonisolated class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        self.lock.withLock { self.count += 1 }
+    }
+
+    var value: Int {
+        self.lock.withLock { self.count }
+    }
+}
+
+/// Core Audio's listener semantics without Core Audio: a delivery is a `sync` onto the queue the
+/// listener was registered with (as `HALObject::PropertiesChanged` does during a device
+/// teardown), and remove waits for every delivery in flight (`HALObject::RemovePropertyListener`
+/// waits on a `CAGuard`).
+private final nonisolated class FakeListenerHAL: @unchecked Sendable {
+    static let address = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyDeviceIsAlive,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
+    private let lock = NSLock()
+    private var registrations: [Int: (queue: DispatchQueue, block: AudioObjectPropertyListenerBlock)] = [:]
+    private var nextHandle = 1
+    private var timedOut = false
+    private let inFlight = DispatchGroup()
+    private var removalGate: DispatchSemaphore?
+
+    var registeredQueues: [DispatchQueue] {
+        self.lock.withLock { self.registrations.values.map(\.queue) }
+    }
+
+    var liveRegistrations: Int {
+        self.lock.withLock { self.registrations.count }
+    }
+
+    var removeTimedOut: Bool {
+        self.lock.withLock { self.timedOut }
+    }
+
+    /// Every remove waits until `unblockRemoval()` (a Core Audio call that does not return).
+    func blockRemoval() {
+        self.lock.withLock { self.removalGate = DispatchSemaphore(value: 0) }
+    }
+
+    func unblockRemoval() {
+        let gate = self.lock.withLock { () -> DispatchSemaphore? in
+            let gate = self.removalGate
+            self.removalGate = nil
+            return gate
+        }
+        gate?.signal()
+    }
+
+    var backend: CoreAudioPropertyListener.Backend {
+        CoreAudioPropertyListener.Backend(
+            add: { [self] _, _, queue, block in
+                let handle = self.lock.withLock { () -> Int in
+                    let handle = self.nextHandle
+                    self.nextHandle += 1
+                    self.registrations[handle] = (queue, block)
+                    return handle
+                }
+                return (UnsafeMutableRawPointer(bitPattern: handle), noErr)
+            },
+            remove: { [self] handle in
+                if self.inFlight.wait(timeout: .now() + 3) == .timedOut {
+                    self.lock.withLock { self.timedOut = true }
+                }
+                if let gate = self.lock.withLock({ self.removalGate }) {
+                    _ = gate.wait(timeout: .now() + 5)
+                    gate.signal()
+                }
+                self.lock.withLock { self.registrations[Int(bitPattern: handle)] = nil }
+                return noErr
+            },
+            discard: { _ in }
+        )
+    }
+
+    /// Delivers to every registration the way the HAL's notification thread does during a
+    /// teardown. `onceInFlight` runs after the delivery counts as in flight and before it reaches
+    /// the listener's queue.
+    func deliverSynchronously(onceInFlight: () -> Void) {
+        let registrations = self.lock.withLock { Array(self.registrations.values) }
+        self.inFlight.enter()
+        onceInFlight()
+        for registration in registrations {
+            registration.queue.sync {
+                var address = Self.address
+                registration.block(1, &address)
+            }
+        }
+        self.inFlight.leave()
     }
 }

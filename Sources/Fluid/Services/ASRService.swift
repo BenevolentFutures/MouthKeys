@@ -835,10 +835,19 @@ final class ASRService: ObservableObject {
     /// Two different microphones in a row stalled inside Core Audio: the start stops here.
     private struct MacAudioInputStuck: LocalizedError {
         let stalledInputCount: Int
+        /// Core Audio did not list the devices in time (`deviceSnapshotDeadline`).
+        var deviceListTimedOut = false
         var errorDescription: String? {
-            "macOS audio input is stuck: \(self.stalledInputCount) microphones in a row stalled inside Core Audio."
+            if self.deviceListTimedOut {
+                return "macOS audio input is stuck: Core Audio did not list the microphones in time."
+            }
+            return "macOS audio input is stuck: \(self.stalledInputCount) microphones in a row stalled inside Core Audio."
         }
     }
+
+    /// How long a start or a route recovery waits for Core Audio to list the devices. A healthy
+    /// listing takes a few milliseconds; on 2026-11-19 a stuck one took 11 s.
+    private static let deviceSnapshotDeadline: TimeInterval = 3
 
     /// Quarantines the input whose start is stuck inside Core Audio and
     /// replaces the lifecycle controller, whose serial queue stays blocked until
@@ -1135,13 +1144,29 @@ final class ASRService: ObservableObject {
             var selectionExclusions = excludedInputUIDs
             var attemptedInput: AudioDevice.Device?
             do {
-                let deviceSnapshot = await Task.detached(priority: .userInitiated) {
-                    let allDevices = AudioDevice.listAllDevices()
-                    return (
-                        allDevices: allDevices,
-                        defaultInputUID: AudioDevice.getDefaultInputDevice(from: allDevices)?.uid
+                // On CoreAudioHAL's read lane, not a Swift concurrency thread: a stuck listing
+                // blocks one lane thread, never the cooperative pool, and the next start sees the
+                // busy lane and says so at once.
+                guard let deviceSnapshot = await CoreAudioHAL.readAsync(
+                    "start_device_snapshot",
+                    deadline: Self.deviceSnapshotDeadline,
+                    {
+                        let allDevices = AudioDevice.listAllDevices()
+                        return (
+                            allDevices: allDevices,
+                            defaultInputUID: AudioDevice.getDefaultInputDevice(from: allDevices)?.uid
+                        )
+                    }
+                ) else {
+                    self.benchmarkLog(
+                        "audio_input_stuck reason=device_list_timeout " +
+                            "deadlineMs=\(Int(Self.deviceSnapshotDeadline * 1000)) halStuck=\(CoreAudioHAL.isStuck)"
                     )
-                }.value
+                    throw MacAudioInputStuck(
+                        stalledInputCount: self.stalledInputs.stalledInputUIDs.count,
+                        deviceListTimedOut: true
+                    )
+                }
                 let allDevices = deviceSnapshot.allDevices
                 let availableInputs = allDevices.filter(\.hasInput)
                 self.lastStartSnapshotInputCount = availableInputs.count
@@ -1254,6 +1279,11 @@ final class ASRService: ObservableObject {
                     await self.directAudioLifecycleController.invalidate(reason: "recording_start_cancelled")
                     throw error
                 }
+                if error is MacAudioInputStuck {
+                    // Nothing was opened; an AVAudioEngine fallback would block main on the
+                    // same stuck Core Audio.
+                    throw error
+                }
                 if error is DeadlineRace.TimedOut {
                     // The lifecycle queue is still blocked inside Core Audio, and
                     // so is this input for every backend: an AVAudioEngine
@@ -1275,12 +1305,12 @@ final class ASRService: ObservableObject {
                     )
                 }
                 await self.directAudioLifecycleController.invalidate(reason: "recording_start_failed")
-                if self.stalledInputs.isMacInputStuck {
+                if self.stalledInputs.isMacInputStuck || CoreAudioHAL.isStuck {
                     // The engine fallback blocked the main thread for 12 s on a stuck Core
                     // Audio (2026-09-11), and the hotkey's event tap with it.
                     self.benchmarkLog(
                         "audio_backend_fallback_skipped reason=mac_input_stuck " +
-                            "error=\(error.localizedDescription)"
+                            "halStuck=\(CoreAudioHAL.isStuck) error=\(error.localizedDescription)"
                     )
                     throw error
                 }
@@ -1615,19 +1645,20 @@ final class ASRService: ObservableObject {
     private func probeMicrophoneOnce() async -> MicrophoneProbeResult {
         let deadline: UInt64 = 3_000_000_000
         let snapshot: (inputs: [AudioDevice.Device], defaultInputUID: String?)
-        do {
-            snapshot = try await DeadlineRace.run(deadlineNanoseconds: deadline) {
-                await Task.detached(priority: .userInitiated) {
-                    let allDevices = AudioDevice.listAllDevices()
-                    return (
-                        inputs: allDevices.filter(\.hasInput),
-                        defaultInputUID: AudioDevice.getDefaultInputDevice(from: allDevices)?.uid
-                    )
-                }.value
+        guard let listed = await CoreAudioHAL.readAsync(
+            "probe_device_snapshot",
+            deadline: TimeInterval(deadline) / 1_000_000_000,
+            {
+                let allDevices = AudioDevice.listAllDevices()
+                return (
+                    inputs: allDevices.filter(\.hasInput),
+                    defaultInputUID: AudioDevice.getDefaultInputDevice(from: allDevices)?.uid
+                )
             }
-        } catch {
+        ) else {
             return .failed(uid: nil, name: nil, reason: "device_list_timeout")
         }
+        snapshot = listed
         guard let device = self.resolvedInputDeviceForCapture(
             availableInputs: snapshot.inputs,
             defaultInputUID: snapshot.defaultInputUID,
@@ -1816,6 +1847,7 @@ final class ASRService: ObservableObject {
     private let transcriptionExecutor = TranscriptionExecutor() // Serializes all CoreML access
     private var providerResetDrain: (id: UUID, task: Task<Void, Never>)?
     private var engineConfigurationChangeObserver: NSObjectProtocol?
+    private var coreAudioServiceRestartObserver: NSObjectProtocol?
     private let audioEngineRetirementDrain = AudioEngineRetirementDrain()
     private var audioRouteRecoveryTask: Task<Void, Never>?
     private let audioRouteRecoveryDelayNanoseconds: UInt64 = 300_000_000
@@ -1993,6 +2025,9 @@ final class ASRService: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = self.engineConfigurationChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = self.coreAudioServiceRestartObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = self.settingsBackupRestoreObserver {
@@ -2200,6 +2235,7 @@ final class ASRService: ObservableObject {
         self.registerDefaultDeviceChangeListener()
         self.registerEngineConfigurationChangeObserver()
         self.registerDeviceListChangeListener()
+        self.registerCoreAudioServiceRestartObserver()
 
         // Initialize device list cache
         self.cacheCurrentDeviceList(initialInputSnapshot.0)
@@ -4452,12 +4488,21 @@ final class ASRService: ObservableObject {
     private func reconcileInputSelectionAfterTopologySettles(
         _ request: AudioRouteRecoveryRequest
     ) async -> Bool {
-        let snapshot = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+        // A start waits for this recovery, so it must not wait on a stuck Core Audio forever.
+        guard let snapshot = await CoreAudioHAL.readAsync(
+            "route_recovery_device_snapshot",
+            deadline: Self.deviceSnapshotDeadline,
+            {
                 let devices = AudioDevice.listInputDevicesRefreshingLiveness()
                 let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
-                continuation.resume(returning: (devices, defaultInputUID))
+                return (devices, defaultInputUID)
             }
+        ) else {
+            self.benchmarkLog(
+                "route_recovery_abandoned reason=device_list_timeout generation=\(request.generation) " +
+                    "halStuck=\(CoreAudioHAL.isStuck)"
+            )
+            return false
         }
         guard request.generation == self.audioRouteRecoveryGeneration,
               Task.isCancelled == false
@@ -4736,8 +4781,9 @@ final class ASRService: ObservableObject {
         )
         AppServices.shared.audioObserver.signalInputAvailabilityChanged()
         if invalidation.reason == "audio_service_restarted" {
-            self.reestablishAudioHardwareListenersAfterServiceReset()
-            AppServices.shared.audioObserver.restartObservingAfterAudioServiceReset()
+            // The observer re-registers once per restart and posts .coreAudioServiceDidRestart,
+            // which re-registers this service's listeners.
+            AppServices.shared.audioObserver.noteCoreAudioServiceRestarted(source: "direct_capture")
         }
         DebugLogger.shared.warning(
             "Direct capture generation \(invalidation.generation) invalidated by " +
@@ -4783,6 +4829,24 @@ final class ASRService: ObservableObject {
         self.scheduleAudioRouteRecovery(reason: "engine configuration changed")
     }
 
+    /// After a `coreaudiod` restart (reported once by `AudioHardwareObserver`), drops every
+    /// listener and device ID from the dead server, registers again, and re-reads the device
+    /// list, so a device whose ID changed is found again.
+    private func registerCoreAudioServiceRestartObserver() {
+        guard self.coreAudioServiceRestartObserver == nil else { return }
+        self.coreAudioServiceRestartObserver = NotificationCenter.default.addObserver(
+            forName: .coreAudioServiceDidRestart,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isTerminating == false else { return }
+                self.reestablishAudioHardwareListenersAfterServiceReset()
+                self.handleDeviceListChanged()
+            }
+        }
+    }
+
     private func registerEngineConfigurationChangeObserver() {
         guard self.engineConfigurationChangeObserver == nil else { return }
 
@@ -4811,10 +4875,8 @@ final class ASRService: ObservableObject {
     private var defaultOutputListenerToken: CoreAudioPropertyListener?
 
     private func reestablishAudioHardwareListenersAfterServiceReset() {
-        // The reset invalidates these registrations in HAL; do not attempt to
-        // remove the stale tokens before installing replacements.
-        // Removing is harmless if the reset already dropped them, and keeps duplicates out if it
-        // did not (before CoreAudioPropertyListener, removal from Swift never worked anyway).
+        // Removing returns at once (CoreAudioHAL.listenerLane does it), is harmless if the reset
+        // already dropped these registrations, and keeps duplicates out if it did not.
         self.defaultInputListenerInstalled = false
         self.defaultInputListenerToken?.remove()
         self.defaultInputListenerToken = nil

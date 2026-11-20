@@ -1526,16 +1526,11 @@ final nonisolated class DirectCoreAudioLifecycleController: @unchecked Sendable 
         self.snapshotLock.unlock()
     }
 
+    /// Returns at once: no block starts after this, and Core Audio drops them on
+    /// `CoreAudioHAL.listenerLane`, which logs a failure.
     private static func removeListeners(_ registrations: [CoreAudioPropertyListener]) {
         for registration in registrations {
-            let status = registration.remove()
-            if status != noErr, status != kAudioHardwareBadObjectError {
-                Self.log(
-                    "Direct capture listener removal failed object=\(registration.objectID) " +
-                        "selector=\(registration.address.mSelector) status=\(status)",
-                    level: .warning
-                )
-            }
+            registration.remove()
         }
     }
 
