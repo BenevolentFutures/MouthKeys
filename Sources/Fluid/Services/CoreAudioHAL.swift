@@ -29,20 +29,22 @@ nonisolated enum CoreAudioHAL {
         self.watchdog.isStuck
     }
 
-    /// A synchronous read from the HAL. Off the main thread it runs inline, so the caller waits
+    /// A synchronous call into the HAL. Off the main thread it runs inline, so the caller waits
     /// as long as Core Audio takes, watched by the watchdog. On the main thread it runs on
-    /// `readLane` and main waits at most `deadline`, then returns `fallback`; while the lane is
-    /// still busy with an earlier call past that deadline, main returns `fallback` at once and
-    /// nothing more is queued behind the stuck call.
+    /// `lane` and main waits at most `deadline`, then returns `fallback`. While the lane is
+    /// stalled (an earlier call has run past a deadline, or a waiter gave up on one that has not
+    /// run yet), main returns `fallback` at once; `work` is then queued to run later only when
+    /// `queueWhenBusy`.
     static func read<T: Sendable>(
         _ operation: String,
         deadline: TimeInterval = CoreAudioHAL.mainThreadDeadline,
         lane: Lane = CoreAudioHAL.readLane,
+        queueWhenBusy: Bool = false,
         fallback: @autoclosure () -> T,
         _ work: @escaping @Sendable () -> T
     ) -> T {
         if Thread.isMainThread {
-            return lane.run(operation, waitingAtMost: deadline, queueWhenBusy: false, work) ?? fallback()
+            return lane.run(operation, waitingAtMost: deadline, queueWhenBusy: queueWhenBusy, work) ?? fallback()
         }
         if Lane.isOnAnyLane {
             return work()
@@ -53,8 +55,8 @@ nonisolated enum CoreAudioHAL {
     }
 
     /// Runs `work` on `readLane` and waits at most `deadline` without blocking a thread. Returns
-    /// nil on timeout, or at once when the lane is still busy with an earlier call past
-    /// `deadline` (Core Audio is stuck; another call would only queue behind it).
+    /// nil on timeout, or at once while the lane is stalled (Core Audio is stuck; another call
+    /// would only queue behind it).
     static func readAsync<T: Sendable>(
         _ operation: String,
         deadline: TimeInterval,
@@ -63,12 +65,21 @@ nonisolated enum CoreAudioHAL {
         await self.readLane.runAsync(operation, deadline: deadline, work)
     }
 
+    /// Queues a Core Audio call nobody waits for on `readLane`. A stuck HAL then holds one lane
+    /// thread, not one global-queue thread per call.
+    static func background(_ operation: String, _ work: @escaping @Sendable () -> Void) {
+        self.readLane.async(operation, work)
+    }
+
     // MARK: - Lane
 
     /// A serial queue for Core Audio calls. Every call is watched; a caller may wait for one with
     /// a deadline.
     final class Lane: @unchecked Sendable {
         private static let laneKey = DispatchSpecificKey<Bool>()
+        /// Fires the deadlines of `runAsync`. Private and serial, so a global pool full of threads
+        /// parked inside Core Audio cannot hold a deadline back.
+        private static let deadlineQueue = DispatchQueue(label: "com.stage11.mouthkeys.core-audio.deadlines", qos: .userInitiated)
 
         /// True on any lane's queue, where a nested `read` runs inline without a second watch.
         static var isOnAnyLane: Bool {
@@ -80,6 +91,12 @@ nonisolated enum CoreAudioHAL {
         private let queue: DispatchQueue
         private let lock = NSLock()
         private var runningSince: TimeInterval?
+        private var lastQueued: UInt64 = 0
+        private var lastFinished: UInt64 = 0
+        /// A waiter gave up on this call after `abandonedAfter`; until it has run, the lane counts
+        /// as stalled for any waiter whose deadline is no longer than that.
+        private var abandoned: UInt64?
+        private var abandonedAfter: TimeInterval = 0
 
         init(label: String, watchdog: Watchdog) {
             self.label = label
@@ -96,24 +113,44 @@ nonisolated enum CoreAudioHAL {
             }
         }
 
+        /// The running call has run longer than `interval`, or a waiter gave up after at least
+        /// `interval` on a call that has not run yet. Either way a new call would wait behind a
+        /// stuck one for longer than `interval`.
         func isBusy(longerThan interval: TimeInterval) -> Bool {
-            (self.currentCallAge ?? 0) > interval
+            self.lock.withLock {
+                if self.abandoned != nil, self.abandonedAfter >= interval { return true }
+                guard let runningSince = self.runningSince else { return false }
+                return ProcessInfo.processInfo.systemUptime - runningSince > interval
+            }
         }
 
-        /// Queues `work`; never waits.
-        func async(_ operation: String, _ work: @escaping @Sendable () -> Void) {
+        /// Queues `work`; never waits. Returns the call's place in the lane.
+        @discardableResult
+        func async(_ operation: String, _ work: @escaping @Sendable () -> Void) -> UInt64 {
+            let sequence: UInt64 = self.lock.withLock {
+                self.lastQueued &+= 1
+                return self.lastQueued
+            }
             self.queue.async { [self] in
                 let token = self.watchdog.begin(operation)
                 self.lock.withLock { self.runningSince = ProcessInfo.processInfo.systemUptime }
                 work()
-                self.lock.withLock { self.runningSince = nil }
+                self.lock.withLock {
+                    self.runningSince = nil
+                    self.lastFinished = sequence
+                    if let abandoned = self.abandoned, sequence >= abandoned {
+                        self.abandoned = nil
+                        self.abandonedAfter = 0
+                    }
+                }
                 self.watchdog.end(token)
             }
+            return sequence
         }
 
         /// Queues `work` and waits for its result at most `deadline`. Returns nil on timeout. While
-        /// the lane is busy with an earlier call for longer than `deadline`, returns nil at once,
-        /// and queues `work` (to run later) only when `queueWhenBusy`.
+        /// the lane is stalled (`isBusy(longerThan: deadline)`), returns nil at once, and queues
+        /// `work` (to run later) only when `queueWhenBusy`.
         func run<T: Sendable>(
             _ operation: String,
             waitingAtMost deadline: TimeInterval,
@@ -126,7 +163,7 @@ nonisolated enum CoreAudioHAL {
             }
             let box = ResultBox<T>()
             let done = DispatchSemaphore(value: 0)
-            self.async(operation) {
+            let sequence = self.async(operation) {
                 box.set(work())
                 done.signal()
             }
@@ -134,11 +171,7 @@ nonisolated enum CoreAudioHAL {
                 return nil
             }
             guard done.wait(timeout: .now() + deadline) == .success else {
-                DebugLogger.shared.warning(
-                    "CORE_AUDIO_HAL wait=gave_up op=\(operation) lane=\(self.label) " +
-                        "deadlineMs=\(Int((deadline * 1000).rounded())) thread=\(Thread.isMainThread ? "main" : "other")",
-                    source: "CoreAudioHAL"
-                )
+                self.giveUp(on: sequence, operation: operation, deadline: deadline, waiter: Thread.isMainThread ? "main" : "other")
                 return nil
             }
             return box.value
@@ -159,16 +192,12 @@ nonisolated enum CoreAudioHAL {
             }
             return await withCheckedContinuation { continuation in
                 let once = ResumeOnce(continuation)
-                self.async(operation) {
+                let sequence = self.async(operation) {
                     once.resume(returning: work())
                 }
-                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + deadline) { [self] in
+                Self.deadlineQueue.asyncAfter(deadline: .now() + deadline) { [self] in
                     guard once.resume(returning: nil) else { return }
-                    DebugLogger.shared.warning(
-                        "CORE_AUDIO_HAL wait=gave_up op=\(operation) lane=\(self.label) " +
-                            "deadlineMs=\(Int((deadline * 1000).rounded())) thread=async",
-                        source: "CoreAudioHAL"
-                    )
+                    self.giveUp(on: sequence, operation: operation, deadline: deadline, waiter: "async")
                 }
             }
         }
@@ -176,6 +205,22 @@ nonisolated enum CoreAudioHAL {
         /// Waits until every call queued so far has returned. Tests only.
         func drainForTesting() {
             self.queue.sync {}
+        }
+
+        private func giveUp(on sequence: UInt64, operation: String, deadline: TimeInterval, waiter: String) {
+            // The lane is serial, so calls finish in order: the call is still pending exactly
+            // when the last one finished is older. It may have finished since the wait ended.
+            let stillPending: Bool = self.lock.withLock {
+                guard self.lastFinished < sequence else { return false }
+                self.abandoned = max(self.abandoned ?? 0, sequence)
+                self.abandonedAfter = max(self.abandonedAfter, deadline)
+                return true
+            }
+            DebugLogger.shared.warning(
+                "CORE_AUDIO_HAL wait=gave_up op=\(operation) lane=\(self.label) " +
+                    "deadlineMs=\(Int((deadline * 1000).rounded())) waiter=\(waiter) stalled=\(stillPending)",
+                source: "CoreAudioHAL"
+            )
         }
     }
 

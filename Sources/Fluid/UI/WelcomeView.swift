@@ -3677,7 +3677,7 @@ private extension OnboardingFlowView {
                   self.isMicrophoneReady
             else { return }
 
-            DispatchQueue.global(qos: .userInitiated).async {
+            CoreAudioHAL.background("welcome_refresh_inputs") {
                 let inputs = AudioDevice.listInputDevicesRefreshingLiveness()
                 let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
                 let usableInputs = inputs.filter { device in

@@ -167,25 +167,20 @@ final class DirectAudioReliabilityTests: XCTestCase {
         let second = CoreAudioHAL.read("test_read_behind_stuck", deadline: 0.1, lane: lane, fallback: -2) { 2 }
         XCTAssertEqual(second, -2)
         XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - secondStartedAt) * 1000, 20, "no wait behind a stuck call")
+        XCTAssertFalse(lane.isBusy(longerThan: 3), "main giving up at 100 ms does not make a 3 s waiter skip")
 
         release.signal()
         lane.drainForTesting()
         XCTAssertEqual(CoreAudioHAL.read("test_read", deadline: 0.1, lane: lane, fallback: -3) { 3 }, 3)
     }
 
-    /// One `coreaudiod` restart reaches MouthKeys from more than one listener; the app
-    /// re-registers once.
-    @MainActor
+    /// One `coreaudiod` restart reaches MouthKeys from more than one listener and is handled
+    /// once; a second restart a few seconds later is handled again.
     func testCoreAudioServiceRestartIsHandledOncePerRestart() {
-        let observer = AudioHardwareObserver()
-        let posts = LockedCounter()
-        let token = NotificationCenter.default.addObserver(
-            forName: .coreAudioServiceDidRestart, object: observer, queue: nil
-        ) { _ in posts.increment() }
-        defer { NotificationCenter.default.removeObserver(token) }
-        observer.noteCoreAudioServiceRestarted(source: "hardware_observer")
-        observer.noteCoreAudioServiceRestarted(source: "direct_capture")
-        XCTAssertEqual(posts.value, 1)
+        var restarts = CoreAudioServiceRestartDeduper(window: 2)
+        XCTAssertTrue(restarts.shouldHandle(at: 100))
+        XCTAssertFalse(restarts.shouldHandle(at: 100.05), "the direct capture's report of the same restart")
+        XCTAssertTrue(restarts.shouldHandle(at: 104), "a second restart")
     }
 
     /// One microphone stalling is that microphone; two different ones in a row are macOS's audio

@@ -95,7 +95,10 @@ nonisolated enum AudioDevice {
 
     private static let inputLivenessCache = InputLivenessCache()
 
-    /// What Core Audio last answered, for a main-thread read that gave up waiting on it.
+    /// What Core Audio last answered, for a main-thread read that gave up waiting on it. Kept
+    /// across a `coreaudiod` restart on purpose: an empty answer would read as "no
+    /// microphones" to the selection logic, UIDs survive a restart, every capture resolves its
+    /// device ID afresh off main, and the restart re-lists at once, which refreshes this.
     private final class LastKnownHardware: @unchecked Sendable {
         private let lock = NSLock()
         private var storedDevices: [Device] = []
@@ -274,14 +277,12 @@ nonisolated enum AudioDevice {
 
     @discardableResult
     static func setDefaultInputDevice(uid: String) -> Bool {
-        guard let device = listInputDevices().first(where: { $0.uid == uid }) else { return false }
-        return self.setDefaultDeviceId(device.id, selector: kAudioHardwarePropertyDefaultInputDevice)
+        self.setDefaultDevice(uid: uid, selector: kAudioHardwarePropertyDefaultInputDevice) { $0.hasInput }
     }
 
     @discardableResult
     static func setDefaultOutputDevice(uid: String) -> Bool {
-        guard let device = listOutputDevices().first(where: { $0.uid == uid }) else { return false }
-        return self.setDefaultDeviceId(device.id, selector: kAudioHardwarePropertyDefaultOutputDevice)
+        self.setDefaultDevice(uid: uid, selector: kAudioHardwarePropertyDefaultOutputDevice) { $0.hasOutput }
     }
 
     /// Get input device by UID without affecting system settings
@@ -371,14 +372,44 @@ nonisolated enum AudioDevice {
         return status == noErr ? devId : nil
     }
 
-    /// On the main thread a set Core Audio has not answered by the deadline returns false (it
-    /// still applies when Core Audio answers); while Core Audio is stuck it is not attempted.
-    private static func setDefaultDeviceId(_ devId: AudioObjectID, selector: AudioObjectPropertySelector) -> Bool {
-        CoreAudioHAL.read(
-            "set_default_device selector=\(CoreAudioPropertyListener.fourCC(selector)) device=\(devId)",
+    private final class DefaultDeviceRequests: @unchecked Sendable {
+        private let lock = NSLock()
+        private var latest: [AudioObjectPropertySelector: UInt64] = [:]
+
+        func next(_ selector: AudioObjectPropertySelector) -> UInt64 {
+            self.lock.withLock {
+                let request = (self.latest[selector] ?? 0) &+ 1
+                self.latest[selector] = request
+                return request
+            }
+        }
+
+        func isLatest(_ request: UInt64, _ selector: AudioObjectPropertySelector) -> Bool {
+            self.lock.withLock { self.latest[selector] == request }
+        }
+    }
+
+    private static let defaultDeviceRequests = DefaultDeviceRequests()
+
+    /// Looks the device up and sets it in one Core Audio call, so the ID belongs to the server
+    /// that sets it. On the main thread, a set Core Audio has not answered by the deadline
+    /// returns false and still runs once Core Audio answers, unless a newer set for the same
+    /// default came after it: only the latest pick applies.
+    private static func setDefaultDevice(
+        uid: String,
+        selector: AudioObjectPropertySelector,
+        where matches: @escaping @Sendable (Device) -> Bool
+    ) -> Bool {
+        let request = self.defaultDeviceRequests.next(selector)
+        return CoreAudioHAL.read(
+            "set_default_device selector=\(CoreAudioPropertyListener.fourCC(selector))",
+            queueWhenBusy: true,
             fallback: false
         ) {
-            self.setDefaultDeviceIdInHAL(devId, selector: selector)
+            guard self.defaultDeviceRequests.isLatest(request, selector),
+                  let device = self.listAllDevices().first(where: { $0.uid == uid && matches($0) })
+            else { return false }
+            return self.setDefaultDeviceIdInHAL(device.id, selector: selector)
         }
     }
 
@@ -492,6 +523,25 @@ extension Notification.Name {
     static let inputDeviceAvailabilityDidChange = Notification.Name("InputDeviceAvailabilityDidChange")
 }
 
+/// One `coreaudiod` restart can reach MouthKeys more than once (`AudioHardwareObserver`'s
+/// listener and a prepared direct capture's, within milliseconds); a second report inside
+/// `window` is the same restart. Short, so a second real restart (say two `killall coreaudiod`
+/// a few seconds apart) is still handled.
+nonisolated struct CoreAudioServiceRestartDeduper {
+    var window: TimeInterval = 2
+    private var lastHandledAt: TimeInterval?
+
+    init(window: TimeInterval = 2) {
+        self.window = window
+    }
+
+    mutating func shouldHandle(at now: TimeInterval) -> Bool {
+        if let last = self.lastHandledAt, now - last < self.window { return false }
+        self.lastHandledAt = now
+        return true
+    }
+}
+
 // MARK: - Audio Hardware Observer
 
 final class AudioHardwareObserver: ObservableObject {
@@ -510,7 +560,7 @@ final class AudioHardwareObserver: ObservableObject {
     /// Lives as long as the observer and survives a restart: Core Audio delivers
     /// ServiceRestarted to listeners on the system object, which is in-process.
     private var serviceRestartListenerToken: CoreAudioPropertyListener?
-    private var lastServiceRestartUptime: TimeInterval?
+    private var serviceRestarts = CoreAudioServiceRestartDeduper()
     private var clamshellRootDomain: io_service_t = IO_OBJECT_NULL
     private var clamshellNotificationPort: IONotificationPortRef?
     private var clamshellNotification: io_object_t = IO_OBJECT_NULL
@@ -530,24 +580,18 @@ final class AudioHardwareObserver: ObservableObject {
         self.registerServiceRestartListener()
     }
 
-    /// One `coreaudiod` restart can reach MouthKeys more than once (this observer's listener and
-    /// a prepared direct capture's); a second report inside this window is the same restart.
-    static let serviceRestartDedupeWindow: TimeInterval = 5
-
     /// `coreaudiod` restarted: the device objects, their IDs and every listener on them belong
     /// to the dead server. Re-registers this observer's listeners and posts
     /// `.coreAudioServiceDidRestart` once per restart, so the rest of the app does the same.
     func noteCoreAudioServiceRestarted(source: String) {
         let now = ProcessInfo.processInfo.systemUptime
-        if let last = self.lastServiceRestartUptime, now - last < Self.serviceRestartDedupeWindow {
+        guard self.serviceRestarts.shouldHandle(at: now) else {
             DebugLogger.shared.info(
-                "CORE_AUDIO_SERVICE_RESTART source=\(source) action=already_handled " +
-                    "sinceMs=\(Int(((now - last) * 1000).rounded()))",
+                "CORE_AUDIO_SERVICE_RESTART source=\(source) action=already_handled",
                 source: "AudioHardwareObserver"
             )
             return
         }
-        self.lastServiceRestartUptime = now
         DebugLogger.shared.warning(
             "CORE_AUDIO_SERVICE_RESTART source=\(source) action=reregister halStuck=\(CoreAudioHAL.isStuck)",
             source: "AudioHardwareObserver"
@@ -591,20 +635,22 @@ final class AudioHardwareObserver: ObservableObject {
     }
 
     private func restartObservingAfterAudioServiceReset() {
-        // The old registrations are never reused: device IDs from the dead server may now name
-        // other devices. Removing returns at once (the lane does it), is harmless if the reset
-        // already dropped them, and keeps duplicate listeners out if it did not.
-        self.devicesListenerToken?.remove()
-        self.devicesListenerToken = nil
-        self.defaultInputListenerToken?.remove()
-        self.defaultInputListenerToken = nil
-        self.defaultOutputListenerToken?.remove()
-        self.defaultOutputListenerToken = nil
+        // Device listeners belong to dead device objects, whose IDs may now name other devices:
+        // drop them, and the refresh in register() adds new ones. The system object lives in
+        // this process, so its listeners may have survived: the new ones are added before the
+        // old ones come off (removal returns at once and is harmless if the reset already
+        // dropped them), so no change between the two is missed.
+        let previousSystemListeners = [
+            self.devicesListenerToken,
+            self.defaultInputListenerToken,
+            self.defaultOutputListenerToken,
+        ].compactMap { $0 }
         self.inputAvailabilityListenerTokens.values.forEach { $0.remove() }
         self.inputAvailabilityListenerTokens.removeAll()
         self.inputAvailabilityRefreshGeneration &+= 1
         self.installed = false
         self.register()
+        previousSystemListeners.forEach { $0.remove() }
         self.changeTick &+= 1
         if self.installed {
             DebugLogger.shared.warning(
@@ -703,7 +749,7 @@ final class AudioHardwareObserver: ObservableObject {
     private func refreshInputAvailabilityListeners() {
         self.inputAvailabilityRefreshGeneration &+= 1
         let generation = self.inputAvailabilityRefreshGeneration
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        CoreAudioHAL.background("refresh_input_availability") { [weak self] in
             let devices = AudioDevice.listInputDevicesRefreshingLiveness()
             DispatchQueue.main.async { [weak self] in
                 guard let self,
@@ -717,7 +763,11 @@ final class AudioHardwareObserver: ObservableObject {
     private func replaceInputAvailabilityListeners(with devices: [AudioDevice.Device]) {
         guard self.installed else { return }
         let currentIDs = Set(devices.map(\.id))
-        for (deviceID, token) in self.inputAvailabilityListenerTokens where currentIDs.contains(deviceID) == false {
+        // Gone devices lose their listener; a listener whose registration failed on the lane
+        // (inactive without remove) is dropped too, so the loop below tries that device again.
+        for (deviceID, token) in self.inputAvailabilityListenerTokens
+            where currentIDs.contains(deviceID) == false || token.isActive == false
+        {
             token.remove()
             self.inputAvailabilityListenerTokens.removeValue(forKey: deviceID)
         }
@@ -727,7 +777,7 @@ final class AudioHardwareObserver: ObservableObject {
             let token: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 // Never query Core Audio synchronously from its property callback.
                 // Refresh the cached snapshot off-main before observers resolve priority.
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                CoreAudioHAL.background("device_availability_changed") { [weak self] in
                     _ = AudioDevice.listInputDevicesRefreshingLiveness()
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }

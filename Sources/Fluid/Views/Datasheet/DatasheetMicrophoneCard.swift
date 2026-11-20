@@ -165,7 +165,7 @@ final class MicrophonePickerModel: ObservableObject {
         if let completion { self.refreshCompletions.append(completion) }
         self.refreshGeneration &+= 1
         let generation = self.refreshGeneration
-        DispatchQueue.global(qos: .userInitiated).async {
+        CoreAudioHAL.background("mic_picker_refresh") {
             let devices = AudioDevice.listInputDevicesRefreshingLiveness()
             let clamshellClosed = ClamshellState.isClosed
             DispatchQueue.main.async { [weak self] in

@@ -880,7 +880,10 @@ final class ASRService: ObservableObject {
             self.benchmarkLog("audio_input_stalls_cleared reason=\(reason)")
             // A stuck card still asking to restart the helper is moot now.
             Self.audioInputRecoveredHandler()
+        } else if self.audioInputStuckCardIsForDeviceList {
+            Self.audioInputRecoveredHandler()
         }
+        self.audioInputStuckCardIsForDeviceList = false
     }
 
     private func releaseWedgedDirectInput(uid: String, reason: String) {
@@ -1848,6 +1851,10 @@ final class ASRService: ObservableObject {
     private var providerResetDrain: (id: UUID, task: Task<Void, Never>)?
     private var engineConfigurationChangeObserver: NSObjectProtocol?
     private var coreAudioServiceRestartObserver: NSObjectProtocol?
+    private var coreAudioHALRecoveryObserver: NSObjectProtocol?
+    /// The stuck card on screen was raised because Core Audio did not list the devices in time
+    /// (no microphone stalled), so Core Audio answering again is what makes it moot.
+    private var audioInputStuckCardIsForDeviceList = false
     private let audioEngineRetirementDrain = AudioEngineRetirementDrain()
     private var audioRouteRecoveryTask: Task<Void, Never>?
     private let audioRouteRecoveryDelayNanoseconds: UInt64 = 300_000_000
@@ -2028,6 +2035,9 @@ final class ASRService: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = self.coreAudioServiceRestartObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = self.coreAudioHALRecoveryObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = self.settingsBackupRestoreObserver {
@@ -2218,7 +2228,7 @@ final class ASRService: ObservableObject {
         self.micPermissionGranted = (self.micStatus == .authorized)
 
         let initialInputSnapshot = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CoreAudioHAL.background("initial_input_snapshot") {
                 let devices = AudioDevice.listInputDevicesRefreshingLiveness()
                 let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
                 continuation.resume(returning: (devices, defaultInputUID))
@@ -2991,6 +3001,9 @@ final class ASRService: ObservableObject {
                     "audio_input_stuck card=shown " +
                         "stalledSinceCapture=\(self.stalledInputs.stalledInputUIDs.count)"
                 )
+                self.audioInputStuckCardIsForDeviceList =
+                    (error as? MacAudioInputStuck)?.deviceListTimedOut == true &&
+                    self.stalledInputs.stalledInputUIDs.isEmpty
                 Self.audioInputStuckHandler()
                 NotificationCenter.default.post(
                     name: NSNotification.Name("ASRServiceStartFailed"),
@@ -3225,7 +3238,7 @@ final class ASRService: ObservableObject {
         guard self.isTerminating == false else { return }
 
         let snapshot = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+            CoreAudioHAL.background("deferred_bluetooth_snapshot") {
                 let devices = AudioDevice.listInputDevicesRefreshingLiveness()
                 let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
                 continuation.resume(returning: (devices, defaultInputUID))
@@ -4727,8 +4740,10 @@ final class ASRService: ObservableObject {
             // that is currently executing this catch block.
             self.audioRouteRecoveryTask = nil
             await self.stopWithoutTranscription()
-            if error is MacAudioInputStuck {
+            if let stuck = error as? MacAudioInputStuck {
                 self.benchmarkLog("audio_input_stuck card=shown routeRecovery=\(request.generation)")
+                self.audioInputStuckCardIsForDeviceList =
+                    stuck.deviceListTimedOut && self.stalledInputs.stalledInputUIDs.isEmpty
                 Self.audioInputStuckHandler()
             }
             NotificationCenter.default.post(
@@ -4842,6 +4857,30 @@ final class ASRService: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isTerminating == false else { return }
                 self.reestablishAudioHardwareListenersAfterServiceReset()
+                // A new server: earlier stalls say nothing about it.
+                if self.stalledInputs.captureWorked() {
+                    self.benchmarkLog("audio_input_stalls_cleared reason=core_audio_service_restart")
+                }
+                self.handleDeviceListChanged()
+            }
+        }
+        // Core Audio answered again after a stuck call: a stuck card raised only because the
+        // devices would not list goes away, and the devices are read again, since a route
+        // recovery that gave up while Core Audio was stuck is not retried on its own.
+        self.coreAudioHALRecoveryObserver = NotificationCenter.default.addObserver(
+            forName: .coreAudioHALStuckStateDidChange,
+            object: CoreAudioHAL.watchdog,
+            queue: .main
+        ) { [weak self] notification in
+            guard notification.userInfo?["isStuck"] as? Bool == false else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.isTerminating == false else { return }
+                if self.audioInputStuckCardIsForDeviceList {
+                    self.audioInputStuckCardIsForDeviceList = false
+                    Self.audioInputRecoveredHandler()
+                }
+                self.benchmarkLog("core_audio_hal_recovered action=relist_devices")
+                // Re-lists and schedules route recovery only if the devices changed meanwhile.
                 self.handleDeviceListChanged()
             }
         }
@@ -4875,21 +4914,26 @@ final class ASRService: ObservableObject {
     private var defaultOutputListenerToken: CoreAudioPropertyListener?
 
     private func reestablishAudioHardwareListenersAfterServiceReset() {
-        // Removing returns at once (CoreAudioHAL.listenerLane does it), is harmless if the reset
-        // already dropped these registrations, and keeps duplicates out if it did not.
-        self.defaultInputListenerInstalled = false
-        self.defaultInputListenerToken?.remove()
-        self.defaultInputListenerToken = nil
-        self.defaultOutputListenerToken?.remove()
-        self.defaultOutputListenerToken = nil
-        self.deviceListListenerInstalled = false
-        self.deviceListListenerToken?.remove()
-        self.deviceListListenerToken = nil
+        // The monitored device's listener belongs to a dead device object. The system object's
+        // may have survived: the new ones go on before the old ones come off, so no change in
+        // between is missed. Removal returns at once (CoreAudioHAL.listenerLane does it), is
+        // harmless if the reset already dropped them, and keeps duplicates out if it did not.
+        let previousSystemListeners = [
+            self.defaultInputListenerToken,
+            self.defaultOutputListenerToken,
+            self.deviceListListenerToken,
+        ].compactMap { $0 }
         self.monitoredDeviceID = nil
         self.monitoredDeviceIsAliveListenerToken?.remove()
         self.monitoredDeviceIsAliveListenerToken = nil
+        self.defaultInputListenerInstalled = false
+        self.defaultInputListenerToken = nil
+        self.defaultOutputListenerToken = nil
+        self.deviceListListenerInstalled = false
+        self.deviceListListenerToken = nil
         self.registerDefaultDeviceChangeListener()
         self.registerDeviceListChangeListener()
+        previousSystemListeners.forEach { $0.remove() }
         let defaultInputReady = self.defaultInputListenerInstalled
         let defaultOutputReady = self.defaultOutputListenerToken != nil
         let deviceListReady = self.deviceListListenerInstalled
@@ -5061,7 +5105,7 @@ final class ASRService: ObservableObject {
 
         // Perform CoreAudio queries off the main thread — during a device topology change
         // the HAL may still be settling, and synchronous queries on main can deadlock.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        CoreAudioHAL.background("device_list_changed") { [weak self] in
             let currentDevices = AudioDevice.listInputDevicesRefreshingLiveness()
             let defaultInputUID = AudioDevice.getDefaultInputDevice()?.uid
 
@@ -5126,7 +5170,7 @@ final class ASRService: ObservableObject {
     /// Handles device availability changes (device disconnected or reconnected)
     private func handleDeviceAvailabilityChanged(deviceID: AudioObjectID) {
         DebugLogger.shared.info("⚠️ Device availability changed for ID: \(deviceID)", source: "ASRService")
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        CoreAudioHAL.background("monitored_device_liveness") { [weak self] in
             let isAlive = AudioDevice.refreshInputDeviceLiveness(deviceID: deviceID)
             DispatchQueue.main.async { [weak self] in
                 self?.applyDeviceAvailability(isAlive: isAlive, deviceID: deviceID)

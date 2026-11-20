@@ -20,8 +20,11 @@ import Foundation
 /// after a `coreaudiod` restart: MouthKeys alive, hotkeys dead). So:
 /// - Core Audio delivers only to `deliveryQueue`, which never blocks: it hands each
 ///   notification on to the caller's queue with `async`.
-/// - `remove()` returns at once. From then on the caller's block is never started again, and the
-///   real removal runs on `CoreAudioHAL.listenerLane`.
+/// - `remove()` returns at once and the real removal runs on `CoreAudioHAL.listenerLane`. The
+///   caller's block checks the listener is still active on the caller's queue, so once
+///   `remove()` returns no block starts when `remove()` was called on that (serial) queue, as
+///   on main; a remover on another thread drains the queue after it (`DirectCoreAudioInput`
+///   does `listenerQueue.sync {}`) to wait out a block that passed the check just before.
 /// - `add` from the main thread runs on the same lane and waits at most
 ///   `CoreAudioHAL.mainThreadDeadline`; off main it runs inline and returns Core Audio's status.
 ///
@@ -111,9 +114,9 @@ final nonisolated class CoreAudioPropertyListener: @unchecked Sendable {
         return (nil, status)
     }
 
-    /// Takes the listener off. Returns at once: the caller's block is never started after this
-    /// returns (one already running finishes), and Core Audio drops the registration on
-    /// `CoreAudioHAL.listenerLane`. Safe to call more than once.
+    /// Takes the listener off. Returns at once; Core Audio drops the registration on
+    /// `CoreAudioHAL.listenerLane`. No block starts afterwards when this is called on the
+    /// caller's serial queue (see the type's notes for other threads). Safe to call more than once.
     func remove() {
         let firstRequest: Bool = self.lock.withLock {
             self.active = false
