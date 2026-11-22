@@ -882,7 +882,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         if menu === self.menu {
-            SecureInputMonitor.shared.refresh()
+            SecureInputMonitor.shared.refresh(rereadHolder: true)
             AnalyticsService.shared.recordAppActivity()
             self.isMenuOpen = true
             self.applyMark()

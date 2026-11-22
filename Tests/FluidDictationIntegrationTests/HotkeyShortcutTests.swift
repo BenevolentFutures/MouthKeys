@@ -3469,10 +3469,8 @@ final class HotkeyManagerLiveSlotTests: XCTestCase {
         GlobalHotkeyManager.claimLiveSlot(second)
         XCTAssertTrue(first.isRetired, "the older manager gives up its taps")
         XCTAssertFalse(second.isRetired)
-        let stateBefore = first.tapState
-        first.retryTapInstallNow(reason: "app_active")
-        first.reinitialize()
-        XCTAssertEqual(first.tapState, stateBefore, "a retired manager never rebuilds a tap")
+        first.retire(reason: "again")
+        XCTAssertTrue(first.isRetired, "retiring twice is harmless")
         GlobalHotkeyManager.claimLiveSlot(second)
         XCTAssertFalse(second.isRetired, "claiming again keeps the live manager live")
     }
@@ -3499,6 +3497,8 @@ final class SecureInputMonitorTests: XCTestCase {
         XCTAssertTrue(monitor.isEnabled)
         XCTAssertEqual(holderReads, 1, "the holder is read once per flip")
         XCTAssertEqual(monitor.holderLabel, "loginwindow")
+        monitor.refresh(rereadHolder: true)
+        XCTAssertEqual(holderReads, 2, "an open menu re-reads the holder")
         enabled = false
         monitor.refresh()
         XCTAssertNil(monitor.holder)

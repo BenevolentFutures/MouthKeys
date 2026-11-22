@@ -676,10 +676,6 @@ final class GlobalHotkeyManager: NSObject {
         self.isShortcutCaptureActiveProvider = isShortcutCaptureActiveProvider
         super.init()
 
-        if !TestHostQuietMode.isActive {
-            Self.claimLiveSlot(self)
-        }
-
         // A capture start settling (success or failure, either backend) resolves latched release
         // stops. @Published emits before the value changes, so resolve on the next main-actor turn.
         self.captureStartSettledObserver = asrService.$isStarting
@@ -846,9 +842,6 @@ final class GlobalHotkeyManager: NSObject {
         self.reprocessLastDictationCallback = callback
     }
 
-    /// Tries to install the keyboard tap once and schedules the next try by
-    /// `HotkeyTapInstallPolicy`: a capped backoff while macOS does not trust us yet, a few fast
-    /// retries if it trusts us but refuses the tap. Only state changes are logged (`HOTKEY_TAP`).
     /// Makes `manager` the live one and retires whichever manager held the slot before it.
     static func claimLiveSlot(_ manager: GlobalHotkeyManager) {
         if let previous = Self.liveInstance, previous !== manager {
@@ -874,6 +867,9 @@ final class GlobalHotkeyManager: NSObject {
         DebugLogger.shared.info("HOTKEY_TAP state=retired reason=\(reason)", source: "GlobalHotkeyManager")
     }
 
+    /// Tries to install the keyboard tap once and schedules the next try by
+    /// `HotkeyTapInstallPolicy`: a capped backoff while macOS does not trust us yet, a few fast
+    /// retries if it trusts us but refuses the tap. Only state changes are logged (`HOTKEY_TAP`).
     private func attemptTapInstall(reason: String) {
         guard !self.isRetired else { return }
         self.tapRetryTask?.cancel()
@@ -900,6 +896,10 @@ final class GlobalHotkeyManager: NSObject {
         if outcome == .installed {
             self.isInitialized = true
             self.startHealthCheckTimer()
+            // Retire an older manager only once this tap is live, so hotkeys never drop to zero.
+            if !TestHostQuietMode.isActive {
+                Self.claimLiveSlot(self)
+            }
         } else {
             self.isInitialized = false
             // The retry below polls from here; the 30 s health check would only repeat its warning.

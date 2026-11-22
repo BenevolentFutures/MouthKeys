@@ -48,9 +48,13 @@ final class SecureInputMonitor {
         self.timer = timer
     }
 
-    /// Re-reads the flag; logs and records the holder only when it flips.
-    func refresh() {
+    /// Re-reads the flag; logs and records the holder only when it flips (and on demand, for an
+    /// open menu, since one app can hand Secure Input to another without a flip).
+    func refresh(rereadHolder: Bool = false) {
         let enabled = self.enabledProvider()
+        if enabled, enabled == self.isEnabled, rereadHolder {
+            self.holder = self.holderProvider()
+        }
         guard enabled != self.isEnabled else { return }
         self.isEnabled = enabled
         self.holder = enabled ? self.holderProvider() : nil
@@ -81,6 +85,7 @@ final class SecureInputMonitor {
             let sessions = value as? [[String: Any]]
         else { return nil }
         for session in sessions {
+            guard (session["kCGSSessionOnConsoleKey"] as? NSNumber)?.boolValue ?? true else { continue }
             guard let pid = (session["kCGSSessionSecureInputPID"] as? NSNumber)?.int32Value, pid > 0 else { continue }
             return Holder(pid: pid, name: Self.processName(pid))
         }

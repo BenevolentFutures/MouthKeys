@@ -3712,6 +3712,11 @@ struct ContentView: View {
             self.hotkeyManager?.toggleRecordingFromMenu()
         }
 
+        // A newer window's manager may have retired this view's: build a fresh one rather than
+        // route shortcuts to a manager with no tap.
+        if self.hotkeyManager?.isRetired == true {
+            self.hotkeyManager = nil
+        }
         guard self.hotkeyManager == nil else { return }
 
         self.hotkeyManager = GlobalHotkeyManager(
