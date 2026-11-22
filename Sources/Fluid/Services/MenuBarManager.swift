@@ -22,6 +22,8 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
     private var toggleDictationRow: DatasheetMenuRowView?
     private var hotkeysPausedMenuItem: NSMenuItem?
     private var hotkeysPausedRow: DatasheetMenuRowView?
+    private var keysBlockedMenuItem: NSMenuItem?
+    private var keysBlockedRow: DatasheetMenuRowView?
     private var headerRefreshTimer: Timer?
 
     // The Datasheet menu bar mark (DESIGN.md §10).
@@ -516,6 +518,7 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         do {
             try self.setupMenuBar()
             self.isSetup = true
+            SecureInputMonitor.shared.start()
         } catch {
             // If setup fails, retry after delay
             DebugLogger.shared.error("MenuBar setup failed, retrying: \(error)", source: "MenuBarManager")
@@ -738,6 +741,14 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         self.hotkeysPausedMenuItem = pausedItem
         self.hotkeysPausedRow = pausedRow
 
+        // Shown only while macOS Secure Input is on: no app can read hotkeys then, so they never
+        // look lost (2026-11-19: ⌥Space dead for hours with a healthy app).
+        let (blockedItem, blockedRow) = self.rowItem("Keys Blocked", action: #selector(explainKeysBlocked))
+        blockedItem.isHidden = true
+        menu.addItem(blockedItem)
+        self.keysBlockedMenuItem = blockedItem
+        self.keysBlockedRow = blockedRow
+
         let (preferencesItem, _) = self.rowItem("Settings…", action: #selector(openPreferences), detail: .text("⌘,"))
         preferencesItem.keyEquivalent = ","
         preferencesItem.keyEquivalentModifierMask = [.command]
@@ -801,7 +812,9 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
                 ? "Sending"
                 : "Listening \(DatasheetOverlayModel.formatDuration(Date().timeIntervalSince(start)))"
         } else {
-            state = self.isProcessingActive ? "Working" : (Self.hotkeysPaused ? "Paused" : "Ready")
+            state = self.isProcessingActive
+                ? "Working"
+                : (Self.hotkeysPaused ? "Paused" : (SecureInputMonitor.shared.isEnabled ? "Blocked" : "Ready"))
         }
         self.headerView?.stateText = state
         self.headerView?.isLive = live
@@ -823,6 +836,15 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
             }
             self.hotkeysPausedRow?.detail = .text(tapState == .failedTrusted ? "Relaunch" : "Accessibility")
         }
+        if let blockedItem = self.keysBlockedMenuItem {
+            let secureInput = SecureInputMonitor.shared
+            if blockedItem.isHidden == secureInput.isEnabled {
+                blockedItem.isHidden = !secureInput.isEnabled
+            }
+            if secureInput.isEnabled {
+                self.keysBlockedRow?.detail = .text(secureInput.holderLabel)
+            }
+        }
     }
 
     private static var hotkeysPaused: Bool {
@@ -839,8 +861,28 @@ final class MenuBarManager: NSObject, ObservableObject, NSMenuDelegate {
         }
     }
 
+    /// The operator clicked Keys Blocked: say what Secure Input is and what clears it.
+    @objc private func explainKeysBlocked() {
+        let secureInput = SecureInputMonitor.shared
+        let alert = NSAlert()
+        alert.messageText = "macOS Secure Input is on"
+        alert.informativeText = """
+        While any app holds Secure Input, macOS gives keystrokes to no hotkey app, so MouthKeys \
+        cannot hear its shortcuts. System shortcuts like ⌘Space still work.
+
+        Last app to change it: \(secureInput.holderLabel). That is a suspect, not proof.
+
+        Try, in order: leave any focused password field, quit the app named above, lock and \
+        unlock the screen. Logging out and back in always clears it.
+        """
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         if menu === self.menu {
+            SecureInputMonitor.shared.refresh(rereadHolder: true)
             AnalyticsService.shared.recordAppActivity()
             self.isMenuOpen = true
             self.applyMark()
