@@ -3443,3 +3443,82 @@ final class EscapeCancelGateTests: XCTestCase {
         try await self.waitForTheRecordingToStop()
     }
 }
+
+@MainActor
+final class HotkeyManagerLiveSlotTests: XCTestCase {
+    private func makeManager(_ asr: ASRService) -> GlobalHotkeyManager {
+        GlobalHotkeyManager(
+            asrService: asr,
+            primaryShortcuts: [HotkeyShortcut(keyCode: 49, modifierFlags: [.option])],
+            promptModeShortcut: HotkeyShortcut(keyCode: 60, modifierFlags: []),
+            commandModeShortcut: nil,
+            rewriteModeShortcut: HotkeyShortcut(keyCode: 59, modifierFlags: []),
+            promptModeShortcutEnabled: false,
+            commandModeShortcutEnabled: false,
+            rewriteModeShortcutEnabled: false
+        )
+    }
+
+    /// A recreated ContentView's manager retires the old one, so only one keyboard tap is live.
+    func testNewManagerRetiresThePreviousOne() {
+        let asr = ASRService()
+        let first = self.makeManager(asr)
+        let second = self.makeManager(asr)
+        GlobalHotkeyManager.claimLiveSlot(first)
+        XCTAssertFalse(first.isRetired)
+        GlobalHotkeyManager.claimLiveSlot(second)
+        XCTAssertTrue(first.isRetired, "the older manager gives up its taps")
+        XCTAssertFalse(second.isRetired)
+        let stateBefore = first.tapState
+        first.retryTapInstallNow(reason: "app_active")
+        first.reinitialize()
+        XCTAssertEqual(first.tapState, stateBefore, "a retired manager never rebuilds a tap")
+        GlobalHotkeyManager.claimLiveSlot(second)
+        XCTAssertFalse(second.isRetired, "claiming again keeps the live manager live")
+    }
+}
+
+@MainActor
+final class SecureInputMonitorTests: XCTestCase {
+    func testLogsOnlyFlipsAndNamesTheHolder() {
+        var enabled = false
+        var holderReads = 0
+        let monitor = SecureInputMonitor(
+            enabledProvider: { enabled },
+            holderProvider: {
+                holderReads += 1
+                return SecureInputMonitor.Holder(pid: 417, name: "loginwindow")
+            }
+        )
+        monitor.refresh()
+        XCTAssertFalse(monitor.isEnabled)
+        XCTAssertEqual(holderReads, 0)
+        enabled = true
+        monitor.refresh()
+        monitor.refresh()
+        XCTAssertTrue(monitor.isEnabled)
+        XCTAssertEqual(holderReads, 1, "the holder is read once per flip")
+        XCTAssertEqual(monitor.holderLabel, "loginwindow")
+        enabled = false
+        monitor.refresh()
+        XCTAssertNil(monitor.holder)
+        XCTAssertEqual(monitor.holderLabel, "Secure Input")
+    }
+
+    func testLogLine() {
+        XCTAssertEqual(
+            SecureInputMonitor.logLine(enabled: true, holder: .init(pid: 417, name: "loginwindow")),
+            "SECURE_INPUT enabled=true holderPID=417 holder=loginwindow effect=hotkeys_blocked"
+        )
+        XCTAssertEqual(SecureInputMonitor.logLine(enabled: true, holder: nil),
+                       "SECURE_INPUT enabled=true holderPID=unknown holder=unknown effect=hotkeys_blocked")
+        XCTAssertEqual(SecureInputMonitor.logLine(enabled: false, holder: nil), "SECURE_INPUT enabled=false")
+    }
+
+    func testCurrentHolderReadsTheConsoleSessionWithoutCrashing() {
+        // Live read of IORegistry: nil or a positive PID, never a crash.
+        if let holder = SecureInputMonitor.currentHolder() {
+            XCTAssertGreaterThan(holder.pid, 0)
+        }
+    }
+}

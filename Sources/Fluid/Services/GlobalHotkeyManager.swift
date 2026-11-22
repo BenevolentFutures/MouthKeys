@@ -602,6 +602,12 @@ final class GlobalHotkeyManager: NSObject {
     private var isProcessingStop = false
 
     private var isInitialized = false
+    /// The one manager whose taps may be live. A recreated ContentView builds a new manager; the
+    /// old one stayed alive with its own keyboard tap (2026-11-19: two taps on ⌥Space after the
+    /// main window reopened), so a new manager retires the previous one first.
+    private static weak var liveInstance: GlobalHotkeyManager?
+    /// Retired managers never install a tap again (no retry, health check or activation rearm).
+    private(set) var isRetired = false
     private var initializationTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
     private var tapInstallPolicy = HotkeyTapInstallPolicy()
@@ -669,6 +675,10 @@ final class GlobalHotkeyManager: NSObject {
         self.isRewriteRecordingProvider = isRewriteRecordingProvider
         self.isShortcutCaptureActiveProvider = isShortcutCaptureActiveProvider
         super.init()
+
+        if !TestHostQuietMode.isActive {
+            Self.claimLiveSlot(self)
+        }
 
         // A capture start settling (success or failure, either backend) resolves latched release
         // stops. @Published emits before the value changes, so resolve on the next main-actor turn.
@@ -839,7 +849,33 @@ final class GlobalHotkeyManager: NSObject {
     /// Tries to install the keyboard tap once and schedules the next try by
     /// `HotkeyTapInstallPolicy`: a capped backoff while macOS does not trust us yet, a few fast
     /// retries if it trusts us but refuses the tap. Only state changes are logged (`HOTKEY_TAP`).
+    /// Makes `manager` the live one and retires whichever manager held the slot before it.
+    static func claimLiveSlot(_ manager: GlobalHotkeyManager) {
+        if let previous = Self.liveInstance, previous !== manager {
+            previous.retire(reason: "superseded")
+        }
+        Self.liveInstance = manager
+    }
+
+    /// Tears down this manager's taps and stops everything that could rebuild them.
+    func retire(reason: String) {
+        guard !self.isRetired else { return }
+        self.isRetired = true
+        self.initializationTask?.cancel()
+        self.initializationTask = nil
+        self.healthCheckTask?.cancel()
+        self.healthCheckTask = nil
+        self.tapRetryTask?.cancel()
+        self.tapRetryTask = nil
+        self.trustObserver = nil
+        self.activationObserver = nil
+        self.isInitialized = false
+        self.cleanupEventTap()
+        DebugLogger.shared.info("HOTKEY_TAP state=retired reason=\(reason)", source: "GlobalHotkeyManager")
+    }
+
     private func attemptTapInstall(reason: String) {
+        guard !self.isRetired else { return }
         self.tapRetryTask?.cancel()
         self.tapRetryTask = nil
         // A pending start-up or reinitialize attempt would tear down whatever this one installs.
@@ -887,6 +923,7 @@ final class GlobalHotkeyManager: NSObject {
 
     /// Retries at once when the tap is not live (trust flipped, the app came to the front).
     func retryTapInstallNow(reason: String) {
+        guard !self.isRetired else { return }
         switch self.tapInstallPolicy.state {
         case .idle:
             return // the start-up attempt is still pending
@@ -2873,6 +2910,7 @@ final class GlobalHotkeyManager: NSObject {
     }
 
     func reinitialize() {
+        guard !self.isRetired else { return }
         DebugLogger.shared.info("Manual reinitialization requested", source: "GlobalHotkeyManager")
 
         self.initializationTask?.cancel()
