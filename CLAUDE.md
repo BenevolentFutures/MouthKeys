@@ -87,6 +87,15 @@ mouthkeys.com is `site/` (one static page in light Datasheet Mono, the app's vis
 2. Diagnose from the log first: `grep -E 'HOTKEY_TAP|ACCESSIBILITY|PERMISSION_DIAG|PERMISSION_HINT' ~/Library/Logs/MouthKeys/Fluid.log`, and tccd's view with `log show --last 10m --predicate 'process == "tccd"' | grep mouthkeys`.
 3. Agents never touch TCC (`tccutil`) or delete Atin's copies. Hand him the paths and the steps.
 
+### Hotkeys silent, app healthy: Secure Event Input is on
+
+**The incident (2026-11-19 21:45 to some time before 2026-11-20 16:05):** ⌥Space did nothing and the log showed no `Hotkey route` lines, while `HOTKEY_TAP state=installed`, Accessibility trusted, the tap threads idle in `mach_msg` and ⌘Space (Spotlight) working. macOS Secure Event Input was on session-wide: while any process holds it, keyboard events never reach event taps, and system hotkeys still work. `ioreg` named `loginwindow` throughout, but none of these cleared it: lock and unlock with Touch ID or with the password, quitting Bitwarden, or relaunching MouthKeys. It cleared on its own, probably at a later lock or sleep cycle. The holder was never proven.
+
+**The rules:**
+1. Check it first when keys are silent and the app is healthy: `printf 'import Carbon\nprint(IsSecureEventInputEnabled())\n' > /tmp/s.swift && swift /tmp/s.swift`. With PR #93 installed the app logs every flip as `SECURE_INPUT enabled=… holderPID=… holder=…` and shows a "Keys blocked" line in the menu bar menu while it is on.
+2. `kCGSSessionSecureInputPID` in `ioreg -l -w 0` is the last process to change the flag, not necessarily the one holding it. Don't chase it past one try.
+3. Never kill `loginwindow` (it logs Atin out and ends every agent). Logging out and back in always clears it; that is Atin's call.
+
 ### Every microphone stalls inside Core Audio: restart ContinuityCaptureAgent first
 
 **The incident (2026-11-19, 11:43 to 12:02):** every input (built-in, ATR USB, EMEET, iPhone) stalled for every process, not only MouthKeys. `coreaudiod` logged `HALS_IOContext_Legacy_Impl::StartIOThread: got an error from starting the IO thread, Error: 0x3C` every 14 s, MouthKeys quarantined one mic after another and its hotkey tap timed out. Output still played. Relaunching MouthKeys did not help, and neither did `sudo killall coreaudiod`. Restarting `ContinuityCaptureAgent` (the iPhone Continuity agent, which runs as Atin and survives a `coreaudiod` restart) cleared it at once. The same `0x3C` signature appears in the 2026-09-11 and 2026-09-14 notes in `ASRService` (`directCaptureStartDeadlineNanoseconds`); whether the agent caused those is unproven.
